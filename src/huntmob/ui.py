@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Type
 from urllib.parse import urlparse
 
-from .providers import genymotion_runtime
+from .providers import huntmob_runtime
 
 
 LOOPBACKS = {"127.0.0.1", "::1", "localhost"}
@@ -35,7 +35,7 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - inherited HTTP API name
         route = urlparse(self.path).path
         if route == "/api/runtime":
-            payload = genymotion_runtime()
+            payload = huntmob_runtime()
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")

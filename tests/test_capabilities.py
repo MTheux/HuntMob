@@ -19,12 +19,13 @@ class CapabilityContractTests(unittest.TestCase):
         self.assertFalse(profile["privileged"])
         self.assertNotIn("frida", profile["capabilities"])
 
-    def test_research_runtime_keeps_ios_boundary_explicit(self):
+    def test_owned_runtime_is_android_only(self):
         profile = next(
             item for item in capability_catalog()
-            if item["provider"] == "huntmob-virtual-device"
+            if item["provider"] == "huntmob-runtime"
         )
-        self.assertTrue(any("iOS execution" in note for note in profile["notes"]))
+        self.assertEqual(profile["platform"], "android")
+        self.assertTrue(any("Clean-room" in note for note in profile["notes"]))
 
 
 if __name__ == "__main__":

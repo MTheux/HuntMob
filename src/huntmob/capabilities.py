@@ -53,12 +53,15 @@ COMMON = (
 
 PROFILES = (
     CapabilityProfile(
-        "genymotion",
+        "huntmob-runtime",
         "android",
         COMMON + (Capability.FILES, Capability.FRIDA),
         True,
-        "local-or-remote-worker",
-        ("Frida requires an explicitly prepared authorized lab image.",),
+        "owned-local-or-remote-worker",
+        (
+            "Clean-room runtime over QEMU and a HuntMob-controlled AOSP image.",
+            "Frida requires an explicitly prepared authorized lab image.",
+        ),
     ),
     CapabilityProfile(
         "apple-simulator-worker",
@@ -75,17 +78,6 @@ PROFILES = (
         True,
         "remote-or-appliance",
         ("Optional commercial provider adapter; API credentials stay server-side.",),
-    ),
-    CapabilityProfile(
-        "huntmob-virtual-device",
-        "android,ios",
-        COMMON + (Capability.FILES, Capability.FRIDA),
-        True,
-        "research-roadmap",
-        (
-            "Android builds on supported open virtualization components.",
-            "iOS execution still requires an approved Apple or licensed provider runtime.",
-        ),
     ),
 )
 

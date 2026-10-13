@@ -11,6 +11,7 @@ from .contracts import Platform
 from .routing import select_runtime
 from .capabilities import capability_catalog
 from .ui import serve
+from .runtime_provisioning import DeviceRecipe, provision_plan
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +29,13 @@ def build_parser() -> argparse.ArgumentParser:
     ui.add_argument("--bind", default="127.0.0.1")
     ui.add_argument("--port", default=8090, type=int)
     ui.add_argument("--authorized-remote", action="store_true")
+    runtime_plan = commands.add_parser(
+        "runtime-plan", help="plan an owned HuntMob Android device without creating it"
+    )
+    runtime_plan.add_argument("name")
+    runtime_plan.add_argument("--api", type=int, default=35)
+    runtime_plan.add_argument("--arch", choices=("arm64", "x86_64"), default="arm64")
+    runtime_plan.add_argument("--worker-os", choices=("darwin", "windows", "linux"))
     return parser
 
 
@@ -55,6 +63,12 @@ def main() -> int:
     if args.command == "ui":
         serve(args.bind, args.port, authorized_remote=args.authorized_remote)
         return 0
+    if args.command == "runtime-plan":
+        result = provision_plan(
+            DeviceRecipe(args.name, args.api, args.arch), args.worker_os
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0 if result["ok"] else 2
     return 2
 
 

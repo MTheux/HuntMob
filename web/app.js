@@ -19,8 +19,28 @@ async function loadRuntime() {
     const payload = await response.json();
     runtimeDevice = payload.devices?.[0];
     document.querySelector('#runtimeCount').textContent = String(payload.devices?.length || 0);
-    if (!runtimeDevice) throw new Error('nenhum device Genymotion instalado');
+    if (!runtimeDevice) {
+      document.querySelector('#runtimeName').textContent = 'Runtime próprio em construção';
+      document.querySelector('#runtimeMeta').textContent = payload.limitations?.join(' · ') || 'Imagem AOSP HuntMob necessária';
+      document.querySelector('#stageDeviceName').textContent = 'HuntMob Runtime';
+      document.querySelector('#stageSerial').textContent = 'QEMU/AOSP ainda não provisionado';
+      document.querySelector('#runtimeState').textContent = 'BUILD REQUIRED';
+      document.querySelector('#deviceViewport').classList.add('runtime-unavailable');
+      document.querySelector('#runtimePlaceholder').hidden = false;
+      document.querySelectorAll('.toolbar-actions button').forEach((button) => { button.disabled = true; });
+      document.querySelector('#eventKind').textContent = 'STATE';
+      document.querySelector('#eventMessage').textContent = 'Nenhuma VM HuntMob em execução';
+      document.querySelector('#eventReceipt').textContent = 'sem receipt';
+      const status = document.querySelector('#biometricStatus');
+      status.textContent = 'Aguardando o HAL biométrico da imagem AOSP HuntMob';
+      status.className = 'face-status error';
+      document.querySelectorAll('[data-biometric]').forEach((button) => { button.disabled = true; });
+      document.querySelector('#automaticBiometric').disabled = true;
+      return;
+    }
     const online = runtimeDevice.state === 'on';
+    document.querySelector('#deviceViewport').classList.remove('runtime-unavailable');
+    document.querySelector('#runtimePlaceholder').hidden = true;
     document.querySelector('#runtimeName').textContent = runtimeDevice.name;
     document.querySelector('#runtimeMeta').textContent = `Android ${runtimeDevice.android_version} · API ${runtimeDevice.api} · ${runtimeDevice.architecture}`;
     document.querySelector('#stageDeviceName').textContent = runtimeDevice.name;
@@ -31,7 +51,7 @@ async function loadRuntime() {
     dot.setAttribute('aria-label', online ? 'Online' : 'Offline');
     const bio = runtimeDevice.biometrics;
     const status = document.querySelector('#biometricStatus');
-    status.textContent = bio.supported ? 'Fingerprint disponível · use o widget Biometrics do Genymotion' : `Indisponível · ${bio.reason}`;
+    status.textContent = bio.supported ? 'Fingerprint disponível · HuntMob virtual biometric HAL' : `Indisponível · ${bio.reason}`;
     status.className = `face-status ${bio.supported ? 'ready' : 'error'}`;
     document.querySelectorAll('[data-biometric]').forEach((button) => { button.disabled = !bio.supported; });
     document.querySelector('#automaticBiometric').disabled = !bio.supported;
@@ -124,7 +144,7 @@ document.querySelectorAll('[data-biometric]').forEach((button) => button.addEven
     notify('Imagem atual não suporta fingerprint; use Android 13+');
     return;
   }
-  notify(`Selecione “${button.textContent.trim()}” no widget Biometrics do Genymotion`);
+    notify(`Evento “${button.textContent.trim()}” preparado para o HAL biométrico HuntMob`);
 }));
 
 document.querySelector('#enableCamera').addEventListener('click', async () => {

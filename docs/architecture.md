@@ -3,7 +3,7 @@
 HuntMob separates orchestration from runtime implementation:
 
 1. **Control plane** validates the engagement and action allowlist.
-2. **Runtime adapters** manage Genymotion, Apple Simulator or vPhone.
+2. **HuntMob runtime workers** manage QEMU, owned AOSP images and virtual HALs.
 3. **Analysis providers** send authorized APK/IPA artifacts to REA/Ghidra.
 4. **Evidence store** persists immutable hashes, receipts and sanitized output.
 
@@ -36,4 +36,11 @@ and return a time-bounded stream plus immutable evidence receipts.
 The current milestone remains discovery and routing only. Provisioning, remote
 streaming and application installation stay blocked until authentication,
 approval, isolation and receipt contracts are implemented.
+
+## Android clean-room boundary
+
+The Android execution path does not call `gmtool`, load Genymotion images or
+reuse Genymotion binaries. REA-derived observations are limited to public and
+externally observable behavior. HuntMob implements its own contracts over QEMU,
+AOSP, ADB, WebRTC and owned virtual HALs for biometrics, camera and sensors.
 

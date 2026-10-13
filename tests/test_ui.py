@@ -39,6 +39,12 @@ class UiServerTests(unittest.TestCase):
         for outcome in ("recognized", "unrecognized", "dirty", "partial", "insufficient", "too-fast"):
             self.assertIn(f'data-biometric="{outcome}"', html)
 
+    def test_unprovisioned_runtime_is_not_presented_as_live(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="runtimePlaceholder"', html)
+        self.assertIn("Nenhuma VM HuntMob em execução", javascript)
+
     def test_frida_ui_uses_validated_package_and_curated_scripts(self):
         html = (web_root() / "index.html").read_text(encoding="utf-8")
         javascript = (web_root() / "app.js").read_text(encoding="utf-8")

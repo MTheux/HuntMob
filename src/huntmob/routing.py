@@ -36,11 +36,11 @@ def select_runtime(
         return RuntimePlan(
             target.value,
             host,
-            "genymotion",
+            "huntmob-runtime",
             "local" if host in {"darwin", "windows", "linux"} else "remote-worker",
-            "local-api" if host in {"darwin", "windows", "linux"} else "vpn+https",
-            "confirmed",
-            "Genymotion is the primary Android runtime adapter.",
+            "worker-rpc" if host in {"darwin", "windows", "linux"} else "vpn+https+wss",
+            "theoretical",
+            "HuntMob owns the Android runtime contract; QEMU and the AOSP image are not provisioned yet.",
         )
     if physical_hardware:
         return RuntimePlan(

@@ -10,7 +10,7 @@ exige um engagement válido, pacote allowlisted e aprovação explícita.
 
 ```text
 HuntMob Control Plane
-├── Android: Genymotion + ADB
+├── Android: HuntMob Worker + QEMU/HVF/KVM/WHPX + AOSP + ADB
 ├── iOS: Apple Simulator + vPhone adapter
 ├── Analysis: REA + Ghidra + JADX/Apktool
 └── Evidence: receipts, screenshots, logs and hashes
@@ -24,6 +24,7 @@ python3 -m huntmob.cli providers
 python3 -m huntmob.cli capabilities
 python3 -m huntmob.cli plan ios --controller-os windows
 python3 -m huntmob.cli plan ios --controller-os linux --privileged-ios
+python3 -m huntmob.cli runtime-plan pixel-lab --api 35 --arch x86_64 --worker-os linux
 python3 -m unittest discover -s tests -v
 ```
 
@@ -53,7 +54,8 @@ de desenvolvimento diretamente à internet.
 
 ## Limites
 
-- Genymotion é o runtime Android; não oferece virtualização iOS.
+- O runtime Android é próprio e clean-room. Genymotion é somente uma referência
+  comportamental e nunca é dependência de execução do HuntMob.
 - iOS local usa Apple Simulator; Corellium é o tier avançado e device clouds
   são opcionais para recursos que exigem hardware real.
 - Em Windows/Linux, a UI funciona localmente e agenda iOS em um Mac worker,

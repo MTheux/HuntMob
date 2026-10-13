@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -37,6 +38,51 @@ class ProviderStatus:
 
     def to_dict(self) -> Dict[str, object]:
         return asdict(self)
+
+
+class HuntMobRuntimeProvider:
+    """Probe only independently installed components for the HuntMob runtime."""
+
+    def probe(self) -> ProviderStatus:
+        qemu = shutil.which("qemu-system-aarch64") or shutil.which("qemu-system-x86_64")
+        adb = shutil.which("adb")
+        ready = bool(qemu and adb)
+        missing = tuple(
+            item
+            for item, present in (("QEMU", qemu), ("ADB", adb))
+            if not present
+        )
+        return ProviderStatus(
+            "huntmob-runtime",
+            "android",
+            "owned-local-worker",
+            bool(qemu or adb),
+            ready,
+            "clean-room-v0",
+            0,
+            missing + ("A HuntMob AOSP image is required before device creation",),
+            "" if ready else "HuntMob runtime dependencies are incomplete",
+        )
+
+
+def huntmob_runtime() -> Dict[str, object]:
+    status = HuntMobRuntimeProvider().probe()
+    return {
+        "provider": "huntmob-runtime",
+        "state": "build-required" if not status.ready else "worker-ready",
+        "ready": status.ready,
+        "devices": [],
+        "components": {
+            "hypervisor": "qemu with HVF/KVM/WHPX",
+            "guest": "HuntMob AOSP image",
+            "device_bridge": "ADB",
+            "display": "WebRTC worker stream",
+            "biometrics": "HuntMob virtual biometric HAL",
+            "camera": "HuntMob virtual camera HAL",
+        },
+        "limitations": list(status.limitations),
+        "reference_only": ["genymotion"],
+    }
 
 
 class GenymotionProvider:
@@ -198,7 +244,7 @@ class AppleSimulatorProvider:
 
 def provider_catalog(runner: CommandRunner = _run) -> Dict[str, object]:
     local = [
-        GenymotionProvider().probe(runner).to_dict(),
+        HuntMobRuntimeProvider().probe().to_dict(),
         AppleSimulatorProvider().probe(runner).to_dict(),
     ]
     remote = [
@@ -230,4 +276,5 @@ def provider_catalog(runner: CommandRunner = _run) -> Dict[str, object]:
         "remote": remote,
         "network_requests": 0,
         "device_contacted": False,
+        "reference_probes": ["genymotion-clean-room-behavior"],
     }

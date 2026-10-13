@@ -1,0 +1,22 @@
+services:
+  huntmob-android-worker:
+    # Built and published by HuntMob CI after the AOSP image pipeline exists.
+    image: huntmob/android-worker:${HUNTMOB_WORKER_VERSION:?set HUNTMOB_WORKER_VERSION}
+    devices:
+      - /dev/kvm:/dev/kvm
+    ports:
+      - 127.0.0.1:8091:8091
+    volumes:
+      - huntmob-images:/var/lib/huntmob/images:ro
+      - huntmob-instances:/var/lib/huntmob/instances
+      - huntmob-evidence:/var/lib/huntmob/evidence
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+volumes:
+  huntmob-images:
+  huntmob-instances:
+  huntmob-evidence:

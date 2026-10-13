@@ -518,7 +518,7 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
       if (!csrfToken) csrfToken = (await fetch('/api/session').then(response => response.json())).csrf_token;
       const response = await fetch('/api/device/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/vnd.android.package-archive', 'X-HuntMob-CSRF': csrfToken, 'X-HuntMob-Approved': 'true' },
+        headers: { 'Content-Type': 'application/vnd.android.package-archive', 'X-HuntMob-CSRF': csrfToken, 'X-HuntMob-Approved': 'true', 'X-HuntMob-Legacy-SDK': String(document.querySelector('#labLegacySdk').checked) },
         body: artifact,
       });
       const result = await response.json();

@@ -134,7 +134,7 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                                 raise ValueError()
                             output.write(chunk)
                             remaining -= len(chunk)
-                    result = AndroidWorker().upload_and_launch(apk)
+                    result = AndroidWorker().upload_and_launch(apk, legacy_sdk=self.headers.get("X-HuntMob-Legacy-SDK") == "true")
             except (ValueError, TimeoutError):
                 result = {"ok": False, "reason": "invalid upload or Android operation timed out"}
             body = json.dumps(result).encode()

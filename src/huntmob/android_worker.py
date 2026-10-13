@@ -169,20 +169,29 @@ class AndroidWorker:
         deleted = result.returncode == 0 or "does not exist" in (result.stderr + result.stdout).lower()
         return {"ok": deleted, "state": "destroyed" if deleted else "error", "error": "" if deleted else result.stderr.strip()}
 
-    def install_and_launch(self, apk: Path, package_id: str) -> Dict[str, object]:
+    def install_and_launch(self, apk: Path, package_id: str, *, legacy_sdk: bool = False) -> Dict[str, object]:
         if not PACKAGE_ID.fullmatch(package_id):
             return {"ok": False, "reason": "invalid package ID"}
         if not apk.is_file() or apk.suffix.lower() != ".apk":
             return {"ok": False, "blocked": True, "reason": "an existing APK is required"}
         if self.status()["state"] != "device":
             return {"ok": False, "blocked": True, "reason": "device is not online"}
-        install = _run((str(self.sdk.adb), "-s", self.serial, "install", "-r", str(apk)), timeout=180)
+        flags = ("--bypass-low-target-sdk-block",) if legacy_sdk else ()
+        install = _run((str(self.sdk.adb), "-s", self.serial, "install", "-r", *flags, str(apk)), timeout=180)
         if install.returncode != 0:
-            return {"ok": False, "blocked": True, "reason": "APK installation failed", "error": install.stderr.strip()}
-        launch = _run((str(self.sdk.adb), "-s", self.serial, "shell", "monkey", "-p", package_id, "-c", "android.intent.category.LAUNCHER", "1"))
-        return {"ok": launch.returncode == 0, "package_id": package_id, "installed": True, "launched": launch.returncode == 0}
+            details = (install.stderr + "\n" + install.stdout).strip()
+            failure = __import__("re").search(r"Failure \[(.*?)\]", details, __import__("re").S)
+            reason = failure[1] if failure else "APK installation failed"
+            return {"ok": False, "blocked": True, "reason": reason, "error": details}
+        resolved = _run((str(self.sdk.adb), "-s", self.serial, "shell", "cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", package_id))
+        component = next((line.strip() for line in reversed(resolved.stdout.splitlines()) if line.strip().startswith(package_id + "/")), "")
+        if not component:
+            return {"ok": False, "installed": True, "launched": False, "package_id": package_id, "reason": "APK installed but no launcher activity was found"}
+        launch = _run((str(self.sdk.adb), "-s", self.serial, "shell", "am", "start", "-W", "-n", component))
+        launched = launch.returncode == 0 and "Error:" not in launch.stdout + launch.stderr
+        return {"ok": launched, "package_id": package_id, "installed": True, "launched": launched, "reason": "" if launched else (launch.stderr + launch.stdout).strip()}
 
-    def upload_and_launch(self, apk: Path) -> Dict[str, object]:
+    def upload_and_launch(self, apk: Path, *, legacy_sdk: bool = False) -> Dict[str, object]:
         if not self.sdk:
             return {"ok": False, "reason": "Android SDK unavailable"}
         candidates = sorted((self.sdk.root / "build-tools").glob("*/aapt*"))
@@ -196,7 +205,7 @@ class AndroidWorker:
         started = self.start()
         if not started.get("ok"):
             return started
-        return self.install_and_launch(apk, match[1])
+        return self.install_and_launch(apk, match[1], legacy_sdk=legacy_sdk)
 
     def device_input(self, payload: dict) -> Dict[str, object]:
         if not self.sdk or self.status()["state"] != "device":

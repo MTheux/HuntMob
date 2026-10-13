@@ -24,6 +24,18 @@ class AndroidWorkerTests(unittest.TestCase):
         result = AndroidWorker(self.sdk).install_and_launch(Path("/missing.apk"), "br.com.test.app")
         self.assertFalse(result["ok"])
 
+    @patch.object(AndroidWorker, "status", return_value={"state": "device"})
+    @patch("huntmob.android_worker._run")
+    def test_touch_coordinates_are_mapped_to_guest_display(self, run, _status):
+        run.side_effect = [subprocess.CompletedProcess([], 0, "Physical size: 1080x1920", ""), subprocess.CompletedProcess([], 0, "", "")]
+        result = AndroidWorker(self.sdk).device_input({"action": "tap", "x": 0.5, "y": 0.25})
+        self.assertTrue(result["ok"])
+        self.assertEqual(run.call_args.args[0][-3:], ("tap", "540", "480"))
+
+    @patch.object(AndroidWorker, "status", return_value={"state": "device"})
+    def test_text_input_rejects_shell_metacharacters(self, _status):
+        self.assertFalse(AndroidWorker(self.sdk).device_input({"action": "text", "text": "$(id)"})["ok"])
+
     @patch.object(AndroidWorker, "status", return_value={"state": "offline"})
     def test_screenshot_fails_closed_when_device_is_offline(self, _status):
         self.assertEqual(AndroidWorker(self.sdk).screenshot(), b"")

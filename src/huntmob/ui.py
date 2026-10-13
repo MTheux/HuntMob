@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import tempfile
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Type
@@ -109,11 +110,39 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - inherited HTTP API name
         route = urlparse(self.path).path
-        if route not in {"/api/device/action", "/api/proxy", "/api/reverse"}:
+        if route not in {"/api/device/action", "/api/proxy", "/api/reverse", "/api/device/upload", "/api/device/input"}:
             self.send_error(404)
             return
         if self.headers.get("X-HuntMob-CSRF") != SESSION_TOKEN:
             self.send_error(403, "invalid session token")
+            return
+        if route == "/api/device/upload":
+            if self.headers.get("X-HuntMob-Approved") != "true":
+                self.send_error(403)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 512 * 1024 * 1024:
+                    raise ValueError()
+                with tempfile.TemporaryDirectory(prefix="huntmob-upload-") as folder:
+                    apk = Path(folder) / "app.apk"
+                    with apk.open("wb") as output:
+                        remaining = length
+                        while remaining:
+                            chunk = self.rfile.read(min(1024 * 1024, remaining))
+                            if not chunk:
+                                raise ValueError()
+                            output.write(chunk)
+                            remaining -= len(chunk)
+                    result = AndroidWorker().upload_and_launch(apk)
+            except (ValueError, TimeoutError):
+                result = {"ok": False, "reason": "invalid upload or Android operation timed out"}
+            body = json.dumps(result).encode()
+            self.send_response(200 if result.get("ok") else 409)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -128,7 +157,10 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             status = 403
         else:
             worker = AndroidWorker()
-            if route == "/api/reverse":
+            if route == "/api/device/input":
+                result = worker.device_input(payload)
+                status = 200 if result.get("ok") else 409
+            elif route == "/api/reverse":
                 result = worker.prepare_reverse(str(payload.get("package_id", "")))
                 status = 200 if result.get("ok") else 409
             elif route == "/api/proxy":

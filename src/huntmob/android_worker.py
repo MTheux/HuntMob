@@ -170,6 +170,8 @@ class AndroidWorker:
         return {"ok": deleted, "state": "destroyed" if deleted else "error", "error": "" if deleted else result.stderr.strip()}
 
     def install_and_launch(self, apk: Path, package_id: str) -> Dict[str, object]:
+        if not PACKAGE_ID.fullmatch(package_id):
+            return {"ok": False, "reason": "invalid package ID"}
         if not apk.is_file() or apk.suffix.lower() != ".apk":
             return {"ok": False, "blocked": True, "reason": "an existing APK is required"}
         if self.status()["state"] != "device":
@@ -179,6 +181,52 @@ class AndroidWorker:
             return {"ok": False, "blocked": True, "reason": "APK installation failed", "error": install.stderr.strip()}
         launch = _run((str(self.sdk.adb), "-s", self.serial, "shell", "monkey", "-p", package_id, "-c", "android.intent.category.LAUNCHER", "1"))
         return {"ok": launch.returncode == 0, "package_id": package_id, "installed": True, "launched": launch.returncode == 0}
+
+    def upload_and_launch(self, apk: Path) -> Dict[str, object]:
+        if not self.sdk:
+            return {"ok": False, "reason": "Android SDK unavailable"}
+        candidates = sorted((self.sdk.root / "build-tools").glob("*/aapt*"))
+        aapt = next((path for path in candidates if path.name in {"aapt", "aapt.exe"}), None)
+        if not aapt:
+            return {"ok": False, "reason": "Android build-tools (aapt) required to detect APK package"}
+        metadata = _run((str(aapt), "dump", "badging", str(apk)))
+        match = __import__("re").search(r"package: name='([^']+)'", metadata.stdout)
+        if metadata.returncode or not match or not PACKAGE_ID.fullmatch(match[1]):
+            return {"ok": False, "reason": "invalid APK or unreadable package metadata"}
+        started = self.start()
+        if not started.get("ok"):
+            return started
+        return self.install_and_launch(apk, match[1])
+
+    def device_input(self, payload: dict) -> Dict[str, object]:
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "reason": "device is not online"}
+        action = payload.get("action")
+        if action == "back":
+            command = ("keyevent", "4")
+        elif action == "text":
+            value = str(payload.get("text", ""))
+            if not value or len(value) > 256 or not __import__("re").fullmatch(r"[A-Za-z0-9 @._+:/-]+", value):
+                return {"ok": False, "reason": "Use ASCII text up to 256 characters"}
+            command = ("text", value.replace(" ", "%s"))
+        elif action in {"tap", "swipe"}:
+            size = _run((str(self.sdk.adb), "-s", self.serial, "shell", "wm", "size")).stdout
+            matches = __import__("re").findall(r"(\d+)x(\d+)", size)
+            if not matches:
+                return {"ok": False, "reason": "display size unavailable"}
+            width, height = map(int, matches[-1])
+            try:
+                points = [float(payload[key]) for key in (("x", "y") if action == "tap" else ("x", "y", "end_x", "end_y"))]
+                if not all(0 <= point <= 1 for point in points):
+                    raise ValueError()
+            except (KeyError, TypeError, ValueError):
+                return {"ok": False, "reason": "invalid display coordinates"}
+            coords = [str(min((width if index % 2 == 0 else height) - 1, int(point * (width if index % 2 == 0 else height)))) for index, point in enumerate(points)]
+            command = (action, *coords, *(("300",) if action == "swipe" else ()))
+        else:
+            return {"ok": False, "reason": "unsupported input action"}
+        result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "input", *command))
+        return {"ok": result.returncode == 0}
 
     def screenshot(self) -> bytes:
         if not self.sdk or self.status()["state"] != "device":

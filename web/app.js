@@ -460,9 +460,9 @@ function resetNewLabProgress() {
 document.querySelector('#newLab').addEventListener('click', () => {
   resetNewLabProgress();
   if (runtimeDevice?.state === 'on') {
-    labError.textContent = 'Já existe um laboratório Android ativo. Encerre ou descarte a sessão atual antes de criar outro.';
+    labError.textContent = 'Android ativo: selecione APK local para instalar e abrir neste device.';
     labError.hidden = false;
-    createLabButton.disabled = true;
+    createLabButton.disabled = false;
   }
   newLabDialog.showModal();
 });
@@ -486,7 +486,7 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
   const source = document.querySelector('#labSource').value;
   const errorBox = labError;
   errorBox.hidden = true;
-  if (runtimeDevice?.state === 'on') {
+  if (runtimeDevice?.state === 'on' && source !== 'upload') {
     errorBox.textContent = 'Já existe um laboratório Android ativo. Encerre a sessão atual antes de criar outro.';
     errorBox.hidden = false;
     return;
@@ -511,7 +511,25 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
     createLabButton.textContent = 'Iniciando…';
     errorBox.textContent = 'Iniciando Android headless…';
     errorBox.hidden = false;
-    await deviceAction('start');
+    if (source === 'upload') {
+      const artifact = document.querySelector('#labArtifact').files[0];
+      if (!artifact.name.toLowerCase().endsWith('.apk')) throw new Error('Envie um APK instalável. AAB precisa ser convertido antes.');
+      errorBox.textContent = 'Enviando APK, preparando Android e abrindo o app…';
+      if (!csrfToken) csrfToken = (await fetch('/api/session').then(response => response.json())).csrf_token;
+      const response = await fetch('/api/device/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/vnd.android.package-archive', 'X-HuntMob-CSRF': csrfToken, 'X-HuntMob-Approved': 'true' },
+        body: artifact,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.launched) throw new Error(result.reason || 'Não foi possível abrir o APK');
+      selectApp(result.package_id);
+      await loadInstalledApps();
+    } else if (source === 'empty') {
+      await deviceAction('start');
+    } else {
+      throw new Error('Esta origem ainda não está integrada. Use APK local ou Device vazio.');
+    }
     newLabDialog.close();
     await loadRuntime();
     notify('Laboratório Android pronto');
@@ -538,3 +556,39 @@ document.querySelector('#destroyDevice').addEventListener('click', async () => {
 loadRuntime();
 refreshProxyStatus();
 window.setInterval(loadRuntime, 2500);
+
+const interactiveScreen = document.querySelector('#deviceScreen');
+let pointerStart;
+function screenPoint(event) {
+  const rect = interactiveScreen.getBoundingClientRect();
+  const scale = Math.min(rect.width / interactiveScreen.naturalWidth, rect.height / interactiveScreen.naturalHeight);
+  const width = interactiveScreen.naturalWidth * scale;
+  const height = interactiveScreen.naturalHeight * scale;
+  return { x: (event.clientX - rect.left - (rect.width - width) / 2) / width, y: (event.clientY - rect.top - (rect.height - height) / 2) / height };
+}
+interactiveScreen.style.touchAction = 'none';
+interactiveScreen.tabIndex = 0;
+interactiveScreen.addEventListener('pointerdown', event => {
+  pointerStart = screenPoint(event);
+  interactiveScreen.setPointerCapture(event.pointerId);
+});
+interactiveScreen.addEventListener('pointerup', async event => {
+  if (!pointerStart) return;
+  const end = screenPoint(event);
+  const start = pointerStart;
+  pointerStart = undefined;
+  if (![start.x, start.y, end.x, end.y].every(value => value >= 0 && value <= 1)) return;
+  const swipe = Math.hypot(end.x - start.x, end.y - start.y) > 0.025;
+  try {
+    await authorizedPost('/api/device/input', {action: swipe ? 'swipe' : 'tap', ...start, end_x: end.x, end_y: end.y});
+  } catch (error) { notify(error.message); }
+});
+interactiveScreen.addEventListener('keydown', async event => {
+  const action = event.key === 'Escape' ? 'back' : (event.key.length === 1 && /^[A-Za-z0-9 @._+:/-]$/.test(event.key) ? 'text' : null);
+  if (!action) return;
+  event.preventDefault();
+  try { await authorizedPost('/api/device/input', {action, text: event.key}); } catch (error) { notify(error.message); }
+});
+document.querySelector('#deviceBack').addEventListener('click', async () => {
+  try { await authorizedPost('/api/device/input', {action: 'back'}); } catch (error) { notify(error.message); }
+});

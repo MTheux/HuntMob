@@ -136,12 +136,25 @@
           </div>
         </section>
         <section class="tab-content" id="tab-frida">
-          <div class="panel-title"><div><span class="eyebrow">INSTRUMENTAÇÃO</span><h2>Frida scripts</h2></div><span class="safe-badge">Gate ativo</span></div>
-          <p class="panel-copy">Templates são executados somente no package autorizado e geram receipt.</p>
-          <button class="script-row"><span>TLS</span><div><strong>Diagnóstico de certificate pinning</strong><small>Valida hooks conhecidos sem exfiltrar tráfego</small></div><b>Preparar</b></button>
-          <button class="script-row"><span>BIO</span><div><strong>BiometricPrompt fixture</strong><small>Match, no match, cancel e lockout</small></div><b>Preparar</b></button>
-          <button class="script-row"><span>ROOT</span><div><strong>Root detection observability</strong><small>Registra checks executados pelo app</small></div><b>Preparar</b></button>
-          <div class="console"><div>$ frida-ps -Uai</div><span>Conecte um processo autorizado para iniciar.</span></div>
+          <div class="panel-title"><div><span class="eyebrow">INSTRUMENTAÇÃO</span><h2>Frida Script Center</h2></div><span class="safe-badge">Gate ativo</span></div>
+          <div class="frida-target">
+            <label for="packageId">Package / Bundle ID</label>
+            <div><input id="packageId" value="br.com.huntmob.demo" spellcheck="false" autocomplete="off"><button type="button" id="detectApps">Detectar apps</button></div>
+            <small>O identificador deve corresponder ao engagement autorizado.</small>
+          </div>
+          <div class="script-filter"><input id="scriptSearch" type="search" placeholder="Buscar scripts…"><span id="selectedCount">0 selecionados</span></div>
+          <div class="script-catalog" id="scriptCatalog">
+            <label class="script-option"><input type="checkbox" value="tls-observe"><span class="script-code">TLS</span><span><strong>TLS pinning diagnostics</strong><small>Observa trust managers e callbacks sem alterar retorno</small></span><i>LOW</i></label>
+            <label class="script-option high"><input type="checkbox" value="tls-lab-override"><span class="script-code">TLS+</span><span><strong>TLS trust override</strong><small>Override ativo somente no package autorizado</small></span><i>HIGH</i></label>
+            <label class="script-option"><input type="checkbox" value="biometric-monitor"><span class="script-code">BIO</span><span><strong>Biometric API monitor</strong><small>Prompts, resultados, cancelamento e lockout</small></span><i>LOW</i></label>
+            <label class="script-option"><input type="checkbox" value="biometric-fixture"><span class="script-code">BIO+</span><span><strong>Biometric result fixture</strong><small>Injeta match, no-match ou cancel no laboratório</small></span><i>MED</i></label>
+            <label class="script-option"><input type="checkbox" value="root-detection-observe"><span class="script-code">ROOT</span><span><strong>Root / jailbreak checks</strong><small>Mapeia verificações de integridade executadas</small></span><i>LOW</i></label>
+            <label class="script-option"><input type="checkbox" value="webview-observe"><span class="script-code">WEB</span><span><strong>WebView navigation trace</strong><small>URLs carregadas e bridges registradas</small></span><i>LOW</i></label>
+            <label class="script-option"><input type="checkbox" value="crypto-observe"><span class="script-code">CRYPTO</span><span><strong>Crypto API trace</strong><small>Algoritmos e uso de chaves com valores redigidos</small></span><i>MED</i></label>
+            <label class="script-option"><input type="checkbox" value="file-observe"><span class="script-code">FILE</span><span><strong>Application file I/O</strong><small>Acessos dentro do sandbox do aplicativo</small></span><i>LOW</i></label>
+          </div>
+          <div class="frida-runbar"><div><span>SPAWN MODE</span><small>Frida conecta, carrega os scripts e abre o app.</small></div><button class="primary" id="runFrida" disabled>Testar no app</button></div>
+          <div class="console" id="fridaConsole"><div>$ aguardando plano de execução</div><span>Selecione um ou mais scripts.</span></div>
         </section>
         <section class="tab-content" id="tab-proxy">
           <div class="panel-title"><div><span class="eyebrow">TRÁFEGO</span><h2>Burp workspace</h2></div><span class="safe-badge">CA isolada</span></div>

@@ -31,6 +31,14 @@ class UiServerTests(unittest.TestCase):
         self.assertNotIn("localStorage", javascript)
         self.assertNotIn("indexedDB", javascript)
 
+    def test_frida_ui_uses_validated_package_and_curated_scripts(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="packageId"', html)
+        self.assertIn('value="tls-observe"', html)
+        self.assertIn("function validPackage", javascript)
+        self.assertNotIn("shell=True", javascript)
+
 
 if __name__ == "__main__":
     unittest.main()

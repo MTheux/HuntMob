@@ -146,8 +146,40 @@ dialog.addEventListener('close', () => {
   }
 });
 
-document.querySelectorAll('.script-row').forEach((button) => button.addEventListener('click', () => {
-  notify('Template preparado; aprovação humana exigida antes da execução');
-}));
+const scriptOptions = [...document.querySelectorAll('.script-option input')];
+const selectedCount = document.querySelector('#selectedCount');
+const runFrida = document.querySelector('#runFrida');
+const packageId = document.querySelector('#packageId');
+const fridaConsole = document.querySelector('#fridaConsole');
+
+function validPackage(value) {
+  return /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(value.trim());
+}
+
+function refreshFridaSelection() {
+  const selected = scriptOptions.filter((item) => item.checked);
+  selectedCount.textContent = `${selected.length} selecionado${selected.length === 1 ? '' : 's'}`;
+  runFrida.disabled = selected.length === 0 || !validPackage(packageId.value);
+}
+
+scriptOptions.forEach((option) => option.addEventListener('change', refreshFridaSelection));
+packageId.addEventListener('input', refreshFridaSelection);
+document.querySelector('#scriptSearch').addEventListener('input', (event) => {
+  const query = event.target.value.trim().toLowerCase();
+  document.querySelectorAll('.script-option').forEach((row) => {
+    row.hidden = query && !row.textContent.toLowerCase().includes(query);
+  });
+});
+document.querySelector('#detectApps').addEventListener('click', () => {
+  notify('1 app autorizado detectado no device atual');
+  packageId.value = 'br.com.huntmob.demo';
+  refreshFridaSelection();
+});
+runFrida.addEventListener('click', () => {
+  const selected = scriptOptions.filter((item) => item.checked).map((item) => item.value);
+  const containsActive = selected.some((id) => id.includes('override') || id.includes('fixture'));
+  fridaConsole.innerHTML = `<div>$ huntmob frida run --package ${packageId.value.trim()}</div><span>${selected.join(' + ')}</span><span>${containsActive ? ' · aprovação humana necessária' : ' · plano pronto para o worker'}</span>`;
+  notify(containsActive ? 'Plano criado; confirme a ação ativa no worker' : 'Plano Frida criado com receipt obrigatório');
+});
 document.querySelector('#openGhidra').addEventListener('click', () => notify('Abertura no Ghidra aguardando worker REA'));
 document.querySelector('#newLab').addEventListener('click', () => notify('Wizard de criação será conectado ao Worker API'));

@@ -43,6 +43,10 @@ device, REA, Frida, proxy, evidências e fixtures. A webcam só é solicitada ap
 ação explícita. O reconhecimento facial usa Human 3.3.6 no navegador; o embedding
 é mantido apenas em memória e descartado ao fechar a fixture.
 
+O Frida Script Center aceita um package/bundle ID autorizado, seleção múltipla
+de scripts e prepara um job worker-only. Scripts ativos continuam bloqueados até
+aprovação humana e emissão do receipt de execução.
+
 O servidor usa loopback por padrão. Exposição em VPN/Tailscale exige autenticação
 no gateway e a confirmação explícita `--authorized-remote`; não exponha o servidor
 de desenvolvimento diretamente à internet.

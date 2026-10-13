@@ -9,6 +9,7 @@ from typing import Type
 from urllib.parse import urlparse
 
 from .providers import huntmob_runtime
+from .android_worker import AndroidWorker
 
 
 LOOPBACKS = {"127.0.0.1", "::1", "localhost"}
@@ -39,6 +40,18 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if route == "/api/device/screenshot":
+            body = AndroidWorker().screenshot()
+            if not body:
+                self.send_error(503, "Android device is not ready")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

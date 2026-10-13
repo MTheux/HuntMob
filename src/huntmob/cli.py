@@ -12,6 +12,8 @@ from .routing import select_runtime
 from .capabilities import capability_catalog
 from .ui import serve
 from .runtime_provisioning import DeviceRecipe, provision_plan
+from .android_worker import AndroidWorker
+from .bootstrap import bootstrap_android
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_plan.add_argument("--api", type=int, default=35)
     runtime_plan.add_argument("--arch", choices=("arm64", "x86_64"), default="arm64")
     runtime_plan.add_argument("--worker-os", choices=("darwin", "windows", "linux"))
+    android = commands.add_parser("android", help="manage the owned headless Android worker")
+    android.add_argument("action", choices=("status", "create", "start", "stop"))
+    android.add_argument("--authorized", action="store_true")
+    android.add_argument("--approve", action="store_true")
+    bootstrap = commands.add_parser("bootstrap", help="prepare a platform-appropriate HuntMob worker")
+    bootstrap.add_argument("--install", action="store_true", help="install missing Android runtime packages when SDK tools already exist")
     return parser
 
 
@@ -69,6 +77,22 @@ def main() -> int:
         )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if result["ok"] else 2
+    if args.command == "android":
+        worker = AndroidWorker()
+        if args.action == "status":
+            result = worker.status()
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 0
+        if not args.authorized or not args.approve:
+            print(json.dumps({"ok": False, "blocked": True, "reason": "--authorized and --approve are required"}, indent=2))
+            return 2
+        result = getattr(worker, args.action)()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0 if result.get("ok") else 2
+    if args.command == "bootstrap":
+        result = bootstrap_android(install=args.install)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0 if result.get("ok") else 2
     return 2
 
 

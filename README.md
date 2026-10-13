@@ -25,6 +25,9 @@ python3 -m huntmob.cli capabilities
 python3 -m huntmob.cli plan ios --controller-os windows
 python3 -m huntmob.cli plan ios --controller-os linux --privileged-ios
 python3 -m huntmob.cli runtime-plan pixel-lab --api 35 --arch x86_64 --worker-os linux
+python3 -m huntmob.cli android status
+python3 -m huntmob.cli android start --authorized --approve
+python3 -m huntmob.cli bootstrap --install
 python3 -m unittest discover -s tests -v
 ```
 

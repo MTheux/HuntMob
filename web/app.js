@@ -12,6 +12,22 @@ let stream;
 let human;
 let enrolledEmbedding;
 let runtimeDevice;
+let screenTimer;
+
+function startDeviceScreen() {
+  const screen = document.querySelector('#deviceScreen');
+  const refresh = () => {
+    screen.src = `/api/device/screenshot?t=${Date.now()}`;
+  };
+  screen.onload = () => {
+    screen.hidden = false;
+    document.querySelector('.phone-screen').hidden = true;
+  };
+  screen.onerror = () => { screen.hidden = true; };
+  refresh();
+  window.clearInterval(screenTimer);
+  screenTimer = window.setInterval(refresh, 1200);
+}
 
 async function loadRuntime() {
   try {
@@ -42,6 +58,13 @@ async function loadRuntime() {
     const online = runtimeDevice.state === 'on';
     document.querySelector('#deviceViewport').classList.remove('runtime-unavailable');
     document.querySelector('#runtimePlaceholder').hidden = true;
+    if (online) startDeviceScreen();
+    if (online) {
+      document.querySelector('#eventTime').textContent = new Date().toLocaleTimeString('pt-BR');
+      document.querySelector('#eventKind').textContent = 'READY';
+      document.querySelector('#eventMessage').textContent = 'Android HuntMob inicializado em modo headless';
+      document.querySelector('#eventReceipt').textContent = 'runtime observado';
+    }
     document.querySelector('#runtimeName').textContent = runtimeDevice.name;
     document.querySelector('#runtimeMeta').textContent = `Android ${runtimeDevice.android_version} · API ${runtimeDevice.api} · ${runtimeDevice.architecture}`;
     document.querySelector('#stageDeviceName').textContent = runtimeDevice.name;

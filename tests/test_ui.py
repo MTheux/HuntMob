@@ -10,6 +10,12 @@ class UiServerTests(unittest.TestCase):
     def test_runtime_api_handler_is_installed(self):
         self.assertTrue(hasattr(HuntMobHandler, "do_GET"))
 
+    def test_real_device_screen_endpoint_is_used(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="deviceScreen"', html)
+        self.assertIn("/api/device/screenshot", javascript)
+
     def test_loopback_is_allowed(self):
         validate_bind("127.0.0.1", False)
 

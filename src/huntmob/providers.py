@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import platform
-import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Sequence
+
+from .android_worker import AndroidWorker
 
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
@@ -44,34 +45,50 @@ class HuntMobRuntimeProvider:
     """Probe only independently installed components for the HuntMob runtime."""
 
     def probe(self) -> ProviderStatus:
-        qemu = shutil.which("qemu-system-aarch64") or shutil.which("qemu-system-x86_64")
-        adb = shutil.which("adb")
-        ready = bool(qemu and adb)
-        missing = tuple(
-            item
-            for item, present in (("QEMU", qemu), ("ADB", adb))
-            if not present
-        )
+        worker = AndroidWorker()
+        prerequisites = worker.prerequisites()
+        ready = bool(prerequisites.get("ready"))
+        missing = () if ready else (str(prerequisites.get("reason", "Android Emulator and AOSP image are required")),)
         return ProviderStatus(
             "huntmob-runtime",
             "android",
             "owned-local-worker",
-            bool(qemu or adb),
+            worker.sdk is not None,
             ready,
             "clean-room-v0",
-            0,
-            missing + ("A HuntMob AOSP image is required before device creation",),
+            1 if worker.status().get("state") == "device" else 0,
+            missing,
             "" if ready else "HuntMob runtime dependencies are incomplete",
         )
 
 
 def huntmob_runtime() -> Dict[str, object]:
-    status = HuntMobRuntimeProvider().probe()
+    worker = AndroidWorker()
+    prerequisites = worker.prerequisites()
+    worker_status = worker.status()
+    online = worker_status.get("state") == "device" and worker_status.get("properties", {}).get("sys.boot_completed") == "1"
+    props = worker_status.get("properties", {})
+    devices = []
+    if online:
+        devices.append({
+            "uuid": worker.avd_name,
+            "name": "HuntMob API 35",
+            "state": "on",
+            "adb_serial": worker.serial,
+            "android_version": props.get("ro.build.version.release", "unknown"),
+            "api": int(props.get("ro.build.version.sdk", "0") or 0),
+            "architecture": props.get("ro.product.cpu.abi", "unknown"),
+            "biometrics": {
+                "provider": "huntmob-runtime", "supported": True,
+                "transport": "android-emulator-console",
+                "reason": "Owned Android Emulator fixture channel",
+            },
+        })
     return {
         "provider": "huntmob-runtime",
-        "state": "build-required" if not status.ready else "worker-ready",
-        "ready": status.ready,
-        "devices": [],
+        "state": "online" if online else ("worker-ready" if prerequisites.get("ready") else "build-required"),
+        "ready": bool(prerequisites.get("ready")),
+        "devices": devices,
         "components": {
             "hypervisor": "qemu with HVF/KVM/WHPX",
             "guest": "HuntMob AOSP image",
@@ -80,7 +97,7 @@ def huntmob_runtime() -> Dict[str, object]:
             "biometrics": "HuntMob virtual biometric HAL",
             "camera": "HuntMob virtual camera HAL",
         },
-        "limitations": list(status.limitations),
+        "limitations": [] if prerequisites.get("ready") else [prerequisites.get("reason", "runtime dependencies incomplete")],
         "reference_only": ["genymotion"],
     }
 

@@ -1,0 +1,46 @@
+"""Cross-platform bootstrap for HuntMob Android workers."""
+
+from __future__ import annotations
+
+import platform
+import subprocess
+from typing import Dict
+
+from .android_worker import AndroidSdk, AndroidWorker
+
+
+def bootstrap_android(*, install: bool = False) -> Dict[str, object]:
+    """Inspect or install runtime packages without accepting licenses implicitly."""
+    host = platform.system().lower()
+    sdk = AndroidSdk.discover()
+    if host == "linux":
+        return {
+            "ok": True,
+            "mode": "docker-kvm",
+            "ready": False,
+            "next": "deploy deploy/docker-compose.worker-linux.yml on a host with /dev/kvm",
+            "note": "the signed HuntMob worker image must be published first",
+        }
+    if sdk is None:
+        instructions = {
+            "darwin": "brew install --cask android-commandlinetools",
+            "windows": "Install Android SDK Command-line Tools, then set ANDROID_SDK_ROOT",
+        }
+        return {"ok": False, "blocked": True, "mode": "native", "next": instructions.get(host, "install Android SDK command-line tools")}
+    before = AndroidWorker(sdk).prerequisites()
+    if before.get("ready") or not install:
+        return {"ok": True, "mode": "native", **before}
+    architecture = "arm64-v8a" if platform.machine().lower() in {"arm64", "aarch64"} else "x86_64"
+    package = f"system-images;android-35;default;{architecture}"
+    result = subprocess.run(
+        (str(sdk.sdkmanager), f"--sdk_root={sdk.root}", "emulator", "platform-tools", package),
+        capture_output=True, text=True, timeout=1800, check=False,
+    )
+    after = AndroidWorker(sdk).prerequisites()
+    return {
+        "ok": result.returncode == 0 and bool(after.get("ready")),
+        "mode": "native",
+        **after,
+        "license_note": "licenses must be accepted interactively with the official Android SDK tools if requested",
+        "error": result.stderr.strip() if result.returncode else "",
+    }

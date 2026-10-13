@@ -11,12 +11,14 @@ def completed(command, stdout="", stderr="", returncode=0):
 
 
 class ProviderTests(unittest.TestCase):
-    @patch("huntmob.providers.shutil.which", return_value=None)
-    def test_owned_runtime_fails_closed_without_qemu_and_adb(self, _which):
+    @patch("huntmob.providers.AndroidWorker")
+    def test_owned_runtime_fails_closed_without_runtime(self, worker_class):
+        worker_class.return_value.sdk = None
+        worker_class.return_value.prerequisites.return_value = {"ready": False, "reason": "runtime missing"}
         status = HuntMobRuntimeProvider().probe()
         self.assertEqual(status.provider, "huntmob-runtime")
         self.assertFalse(status.ready)
-        self.assertIn("QEMU", status.limitations)
+        self.assertIn("runtime missing", status.limitations)
     @patch.object(GenymotionProvider, "executable")
     def test_genymotion_probe_is_inventory_only(self, executable):
         executable.exists.return_value = True

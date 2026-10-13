@@ -39,16 +39,25 @@ async function deviceAction(action) {
 function startDeviceScreen() {
   const screen = document.querySelector('#deviceScreen');
   const refresh = () => {
-    screen.src = `/api/device/screenshot?t=${Date.now()}`;
+    if (!runtimeWasOnline && !runtimeDevice) return;
+    const frame = new Image();
+    frame.onload = () => {
+      if (!runtimeDevice) return;
+      screen.dataset.frameWidth = String(frame.naturalWidth);
+      screen.dataset.frameHeight = String(frame.naturalHeight);
+      screen.src = frame.src;
+    };
+    frame.onerror = () => { screenTimer = window.setTimeout(refresh, 1500); };
+    frame.src = `/api/device/screenshot?t=${Date.now()}`;
   };
   screen.onload = () => {
     screen.hidden = false;
     document.querySelector('.phone-screen').hidden = true;
+    screenTimer = window.setTimeout(refresh, 400);
   };
-  screen.onerror = () => { screen.hidden = true; };
+  screen.onerror = () => { screen.hidden = true; screenTimer = window.setTimeout(refresh, 1500); };
   refresh();
   window.clearInterval(screenTimer);
-  screenTimer = window.setInterval(refresh, 1200);
 }
 
 async function loadRuntime() {
@@ -94,7 +103,7 @@ async function loadRuntime() {
     document.querySelectorAll('.toolbar-actions button').forEach((button) => { button.disabled = !online; });
     document.querySelector('#deviceViewport').classList.remove('runtime-unavailable');
     document.querySelector('#runtimePlaceholder').hidden = true;
-    if (online) startDeviceScreen();
+    if (online && !runtimeWasOnline) startDeviceScreen();
     if (online && !runtimeWasOnline) {
       loadInstalledApps();
       refreshProxyStatus();
@@ -561,17 +570,23 @@ const interactiveScreen = document.querySelector('#deviceScreen');
 let pointerStart;
 function screenPoint(event) {
   const rect = interactiveScreen.getBoundingClientRect();
-  const scale = Math.min(rect.width / interactiveScreen.naturalWidth, rect.height / interactiveScreen.naturalHeight);
-  const width = interactiveScreen.naturalWidth * scale;
-  const height = interactiveScreen.naturalHeight * scale;
+  const frameWidth = Number(interactiveScreen.dataset.frameWidth || interactiveScreen.naturalWidth);
+  const frameHeight = Number(interactiveScreen.dataset.frameHeight || interactiveScreen.naturalHeight);
+  const scale = Math.min(rect.width / frameWidth, rect.height / frameHeight);
+  const width = frameWidth * scale;
+  const height = frameHeight * scale;
   return { x: (event.clientX - rect.left - (rect.width - width) / 2) / width, y: (event.clientY - rect.top - (rect.height - height) / 2) / height };
 }
 interactiveScreen.style.touchAction = 'none';
 interactiveScreen.tabIndex = 0;
 interactiveScreen.addEventListener('pointerdown', event => {
+  event.preventDefault();
+  interactiveScreen.focus();
   pointerStart = screenPoint(event);
   interactiveScreen.setPointerCapture(event.pointerId);
 });
+interactiveScreen.addEventListener('dragstart', event => event.preventDefault());
+interactiveScreen.addEventListener('pointercancel', () => { pointerStart = undefined; });
 interactiveScreen.addEventListener('pointerup', async event => {
   if (!pointerStart) return;
   const end = screenPoint(event);

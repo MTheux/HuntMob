@@ -21,6 +21,7 @@ HuntMob Control Plane
 ```bash
 python3 -m huntmob.cli status
 python3 -m huntmob.cli providers
+python3 -m huntmob.cli capabilities
 python3 -m huntmob.cli plan ios --controller-os windows
 python3 -m huntmob.cli plan ios --controller-os linux --privileged-ios
 python3 -m unittest discover -s tests -v

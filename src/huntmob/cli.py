@@ -9,6 +9,7 @@ from .discovery import runtime_status
 from .providers import provider_catalog
 from .contracts import Platform
 from .routing import select_runtime
+from .capabilities import capability_catalog
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -16,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="inspect local runtime prerequisites")
     commands.add_parser("providers", help="inspect local and optional runtime providers")
+    commands.add_parser("capabilities", help="show the provider-neutral lab contract")
     plan = commands.add_parser("plan", help="select a runtime without provisioning it")
     plan.add_argument("platform", choices=("android", "ios"))
     plan.add_argument("--controller-os", choices=("darwin", "windows", "linux"))
@@ -32,6 +34,9 @@ def main() -> int:
         return 0 if result["ok"] else 2
     if args.command == "providers":
         print(json.dumps(provider_catalog(), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "capabilities":
+        print(json.dumps(capability_catalog(), indent=2, ensure_ascii=False))
         return 0
     if args.command == "plan":
         result = select_runtime(

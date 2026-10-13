@@ -435,7 +435,22 @@ document.querySelector('#stopCapture').addEventListener('click', async () => {
   try { await proxyAction('clear'); document.querySelector('#openProxyWeb').hidden = true; notify('Rota de proxy removida do device'); } catch (error) { notify(error.message); }
 });
 document.querySelector('#proxyPort').addEventListener('change', refreshProxyStatus);
-document.querySelector('#newLab').addEventListener('click', () => newLabDialog.showModal());
+const createLabButton = document.querySelector('#createLab');
+const labError = document.querySelector('#labError');
+
+function resetNewLabProgress() {
+  createLabButton.disabled = false;
+  createLabButton.textContent = 'Criar e iniciar laboratório';
+  labError.hidden = true;
+  labError.textContent = '';
+}
+
+document.querySelector('#newLab').addEventListener('click', () => {
+  resetNewLabProgress();
+  newLabDialog.showModal();
+});
+document.querySelector('#closeNewLab').addEventListener('click', () => newLabDialog.close('cancel'));
+newLabDialog.addEventListener('close', resetNewLabProgress);
 document.querySelector('#labSource').addEventListener('change', (event) => {
   const source = event.target.value;
   const labels = {
@@ -452,7 +467,7 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
   event.preventDefault();
   const packageValue = document.querySelector('#labPackage').value.trim();
   const source = document.querySelector('#labSource').value;
-  const errorBox = document.querySelector('#labError');
+  const errorBox = labError;
   errorBox.hidden = true;
   if (packageValue && !validPackage(packageValue)) {
     errorBox.textContent = 'Package ID inválido. Use o formato br.com.empresa.app ou deixe vazio para detecção automática.';
@@ -470,6 +485,8 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
     return;
   }
   try {
+    createLabButton.disabled = true;
+    createLabButton.textContent = 'Iniciando…';
     errorBox.textContent = 'Iniciando Android headless…';
     errorBox.hidden = false;
     await deviceAction('start');
@@ -479,6 +496,9 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
   } catch (error) {
     errorBox.textContent = error.message;
     errorBox.hidden = false;
+  } finally {
+    createLabButton.disabled = false;
+    createLabButton.textContent = 'Criar e iniciar laboratório';
   }
 });
 const sessionDialog = document.querySelector('#sessionDialog');

@@ -202,7 +202,7 @@
   </dialog>
   <dialog id="newLabDialog">
     <form method="dialog" class="dialog-shell" id="newLabForm">
-      <header><div><span class="eyebrow">APP-FIRST</span><h2>Novo laboratório Android</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
+      <header><div><span class="eyebrow">APP-FIRST</span><h2>Novo laboratório Android</h2></div><button type="button" id="closeNewLab" aria-label="Fechar">×</button></header>
       <label class="lab-field">Engagement<input id="labEngagement" value="ENG-2026-041" required></label>
       <label class="lab-field">Package ID <small>opcional; detectado do APK quando possível</small><input id="labPackage" placeholder="br.com.empresa.app"></label>
       <label class="lab-field">Origem do aplicativo<select id="labSource"><option value="empty">Device vazio</option><option value="upload">APK/AAB local</option><option value="firebase">Firebase App Distribution</option><option value="signed-url">URL assinada autorizada</option><option value="play-manual">Play Store · instalação manual</option></select></label>
@@ -210,7 +210,7 @@
       <label class="lab-approval"><input id="labApproval" type="checkbox" required> Confirmo que o aplicativo e o engagement estão autorizados.</label>
       <div class="lab-plan" id="labPlan">Cria um Android vazio em modo headless. Você poderá instalar o app depois.</div>
       <div class="form-error" id="labError" role="alert" hidden></div>
-      <button type="submit" class="primary full">Criar e iniciar laboratório</button>
+      <button type="submit" class="primary full" id="createLab">Criar e iniciar laboratório</button>
     </form>
   </dialog>
   <dialog id="sessionDialog">

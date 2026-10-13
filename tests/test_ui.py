@@ -88,6 +88,9 @@ class UiServerTests(unittest.TestCase):
         self.assertIn('id="labApproval"', html)
         self.assertIn("newLabDialog.showModal()", javascript)
         self.assertIn('value="empty"', html)
+        self.assertIn('id="closeNewLab"', html)
+        self.assertIn("newLabDialog.close('cancel')", javascript)
+        self.assertIn('id="createLab"', html)
 
     def test_destructive_session_end_requires_confirmation_dialog(self):
         html = (web_root() / "index.html").read_text(encoding="utf-8")

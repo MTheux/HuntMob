@@ -17,6 +17,13 @@ class UiServerTests(unittest.TestCase):
     def test_explicit_remote_bind_is_accepted(self):
         validate_bind("0.0.0.0", True)
 
+    def test_in_app_biometric_button_opens_fixture(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        self.assertIn(
+            '<button type="button" data-panel="biometric">Entrar com biometria</button>',
+            html,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import platform
+import hashlib
 import shutil
 import subprocess
 import time
 import tempfile
 import zipfile
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence
@@ -231,3 +233,105 @@ class AndroidWorker:
                 "reason": "" if sandbox_ready else "run-as denied; a debuggable or explicitly prepared HuntMob lab build is required",
             },
         }
+
+    def installed_apps(self) -> Dict[str, object]:
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online", "apps": []}
+        result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "pm", "list", "packages", "-3", "-f"))
+        apps = []
+        for line in result.stdout.splitlines():
+            if not line.startswith("package:") or "=" not in line:
+                continue
+            apk_path, package_id = line.removeprefix("package:").rsplit("=", 1)
+            if PACKAGE_ID.fullmatch(package_id):
+                apps.append({"package_id": package_id, "apk_path": apk_path})
+        return {"ok": result.returncode == 0, "apps": sorted(apps, key=lambda item: item["package_id"])}
+
+    def proxy_status(self, port: int = 8080) -> Dict[str, object]:
+        configured = ""
+        if self.sdk and self.status()["state"] == "device":
+            configured = _run((str(self.sdk.adb), "-s", self.serial, "shell", "settings", "get", "global", "http_proxy")).stdout.strip()
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.4):
+                listening = True
+        except OSError:
+            listening = False
+        return {"configured": configured not in {"", ":0", "null"}, "device_proxy": configured, "listener": listening, "host_port": port}
+
+    def configure_proxy(self, port: int = 8080) -> Dict[str, object]:
+        if not 1024 <= port <= 65535:
+            return {"ok": False, "blocked": True, "reason": "proxy port must be between 1024 and 65535"}
+        status = self.proxy_status(port)
+        if not status["listener"]:
+            return {"ok": False, "blocked": True, "reason": f"no proxy listener is available on 127.0.0.1:{port}"}
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        route = f"10.0.2.2:{port}"
+        result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "settings", "put", "global", "http_proxy", route))
+        return {"ok": result.returncode == 0, "device_proxy": route, "listener": True}
+
+    def clear_proxy(self) -> Dict[str, object]:
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "settings", "put", "global", "http_proxy", ":0"))
+        return {"ok": result.returncode == 0, "device_proxy": ":0"}
+
+    def start_managed_proxy(self, port: int = 8080) -> Dict[str, object]:
+        """Start a local mitmweb listener and route only the owned emulator to it."""
+        if not 1024 <= port <= 65534:
+            return {"ok": False, "blocked": True, "reason": "proxy port must be between 1024 and 65534"}
+        executable = shutil.which("mitmweb")
+        if not executable:
+            return {"ok": False, "blocked": True, "reason": "mitmweb is not installed"}
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        if not self.proxy_status(port)["listener"]:
+            run_dir = Path.home() / ".huntmob" / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            log = (run_dir / "proxy.log").open("a", encoding="utf-8")
+            command = (
+                executable, "--listen-host", "0.0.0.0", "--listen-port", str(port),
+                "--web-host", "127.0.0.1", "--web-port", str(port + 1),
+                "--set", "block_global=false",
+            )
+            subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            deadline = time.monotonic() + 12
+            while time.monotonic() < deadline and not self.proxy_status(port)["listener"]:
+                time.sleep(0.25)
+        configured = self.configure_proxy(port)
+        if not configured.get("ok"):
+            return configured
+        return {
+            **configured,
+            "managed": True,
+            "web_url": f"http://127.0.0.1:{port + 1}",
+            "ca_path": str(Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.cer"),
+            "ca_installed": False,
+        }
+
+    def prepare_reverse(self, package_id: str) -> Dict[str, object]:
+        """Pull an installed APK and decompile it into a package-scoped workspace."""
+        if not PACKAGE_ID.fullmatch(package_id):
+            return {"ok": False, "blocked": True, "reason": "invalid package ID"}
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        installed = _run((str(self.sdk.adb), "-s", self.serial, "shell", "pm", "path", package_id))
+        apk_paths = [line.removeprefix("package:").strip() for line in installed.stdout.splitlines() if line.startswith("package:")]
+        if installed.returncode != 0 or not apk_paths:
+            return {"ok": False, "blocked": True, "reason": "authorized package is not installed"}
+        jadx = shutil.which("jadx")
+        if not jadx:
+            return {"ok": False, "blocked": True, "reason": "jadx is not installed"}
+        workspace = Path.home() / ".huntmob" / "workspaces" / package_id
+        workspace.mkdir(parents=True, exist_ok=True)
+        base_apk = workspace / "base.apk"
+        pulled = _run((str(self.sdk.adb), "-s", self.serial, "pull", apk_paths[0], str(base_apk)), timeout=180)
+        if pulled.returncode != 0 or not base_apk.is_file():
+            return {"ok": False, "blocked": True, "reason": "APK pull failed"}
+        output = workspace / "jadx"
+        decoded = _run((jadx, "--output-dir", str(output), str(base_apk)), timeout=300)
+        if decoded.returncode != 0:
+            return {"ok": False, "blocked": True, "reason": "JADX analysis failed", "error": decoded.stderr[-1000:]}
+        files = [str(path.relative_to(output)) for path in output.rglob("*") if path.is_file()][:5000]
+        digest = hashlib.sha256(base_apk.read_bytes()).hexdigest()
+        return {"ok": True, "package_id": package_id, "sha256": digest, "workspace": str(workspace), "files": files, "truncated": len(files) >= 5000}

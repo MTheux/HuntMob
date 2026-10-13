@@ -80,11 +80,36 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if route == "/api/device/apps":
+            payload = AndroidWorker().installed_apps()
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(200 if payload.get("ok") else 409)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if route == "/api/proxy":
+            query = parse_qs(parsed.query)
+            try:
+                port = int(query.get("port", ["8080"])[0])
+            except ValueError:
+                port = 0
+            payload = AndroidWorker().proxy_status(port)
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802 - inherited HTTP API name
         route = urlparse(self.path).path
-        if route != "/api/device/action":
+        if route not in {"/api/device/action", "/api/proxy", "/api/reverse"}:
             self.send_error(404)
             return
         if self.headers.get("X-HuntMob-CSRF") != SESSION_TOKEN:
@@ -103,13 +128,36 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             status = 403
         else:
             worker = AndroidWorker()
-            actions = {"start": worker.start, "stop": worker.stop, "reboot": worker.reboot, "destroy": worker.destroy}
-            action = actions.get(str(payload.get("action", "")))
-            if action is None:
-                result, status = {"ok": False, "reason": "unknown device action"}, 400
-            else:
-                result = action()
+            if route == "/api/reverse":
+                result = worker.prepare_reverse(str(payload.get("package_id", "")))
                 status = 200 if result.get("ok") else 409
+            elif route == "/api/proxy":
+                proxy_action = str(payload.get("action", ""))
+                if proxy_action == "configure":
+                    try:
+                        port = int(payload.get("port", 8080))
+                    except (TypeError, ValueError):
+                        port = 0
+                    result = worker.configure_proxy(port)
+                elif proxy_action == "start-managed":
+                    try:
+                        port = int(payload.get("port", 8080))
+                    except (TypeError, ValueError):
+                        port = 0
+                    result = worker.start_managed_proxy(port)
+                elif proxy_action == "clear":
+                    result = worker.clear_proxy()
+                else:
+                    result = {"ok": False, "reason": "unknown proxy action"}
+                status = 200 if result.get("ok") else 409
+            else:
+                actions = {"start": worker.start, "stop": worker.stop, "reboot": worker.reboot, "destroy": worker.destroy}
+                action = actions.get(str(payload.get("action", "")))
+                if action is None:
+                    result, status = {"ok": False, "reason": "unknown device action"}, 400
+                else:
+                    result = action()
+                    status = 200 if result.get("ok") else 409
         body = json.dumps(result, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")

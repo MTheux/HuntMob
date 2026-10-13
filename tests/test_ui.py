@@ -24,6 +24,27 @@ class UiServerTests(unittest.TestCase):
         self.assertIn('id="sandboxFiles"', html)
         self.assertIn("/api/device/files", javascript)
 
+    def test_reverse_uses_real_installed_app_inventory(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="installedApps"', html)
+        self.assertIn("/api/device/apps", javascript)
+        self.assertIn("/api/reverse", javascript)
+        self.assertNotIn("Token em memória por tempo excessivo", html)
+
+    def test_proxy_controls_are_connected_to_api(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="startCapture"', html)
+        self.assertIn('id="configureProxy"', html)
+        self.assertIn("start-managed", javascript)
+        self.assertIn("/api/proxy", javascript)
+
+    def test_ready_worker_is_distinct_from_missing_runtime(self):
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn("Worker pronto · device desligado", javascript)
+        self.assertIn("Android Emulator e imagem AOSP instalados", javascript)
+
     def test_loopback_is_allowed(self):
         validate_bind("127.0.0.1", False)
 

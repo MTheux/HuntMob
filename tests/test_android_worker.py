@@ -33,6 +33,24 @@ class AndroidWorkerTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(result["blocked"])
 
+    @patch.object(AndroidWorker, "status", return_value={"state": "device"})
+    @patch("huntmob.android_worker._run")
+    def test_installed_apps_returns_only_parsed_package_ids(self, run, _status):
+        run.return_value = subprocess.CompletedProcess([], 0, "package:/data/app/base.apk=br.com.test.app\ninvalid\n", "")
+        result = AndroidWorker(self.sdk).installed_apps()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["apps"][0]["package_id"], "br.com.test.app")
+
+    def test_proxy_rejects_privileged_port(self):
+        result = AndroidWorker(self.sdk).configure_proxy(80)
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["blocked"])
+
+    def test_reverse_rejects_invalid_package(self):
+        result = AndroidWorker(self.sdk).prepare_reverse("bad;package")
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["blocked"])
+
     @patch.object(AndroidWorker, "status", return_value={"state": "offline"})
     @patch("huntmob.android_worker._run")
     def test_destroy_targets_only_fixed_avd(self, run, _status):

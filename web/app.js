@@ -15,19 +15,23 @@ let runtimeDevice;
 let screenTimer;
 let csrfToken;
 
-async function deviceAction(action) {
+async function authorizedPost(route, body) {
   if (!csrfToken) {
     const session = await fetch('/api/session', { cache: 'no-store' }).then((response) => response.json());
     csrfToken = session.csrf_token;
   }
-  const response = await fetch('/api/device/action', {
+  const response = await fetch(route, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-HuntMob-CSRF': csrfToken },
-    body: JSON.stringify({ action, authorized: true, approved: true }),
+    body: JSON.stringify({ ...body, authorized: true, approved: true }),
   });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.reason || `ação recusada (${response.status})`);
   return payload;
+}
+
+async function deviceAction(action) {
+  return authorizedPost('/api/device/action', { action });
 }
 
 function startDeviceScreen() {
@@ -53,16 +57,22 @@ async function loadRuntime() {
     runtimeDevice = payload.devices?.[0];
     document.querySelector('#runtimeCount').textContent = String(payload.devices?.length || 0);
     if (!runtimeDevice) {
-      document.querySelector('#runtimeName').textContent = 'Runtime próprio em construção';
-      document.querySelector('#runtimeMeta').textContent = payload.limitations?.join(' · ') || 'Imagem AOSP HuntMob necessária';
+      const workerReady = payload.ready === true;
+      window.clearInterval(screenTimer);
+      document.querySelector('#deviceScreen').hidden = true;
+      document.querySelector('.phone-screen').hidden = false;
+      document.querySelector('#runtimeName').textContent = workerReady ? 'Worker pronto · device desligado' : 'Runtime próprio em construção';
+      document.querySelector('#runtimeMeta').textContent = workerReady ? 'Android Emulator e imagem AOSP instalados' : (payload.limitations?.join(' · ') || 'Imagem AOSP HuntMob necessária');
       document.querySelector('#stageDeviceName').textContent = 'HuntMob Runtime';
-      document.querySelector('#stageSerial').textContent = 'QEMU/AOSP ainda não provisionado';
-      document.querySelector('#runtimeState').textContent = 'BUILD REQUIRED';
+      document.querySelector('#stageSerial').textContent = workerReady ? 'nenhum device em execução' : 'QEMU/AOSP ainda não provisionado';
+      document.querySelector('#runtimeState').textContent = workerReady ? 'STOPPED' : 'BUILD REQUIRED';
       document.querySelector('#deviceViewport').classList.add('runtime-unavailable');
       document.querySelector('#runtimePlaceholder').hidden = false;
+      document.querySelector('#runtimePlaceholder strong').textContent = workerReady ? 'Device desligado' : 'Runtime ainda não provisionado';
+      document.querySelector('#runtimePlaceholder span').textContent = workerReady ? 'Worker e imagem prontos · crie ou inicie um laboratório' : 'Prévia de interface · nenhum Android ou aplicativo está executando aqui';
       document.querySelectorAll('.toolbar-actions button').forEach((button) => { button.disabled = true; });
       document.querySelector('#eventKind').textContent = 'STATE';
-      document.querySelector('#eventMessage').textContent = 'Nenhuma VM HuntMob em execução';
+      document.querySelector('#eventMessage').textContent = workerReady ? 'Worker pronto; inicie um laboratório' : 'Nenhuma VM HuntMob em execução';
       document.querySelector('#eventReceipt').textContent = 'sem receipt';
       const status = document.querySelector('#biometricStatus');
       status.textContent = 'Aguardando o HAL biométrico da imagem AOSP HuntMob';
@@ -72,9 +82,14 @@ async function loadRuntime() {
       return;
     }
     const online = runtimeDevice.state === 'on';
+    document.querySelectorAll('.toolbar-actions button').forEach((button) => { button.disabled = !online; });
     document.querySelector('#deviceViewport').classList.remove('runtime-unavailable');
     document.querySelector('#runtimePlaceholder').hidden = true;
     if (online) startDeviceScreen();
+    if (online) {
+      loadInstalledApps();
+      refreshProxyStatus();
+    }
     if (online) {
       document.querySelector('#eventTime').textContent = new Date().toLocaleTimeString('pt-BR');
       document.querySelector('#eventKind').textContent = 'READY';
@@ -298,6 +313,65 @@ async function loadAppFiles() {
 
 document.querySelector('#refreshFiles').addEventListener('click', loadAppFiles);
 
+function selectApp(packageName) {
+  packageId.value = packageName;
+  document.querySelector('#reversePackage').textContent = packageName;
+  document.querySelector('#prepareReverse').disabled = false;
+  document.querySelector('#reverseHash').textContent = 'SHA256 pendente';
+  refreshFridaSelection();
+}
+
+async function loadInstalledApps() {
+  const target = document.querySelector('#installedApps');
+  target.innerHTML = '<p>Consultando device…</p>';
+  try {
+    const response = await fetch('/api/device/apps', { cache: 'no-store' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.reason || `apps API ${response.status}`);
+    target.replaceChildren();
+    if (!payload.apps.length) {
+      target.innerHTML = '<p>Nenhum app de terceiro instalado.</p>';
+      notify('Nenhum app de terceiro instalado no device');
+      return [];
+    }
+    payload.apps.forEach((app) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.textContent = app.package_id;
+      row.addEventListener('click', () => selectApp(app.package_id));
+      target.append(row);
+    });
+    notify(`${payload.apps.length} app(s) instalado(s) detectado(s)`);
+    return payload.apps;
+  } catch (error) {
+    target.innerHTML = `<p>${error.message}</p>`;
+    notify(error.message);
+    return [];
+  }
+}
+
+document.querySelector('#refreshApps').addEventListener('click', loadInstalledApps);
+document.querySelector('#prepareReverse').addEventListener('click', async () => {
+  const selectedPackage = packageId.value.trim();
+  if (!validPackage(selectedPackage)) return notify('Selecione um package válido');
+  const output = document.querySelector('#reverseOutput');
+  output.innerHTML = '<strong>Extraindo APK e executando JADX…</strong><p>Isso pode levar alguns minutos.</p>';
+  try {
+    const payload = await authorizedPost('/api/reverse', { package_id: selectedPackage });
+    document.querySelector('#reverseHash').textContent = `SHA256 · ${payload.sha256.slice(0, 8)}…${payload.sha256.slice(-4)}`;
+    document.querySelector('#fileName').textContent = `${payload.files.length} arquivos decompilados`;
+    output.replaceChildren();
+    const list = document.createElement('div');
+    list.className = 'runtime-file-tree';
+    renderFileList(list, payload.files, 'JADX não produziu arquivos legíveis.');
+    output.append(list);
+    notify(`Workspace REA criado para ${selectedPackage}`);
+  } catch (error) {
+    output.innerHTML = `<strong>Análise não concluída</strong><p>${error.message}</p>`;
+    notify(error.message);
+  }
+});
+
 function refreshFridaSelection() {
   const selected = scriptOptions.filter((item) => item.checked);
   selectedCount.textContent = `${selected.length} selecionado${selected.length === 1 ? '' : 's'}`;
@@ -312,18 +386,55 @@ document.querySelector('#scriptSearch').addEventListener('input', (event) => {
     row.hidden = query && !row.textContent.toLowerCase().includes(query);
   });
 });
-document.querySelector('#detectApps').addEventListener('click', () => {
-  notify('1 app autorizado detectado no device atual');
-  packageId.value = 'br.com.huntmob.demo';
-  refreshFridaSelection();
-});
+document.querySelector('#detectApps').addEventListener('click', loadInstalledApps);
 runFrida.addEventListener('click', () => {
   const selected = scriptOptions.filter((item) => item.checked).map((item) => item.value);
   const containsActive = selected.some((id) => id.includes('override') || id.includes('fixture'));
   fridaConsole.innerHTML = `<div>$ huntmob frida run --package ${packageId.value.trim()}</div><span>${selected.join(' + ')}</span><span>${containsActive ? ' · aprovação humana necessária' : ' · plano pronto para o worker'}</span>`;
   notify(containsActive ? 'Plano criado; confirme a ação ativa no worker' : 'Plano Frida criado com receipt obrigatório');
 });
-document.querySelector('#openGhidra').addEventListener('click', () => notify('Abertura no Ghidra aguardando worker REA'));
+document.querySelector('#openGhidra').addEventListener('click', () => notify('Selecione uma biblioteca nativa .so antes de abrir no Ghidra'));
+
+async function refreshProxyStatus() {
+  const port = Number(document.querySelector('#proxyPort').value);
+  try {
+    const payload = await fetch(`/api/proxy?port=${port}`, { cache: 'no-store' }).then((response) => response.json());
+    const active = payload.configured && payload.listener;
+    document.querySelector('#proxyStatus').textContent = payload.listener ? `Listener ativo · device ${payload.device_proxy || 'sem rota'}` : `Nenhum listener em 127.0.0.1:${port}`;
+    document.querySelector('#proxyBadge').textContent = active ? 'Capturando' : 'Desconectado';
+    document.querySelector('#captureTitle').textContent = active ? 'Captura ativa' : 'Captura inativa';
+    document.querySelector('#startCapture').hidden = active;
+    document.querySelector('#stopCapture').hidden = !active;
+  } catch (error) { document.querySelector('#proxyStatus').textContent = error.message; }
+}
+
+async function proxyAction(action) {
+  const port = Number(document.querySelector('#proxyPort').value);
+  const payload = await authorizedPost('/api/proxy', { action, port });
+  const active = action !== 'clear';
+  document.querySelector('#captureTitle').textContent = active ? 'Captura ativa' : 'Captura inativa';
+  document.querySelector('#startCapture').hidden = active;
+  document.querySelector('#stopCapture').hidden = !active;
+  if (payload.web_url) {
+    const link = document.querySelector('#openProxyWeb');
+    link.href = payload.web_url;
+    link.hidden = false;
+    document.querySelector('#captureHelp').textContent = 'Tráfego roteado ao proxy gerenciado. Para HTTPS, instale conscientemente a CA do laboratório no device.';
+  }
+  await refreshProxyStatus();
+  return payload;
+}
+
+document.querySelector('#startCapture').addEventListener('click', async () => {
+  try { await proxyAction('start-managed'); notify('Proxy gerenciado iniciado e aplicado ao device'); } catch (error) { notify(error.message); }
+});
+document.querySelector('#configureProxy').addEventListener('click', async () => {
+  try { await proxyAction('configure'); notify('Listener Burp aplicado ao device'); } catch (error) { notify(error.message); }
+});
+document.querySelector('#stopCapture').addEventListener('click', async () => {
+  try { await proxyAction('clear'); document.querySelector('#openProxyWeb').hidden = true; notify('Rota de proxy removida do device'); } catch (error) { notify(error.message); }
+});
+document.querySelector('#proxyPort').addEventListener('change', refreshProxyStatus);
 document.querySelector('#newLab').addEventListener('click', () => newLabDialog.showModal());
 document.querySelector('#labSource').addEventListener('change', (event) => {
   const source = event.target.value;
@@ -383,3 +494,4 @@ document.querySelector('#destroyDevice').addEventListener('click', async () => {
   try { await deviceAction('destroy'); sessionDialog.close(); window.clearInterval(screenTimer); await loadRuntime(); notify('Sessão e dados do AVD foram descartados'); } catch (error) { notify(error.message); }
 });
 loadRuntime();
+refreshProxyStatus();

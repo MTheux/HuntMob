@@ -112,29 +112,15 @@
           <button data-tab="evidence">Evidências <span>12</span></button>
         </div>
         <section class="tab-content active" id="tab-reverse">
-          <div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2>Secure Banking</h2></div><span class="hash">SHA256 · 9d31…a72f</span></div>
-          <div class="artifact-meta"><span>APK</span><span>arm64-v8a</span><span>minSdk 26</span><span>target 35</span></div>
+          <div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><button class="outline" id="refreshApps">Atualizar apps</button></div>
+          <div class="artifact-meta"><span>APK instalado</span><span id="reverseHash">SHA256 pendente</span><span>JADX local</span></div>
           <div class="re-layout">
-            <div class="file-tree" role="tree" aria-label="Arquivos analisados">
-              <button class="folder open">⌄ app</button>
-              <button class="folder indent open">⌄ java</button>
-              <button class="file indent2 selected" data-file="AuthManager.kt">AuthManager.kt</button>
-              <button class="file indent2" data-file="BiometricGate.kt">BiometricGate.kt</button>
-              <button class="file indent2" data-file="NetworkClient.kt">NetworkClient.kt</button>
-              <button class="folder indent">› res</button>
-              <button class="folder indent">› assets</button>
-              <button class="file">AndroidManifest.xml</button>
-              <button class="folder">› lib/arm64-v8a</button>
+            <div class="file-tree" id="installedApps" role="list" aria-label="Aplicativos instalados">
+              <p>Nenhum device online.</p>
             </div>
             <div class="code-pane">
-              <div class="code-head"><span id="fileName">AuthManager.kt</span><button id="openGhidra">Abrir no Ghidra</button></div>
-              <pre><code><span class="ln">01</span> class <i>AuthManager</i> {
-<span class="ln">02</span>   fun authenticate(token: String) {
-<span class="ln">03</span>     <em>require</em>(token.isNotBlank())
-<span class="ln">04</span>     session.exchange(token)
-<span class="ln">05</span>   }
-<span class="ln">06</span> }</code></pre>
-              <div class="finding"><span>M2</span><div><strong>Token em memória por tempo excessivo</strong><small>Provável · REA static · CWE-316</small></div></div>
+              <div class="code-head"><span id="fileName">Workspace ainda não preparado</span><button id="openGhidra" disabled>Abrir no Ghidra</button></div>
+              <div class="reverse-empty" id="reverseOutput"><strong>Engenharia reversa do package selecionado</strong><p>O APK será extraído do device autorizado e decompilado localmente com JADX. Nenhum finding é criado sem evidência.</p><button class="primary" id="prepareReverse" disabled>Analisar com JADX</button></div>
             </div>
           </div>
         </section>
@@ -168,9 +154,9 @@
           <div class="console" id="fridaConsole"><div>$ aguardando plano de execução</div><span>Selecione um ou mais scripts.</span></div>
         </section>
         <section class="tab-content" id="tab-proxy">
-          <div class="panel-title"><div><span class="eyebrow">TRÁFEGO</span><h2>Burp workspace</h2></div><span class="safe-badge">CA isolada</span></div>
-          <div class="proxy-state"><span>8080</span><div><strong>Listener do laboratório</strong><small>Certificado exclusivo · expira ao encerrar</small></div><button>Configurar</button></div>
-          <div class="empty-state"><strong>Nenhuma requisição capturada</strong><p>Inicie a captura para enviar o tráfego deste device ao listener autorizado.</p><button class="primary">Iniciar captura</button></div>
+          <div class="panel-title"><div><span class="eyebrow">TRÁFEGO</span><h2>Proxy do laboratório</h2></div><span class="safe-badge" id="proxyBadge">Desconectado</span></div>
+          <div class="proxy-state"><input id="proxyPort" type="number" min="1024" max="65534" value="8080" aria-label="Porta do proxy"><div><strong id="proxyTitle">Listener local</strong><small id="proxyStatus">Aguardando verificação</small></div><button id="configureProxy">Configurar Burp</button></div>
+          <div class="empty-state"><strong id="captureTitle">Captura inativa</strong><p id="captureHelp">Use o proxy gerenciado ou conecte um listener Burp já aberto nesta porta. A CA não é instalada silenciosamente.</p><button class="primary" id="startCapture">Iniciar captura</button><button class="outline" id="stopCapture" hidden>Parar captura</button><a id="openProxyWeb" class="proxy-link" target="_blank" rel="noopener" hidden>Abrir tráfego capturado</a></div>
         </section>
         <section class="tab-content" id="tab-evidence">
           <div class="panel-title"><div><span class="eyebrow">PROOF PACK</span><h2>Evidências</h2></div><button class="outline">Exportar</button></div>

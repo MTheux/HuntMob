@@ -348,6 +348,7 @@ class AndroidWorker:
             log = (run_dir / "proxy.log").open("a", encoding="utf-8")
             command = (
                 executable, "--listen-host", "0.0.0.0", "--listen-port", str(port),
+                "-s", str(Path(__file__).with_name("network_capture.py")),
                 "--web-host", "127.0.0.1", "--web-port", str(port + 1),
                 "--set", "block_global=false",
             )

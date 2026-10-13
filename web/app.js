@@ -428,10 +428,8 @@ async function proxyAction(action) {
   document.querySelector('#startCapture').hidden = active;
   document.querySelector('#stopCapture').hidden = !active;
   if (payload.web_url) {
-    const link = document.querySelector('#openProxyWeb');
-    link.href = payload.web_url;
-    link.hidden = false;
-    document.querySelector('#captureHelp').textContent = 'Tráfego roteado ao proxy gerenciado. Para HTTPS, instale conscientemente a CA do laboratório no device.';
+    document.querySelector('#captureHelp').textContent = 'Captura gerenciada integrada abaixo. Para HTTPS, instale a CA do laboratório no device.';
+    loadNetwork();
   }
   await refreshProxyStatus();
   return payload;
@@ -444,9 +442,64 @@ document.querySelector('#configureProxy').addEventListener('click', async () => 
   try { await proxyAction('configure'); notify('Listener Burp aplicado ao device'); } catch (error) { notify(error.message); }
 });
 document.querySelector('#stopCapture').addEventListener('click', async () => {
-  try { await proxyAction('clear'); document.querySelector('#openProxyWeb').hidden = true; notify('Rota de proxy removida do device'); } catch (error) { notify(error.message); }
+  try { await proxyAction('clear'); notify('Rota de proxy removida do device'); } catch (error) { notify(error.message); }
 });
 document.querySelector('#proxyPort').addEventListener('change', refreshProxyStatus);
+
+let networkFlows = [];
+let networkHost = '';
+let networkSelection;
+let networkSide = 'request';
+function renderNetworkDetail() {
+  if (!networkSelection) return;
+  const message = networkSelection[networkSide];
+  document.querySelector('#networkSelected').textContent = `${networkSelection.method} ${networkSelection.host}${networkSelection.path}`;
+  document.querySelector('#networkDetail').textContent = `${networkSide.toUpperCase()}\n${Object.entries(message.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\n')}\n\n${message.body || '(body vazio)'}`;
+}
+function renderNetwork() {
+  const hosts = [...new Set(networkFlows.map(flow => flow.host))].sort();
+  document.querySelector('#networkStats').textContent = `${networkFlows.length} requisições · ${hosts.length} hosts · ${networkFlows.filter(flow => flow.status >= 400).length} erros HTTP`;
+  const hostList = document.querySelector('#networkHosts');
+  hostList.replaceChildren();
+  ['', ...hosts].forEach(host => {
+    const button = document.createElement('button');
+    button.textContent = host || 'Todos os hosts';
+    button.className = host === networkHost ? 'selected' : '';
+    button.addEventListener('click', () => { networkHost = host; renderNetwork(); });
+    hostList.append(button);
+  });
+  const query = document.querySelector('#networkSearch').value.toLowerCase();
+  const method = document.querySelector('#networkMethod').value;
+  const status = document.querySelector('#networkStatus').value;
+  const flows = networkFlows.filter(flow => (!networkHost || flow.host === networkHost) && (!method || flow.method === method) && (!status || String(flow.status).startsWith(status)) && `${flow.host}${flow.path}`.toLowerCase().includes(query));
+  const rows = document.querySelector('#networkRows');
+  rows.replaceChildren();
+  if (!flows.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'Nenhuma requisição neste filtro. Navegue no aplicativo com a captura ativa.';
+    rows.append(empty);
+  }
+  flows.slice().reverse().forEach(flow => {
+    const row = document.createElement('button');
+    row.textContent = `${flow.method}  ${flow.host}${flow.path}  ·  ${flow.status ?? 'erro'}  ·  ${flow.duration_ms ?? '—'} ms`;
+    row.addEventListener('click', () => { networkSelection = flow; renderNetworkDetail(); });
+    rows.append(row);
+  });
+}
+async function loadNetwork() {
+  try {
+    const response = await fetch('/api/network', {cache: 'no-store'});
+    if (!response.ok) throw new Error('Captura indisponível');
+    networkFlows = (await response.json()).flows || [];
+    renderNetwork();
+  } catch (error) { document.querySelector('#networkStats').textContent = error.message; }
+}
+document.querySelector('#openProxyWeb').addEventListener('click', loadNetwork);
+['#networkSearch', '#networkMethod', '#networkStatus'].forEach(selector => document.querySelector(selector).addEventListener('input', renderNetwork));
+document.querySelector('#showRequest').addEventListener('click', () => { networkSide = 'request'; renderNetworkDetail(); });
+document.querySelector('#showResponse').addEventListener('click', () => { networkSide = 'response'; renderNetworkDetail(); });
+window.setInterval(() => { if (document.querySelector('#tab-proxy').classList.contains('active')) loadNetwork(); }, 2000);
+loadNetwork();
 const createLabButton = document.querySelector('#createLab');
 const labError = document.querySelector('#labError');
 

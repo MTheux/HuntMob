@@ -158,7 +158,11 @@
         <section class="tab-content" id="tab-proxy">
           <div class="panel-title"><div><span class="eyebrow">TRÁFEGO</span><h2>Proxy do laboratório</h2></div><span class="safe-badge" id="proxyBadge">Desconectado</span></div>
           <div class="proxy-state"><input id="proxyPort" type="number" min="1024" max="65534" value="8080" aria-label="Porta do proxy"><div><strong id="proxyTitle">Listener local</strong><small id="proxyStatus">Aguardando verificação</small></div><button id="configureProxy">Configurar Burp</button></div>
-          <div class="empty-state"><strong id="captureTitle">Captura inativa</strong><p id="captureHelp">Use o proxy gerenciado ou conecte um listener Burp já aberto nesta porta. A CA não é instalada silenciosamente.</p><button class="primary" id="startCapture">Iniciar captura</button><button class="outline" id="stopCapture" hidden>Parar captura</button><a id="openProxyWeb" class="proxy-link" target="_blank" rel="noopener" hidden>Abrir tráfego capturado</a></div>
+          <div class="network-capture-controls"><strong id="captureTitle">Captura inativa</strong><p id="captureHelp">Tráfego do proxy gerenciado aparece abaixo. HTTPS exige a CA instalada no device.</p><button class="primary" id="startCapture">Iniciar captura</button><button class="outline" id="stopCapture" hidden>Parar captura</button><button class="outline" id="openProxyWeb">Atualizar registros</button></div>
+          <div class="network-stats" id="networkStats">0 requisições · 0 hosts · 0 erros HTTP</div>
+          <div class="network-filters"><input id="networkSearch" type="search" placeholder="Buscar host ou caminho" aria-label="Buscar requisições"><select id="networkMethod" aria-label="Método HTTP"><option value="">Métodos</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select><select id="networkStatus" aria-label="Status HTTP"><option value="">Status HTTP</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option></select></div>
+          <div class="network-grid"><aside id="networkHosts" aria-label="Hosts capturados"></aside><div class="network-records"><div class="network-columns">MÉTODO · HOST / CAMINHO · HTTP · DURAÇÃO</div><div id="networkRows"><p>Nenhuma requisição capturada nesta sessão.</p></div></div></div>
+          <section class="network-detail" aria-label="Detalhe da requisição"><strong id="networkSelected">Selecione uma requisição</strong><div class="network-detail-tabs"><button class="outline" id="showRequest">Request</button><button class="outline" id="showResponse">Response</button></div><pre id="networkDetail">Headers e body do registro selecionado aparecerão aqui. Credenciais conhecidas são redigidas.</pre></section>
         </section>
         <section class="tab-content" id="tab-evidence">
           <div class="panel-title"><div><span class="eyebrow">PROOF PACK</span><h2>Evidências</h2></div><button class="outline">Exportar</button></div>
@@ -225,6 +229,6 @@
   </dialog>
   <div class="toast" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js"></script>
-  <script src="app.js?v=video-1"></script>
+  <script src="app.js?v=network-1"></script>
 </body>
 </html>

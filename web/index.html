@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HuntMob — Mobile Security Workbench</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Pular para o workspace</a>
+  <header class="topbar">
+    <div class="brand"><span>HUNT</span><b>MOB</b><small>LAB</small></div>
+    <div class="engagement"><span class="pulse"></span><span>ENG-2026-041</span><strong>Autorizado</strong></div>
+    <div class="top-actions">
+      <button class="icon-button" aria-label="Abrir evidências" title="Evidências">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h6"/></svg>
+      </button>
+      <button class="primary" id="newLab">Novo lab</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="rail" aria-label="Navegação do laboratório">
+      <button class="rail-item active" data-view="device" aria-label="Dispositivo" title="Dispositivo">
+        <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 18h4"/></svg>
+      </button>
+      <button class="rail-item" data-view="reverse" aria-label="Engenharia reversa" title="Engenharia reversa">
+        <svg viewBox="0 0 24 24"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg>
+      </button>
+      <button class="rail-item" data-view="traffic" aria-label="Tráfego" title="Tráfego">
+        <svg viewBox="0 0 24 24"><path d="M4 18V8M10 18V4M16 18v-7M22 18V6"/></svg>
+      </button>
+      <button class="rail-item" data-view="scripts" aria-label="Scripts Frida" title="Scripts Frida">
+        <svg viewBox="0 0 24 24"><path d="M8 4h8l3 3v13H5V4zM9 11l-2 2 2 2M15 11l2 2-2 2M13 9l-2 8"/></svg>
+      </button>
+      <button class="rail-item" data-view="fixtures" aria-label="Fixtures" title="Fixtures">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12h3M2 12h3M12 5V2M12 22v-3M17 7l2-2M5 19l2-2M17 17l2 2M5 5l2 2"/></svg>
+      </button>
+      <div class="rail-spacer"></div>
+      <button class="rail-item" aria-label="Configurações" title="Configurações">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.7-1.7.9-1.9-2.1-2.1-1.9.9-1.7-.7L10.5 2h-3l-.7 2-1.7.7-1.9-.9L1.1 5.9l.9 1.9-.7 1.7-2 .7v3l2 .7.7 1.7-.9 1.9 2.1 2.1 1.9-.9 1.7.7.7 2h3l.7-2 1.7-.7 1.9.9 2.1-2.1-.9-1.9.7-1.7z"/></svg>
+      </button>
+    </nav>
+
+    <aside class="device-list">
+      <div class="aside-head">
+        <div><span class="eyebrow">RUNTIMES</span><h1>Dispositivos</h1></div>
+        <button class="square-button" aria-label="Adicionar dispositivo">+</button>
+      </div>
+      <label class="search"><span class="sr-only">Buscar dispositivo</span><input type="search" placeholder="Buscar dispositivo…"></label>
+      <div class="group-label"><span>ONLINE</span><small>1</small></div>
+      <button class="device-row selected">
+        <span class="device-thumb android">A</span>
+        <span><strong>Pixel 8 Pro</strong><small>Android 15 · Genymotion</small></span>
+        <i class="online-dot" aria-label="Online"></i>
+      </button>
+      <div class="group-label"><span>DISPONÍVEIS</span><small>2</small></div>
+      <button class="device-row">
+        <span class="device-thumb ios">i</span>
+        <span><strong>iPhone 16 Pro</strong><small>iOS 18 · Mac worker</small></span>
+        <i class="offline-dot" aria-label="Offline"></i>
+      </button>
+      <button class="device-row">
+        <span class="device-thumb ios">i</span>
+        <span><strong>iPhone 15</strong><small>iOS 17 · Corellium</small></span>
+        <i class="offline-dot" aria-label="Offline"></i>
+      </button>
+      <div class="worker-status"><span>WORKER MAC-01</span><strong>Sem runtime iOS</strong><small>Instale um runtime pelo Xcode</small></div>
+    </aside>
+
+    <main id="workspace" class="workspace">
+      <section class="device-stage" aria-label="Tela do dispositivo">
+        <div class="stage-toolbar">
+          <div><span class="status-live">LIVE</span><strong>Pixel 8 Pro</strong><small>192.168.56.102</small></div>
+          <div class="toolbar-actions">
+            <button aria-label="Rotacionar">↻</button><button aria-label="Capturar tela">⌗</button><button aria-label="Reiniciar">↺</button>
+            <button class="stop">Parar</button>
+          </div>
+        </div>
+        <div class="phone-wrap">
+          <div class="phone">
+            <div class="phone-camera"></div>
+            <div class="phone-screen">
+              <div class="mobile-status"><span>9:41</span><span>▮▮▮ 100%</span></div>
+              <div class="app-mark">HM</div>
+              <h2>Secure Banking</h2>
+              <p>Ambiente de teste autorizado</p>
+              <label>Email<input value="tester@lab.local" readonly></label>
+              <label>Senha<input value="••••••••••••" readonly></label>
+              <button>Entrar com biometria</button>
+              <small>Build 4.18.2-lab</small>
+            </div>
+          </div>
+          <div class="device-controls" aria-label="Controles rápidos">
+            <button data-panel="biometric"><span>◎</span>Biometria</button>
+            <button data-panel="camera"><span>◉</span>Câmera</button>
+            <button><span>⌖</span>Localização</button>
+            <button><span>⌁</span>Rede</button>
+          </div>
+        </div>
+        <div class="event-strip"><span>09:41:12</span><b>APP</b><p>br.com.huntmob.demo iniciado</p><span>evidence #2af9</span></div>
+      </section>
+
+      <aside class="analysis-panel">
+        <div class="analysis-tabs" role="tablist">
+          <button class="active" data-tab="reverse">Reverse</button>
+          <button data-tab="frida">Frida</button>
+          <button data-tab="proxy">Proxy</button>
+          <button data-tab="evidence">Evidências <span>12</span></button>
+        </div>
+        <section class="tab-content active" id="tab-reverse">
+          <div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2>Secure Banking</h2></div><span class="hash">SHA256 · 9d31…a72f</span></div>
+          <div class="artifact-meta"><span>APK</span><span>arm64-v8a</span><span>minSdk 26</span><span>target 35</span></div>
+          <div class="re-layout">
+            <div class="file-tree" role="tree" aria-label="Arquivos analisados">
+              <button class="folder open">⌄ app</button>
+              <button class="folder indent open">⌄ java</button>
+              <button class="file indent2 selected" data-file="AuthManager.kt">AuthManager.kt</button>
+              <button class="file indent2" data-file="BiometricGate.kt">BiometricGate.kt</button>
+              <button class="file indent2" data-file="NetworkClient.kt">NetworkClient.kt</button>
+              <button class="folder indent">› res</button>
+              <button class="folder indent">› assets</button>
+              <button class="file">AndroidManifest.xml</button>
+              <button class="folder">› lib/arm64-v8a</button>
+            </div>
+            <div class="code-pane">
+              <div class="code-head"><span id="fileName">AuthManager.kt</span><button id="openGhidra">Abrir no Ghidra</button></div>
+              <pre><code><span class="ln">01</span> class <i>AuthManager</i> {
+<span class="ln">02</span>   fun authenticate(token: String) {
+<span class="ln">03</span>     <em>require</em>(token.isNotBlank())
+<span class="ln">04</span>     session.exchange(token)
+<span class="ln">05</span>   }
+<span class="ln">06</span> }</code></pre>
+              <div class="finding"><span>M2</span><div><strong>Token em memória por tempo excessivo</strong><small>Provável · REA static · CWE-316</small></div></div>
+            </div>
+          </div>
+        </section>
+        <section class="tab-content" id="tab-frida">
+          <div class="panel-title"><div><span class="eyebrow">INSTRUMENTAÇÃO</span><h2>Frida scripts</h2></div><span class="safe-badge">Gate ativo</span></div>
+          <p class="panel-copy">Templates são executados somente no package autorizado e geram receipt.</p>
+          <button class="script-row"><span>TLS</span><div><strong>Diagnóstico de certificate pinning</strong><small>Valida hooks conhecidos sem exfiltrar tráfego</small></div><b>Preparar</b></button>
+          <button class="script-row"><span>BIO</span><div><strong>BiometricPrompt fixture</strong><small>Match, no match, cancel e lockout</small></div><b>Preparar</b></button>
+          <button class="script-row"><span>ROOT</span><div><strong>Root detection observability</strong><small>Registra checks executados pelo app</small></div><b>Preparar</b></button>
+          <div class="console"><div>$ frida-ps -Uai</div><span>Conecte um processo autorizado para iniciar.</span></div>
+        </section>
+        <section class="tab-content" id="tab-proxy">
+          <div class="panel-title"><div><span class="eyebrow">TRÁFEGO</span><h2>Burp workspace</h2></div><span class="safe-badge">CA isolada</span></div>
+          <div class="proxy-state"><span>8080</span><div><strong>Listener do laboratório</strong><small>Certificado exclusivo · expira ao encerrar</small></div><button>Configurar</button></div>
+          <div class="empty-state"><strong>Nenhuma requisição capturada</strong><p>Inicie a captura para enviar o tráfego deste device ao listener autorizado.</p><button class="primary">Iniciar captura</button></div>
+        </section>
+        <section class="tab-content" id="tab-evidence">
+          <div class="panel-title"><div><span class="eyebrow">PROOF PACK</span><h2>Evidências</h2></div><button class="outline">Exportar</button></div>
+          <ol class="timeline"><li><time>09:41:12</time><div><strong>Aplicativo iniciado</strong><small>receipt ev_2af9</small></div></li><li><time>09:40:58</time><div><strong>Artefato analisado pelo REA</strong><small>SHA256 verificado</small></div></li><li><time>09:40:21</time><div><strong>Engagement validado</strong><small>escopo mobile-lab</small></div></li></ol>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <dialog id="fixtureDialog">
+    <form method="dialog" class="dialog-shell">
+      <header><div><span class="eyebrow">FIXTURE CONTROLADA</span><h2 id="fixtureTitle">Biometria</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
+      <div class="camera-box"><video id="cameraPreview" autoplay playsinline muted></video><div id="cameraPlaceholder"><span>◎</span><p>A webcam só será ativada após sua confirmação.</p></div></div>
+      <p class="privacy-note">Nenhum template facial é criado ou armazenado. A imagem serve apenas como fixture visual desta sessão.</p>
+      <div class="fixture-options">
+        <button value="match" data-result="match">Reconhecimento aprovado</button>
+        <button value="no-match" data-result="no-match">Não reconhecido</button>
+        <button value="cancel" data-result="cancel">Usuário cancelou</button>
+      </div>
+      <button type="button" class="primary full" id="enableCamera">Ativar webcam</button>
+    </form>
+  </dialog>
+  <div class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

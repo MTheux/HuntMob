@@ -30,6 +30,22 @@ python3 -m unittest discover -s tests -v
 O comando `status` é somente leitura. Criação, inicialização e alteração de
 dispositivos serão adicionadas atrás dos gates de autorização.
 
+## Workbench UI
+
+O protótipo navegável fica em `web/` e pode ser aberto sem dependências:
+
+```bash
+PYTHONPATH=src python3 -m huntmob.cli ui
+```
+
+Acesse `http://127.0.0.1:8090`. A interface demonstra o workspace unificado de
+device, REA, Frida, proxy, evidências e fixtures. A webcam só é solicitada após
+ação explícita e nenhuma biometria real é armazenada.
+
+O servidor usa loopback por padrão. Exposição em VPN/Tailscale exige autenticação
+no gateway e a confirmação explícita `--authorized-remote`; não exponha o servidor
+de desenvolvimento diretamente à internet.
+
 ## Limites
 
 - Genymotion é o runtime Android; não oferece virtualização iOS.

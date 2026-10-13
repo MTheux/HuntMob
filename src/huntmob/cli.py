@@ -10,6 +10,7 @@ from .providers import provider_catalog
 from .contracts import Platform
 from .routing import select_runtime
 from .capabilities import capability_catalog
+from .ui import serve
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--controller-os", choices=("darwin", "windows", "linux"))
     plan.add_argument("--privileged-ios", action="store_true")
     plan.add_argument("--physical-hardware", action="store_true")
+    ui = commands.add_parser("ui", help="serve the HuntMob workbench")
+    ui.add_argument("--bind", default="127.0.0.1")
+    ui.add_argument("--port", default=8090, type=int)
+    ui.add_argument("--authorized-remote", action="store_true")
     return parser
 
 
@@ -46,6 +51,9 @@ def main() -> int:
             physical_hardware=args.physical_hardware,
         )
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "ui":
+        serve(args.bind, args.port, authorized_remote=args.authorized_remote)
         return 0
     return 2
 

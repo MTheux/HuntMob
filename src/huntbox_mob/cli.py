@@ -6,12 +6,14 @@ import argparse
 import json
 
 from .discovery import runtime_status
+from .providers import provider_catalog
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="huntbox-mob")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="inspect local runtime prerequisites")
+    commands.add_parser("providers", help="inspect local and optional runtime providers")
     return parser
 
 
@@ -21,6 +23,9 @@ def main() -> int:
         result = runtime_status()
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if result["ok"] else 2
+    if args.command == "providers":
+        print(json.dumps(provider_catalog(), indent=2, ensure_ascii=False))
+        return 0
     return 2
 
 

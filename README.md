@@ -20,6 +20,7 @@ HuntBox Mob Control Plane
 
 ```bash
 python3 -m huntbox_mob.cli status
+python3 -m huntbox_mob.cli providers
 python3 -m unittest discover -s tests -v
 ```
 
@@ -29,7 +30,8 @@ dispositivos serão adicionadas atrás dos gates de autorização.
 ## Limites
 
 - Genymotion é o runtime Android; não oferece virtualização iOS.
-- iOS usa Apple Simulator para compatibilidade e vPhone apenas em laboratório.
+- iOS local usa Apple Simulator; Corellium é o tier avançado e device clouds
+  são opcionais para recursos que exigem hardware real.
 - Biometria, câmera, localização e sensores são fixtures de teste, não bypasses.
 - Nenhuma execução contra aplicativo ou sistema sem autorização documentada.
 

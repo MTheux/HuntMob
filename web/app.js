@@ -7,6 +7,7 @@ const overlay = document.querySelector('#faceOverlay');
 const faceStatus = document.querySelector('#faceStatus');
 const enrollFace = document.querySelector('#enrollFace');
 const verifyFace = document.querySelector('#verifyFace');
+const newLabDialog = document.querySelector('#newLabDialog');
 let stream;
 let human;
 let enrolledEmbedding;
@@ -244,5 +245,30 @@ runFrida.addEventListener('click', () => {
   notify(containsActive ? 'Plano criado; confirme a ação ativa no worker' : 'Plano Frida criado com receipt obrigatório');
 });
 document.querySelector('#openGhidra').addEventListener('click', () => notify('Abertura no Ghidra aguardando worker REA'));
-document.querySelector('#newLab').addEventListener('click', () => notify('Wizard de criação será conectado ao Worker API'));
+document.querySelector('#newLab').addEventListener('click', () => newLabDialog.showModal());
+document.querySelector('#labSource').addEventListener('change', (event) => {
+  const source = event.target.value;
+  const labels = {
+    upload: 'Selecione um APK/AAB local; o worker calculará SHA-256 antes da instalação.',
+    firebase: 'O worker usará uma referência Firebase e credenciais guardadas no servidor.',
+    'signed-url': 'A URL assinada será resolvida apenas no worker e nunca ficará no navegador.',
+    'play-manual': 'A instalação pela loja requer login e autorização manual dentro do device.',
+  };
+  document.querySelector('#artifactField').hidden = source !== 'upload';
+  document.querySelector('#labPlan').textContent = labels[source];
+});
+document.querySelector('#newLabForm').addEventListener('submit', (event) => {
+  const packageValue = document.querySelector('#labPackage').value.trim();
+  if (!validPackage(packageValue) || !document.querySelector('#labApproval').checked) {
+    event.preventDefault();
+    notify('Informe um package válido e confirme a autorização');
+    return;
+  }
+  if (document.querySelector('#labSource').value === 'upload' && !document.querySelector('#labArtifact').files.length) {
+    event.preventDefault();
+    notify('Selecione um APK ou AAB');
+    return;
+  }
+  notify('Plano criado · aguardando worker AOSP HuntMob');
+});
 loadRuntime();

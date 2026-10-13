@@ -69,3 +69,16 @@ Docker. Docker Desktop is not treated as a portable KVM layer.
 The Compose manifest is intentionally not runnable until CI publishes a signed
 HuntMob worker image and the AOSP pipeline produces a verified base image. This
 prevents an implicit fallback to a third-party emulator image.
+
+## App-first launch
+
+The user selects an authorized APK/AAB, Firebase release resource, or a
+server-side signed artifact reference. HuntMob hashes and verifies the package,
+selects a compatible recipe, provisions the device headlessly, waits for
+`sys.boot_completed`, installs and launches only the allowlisted package, then
+attaches REA, Frida, proxy and evidence services. Display is streamed on demand;
+the emulator does not need a native window.
+
+Firebase credentials and signed URLs stay in the worker secret store. Play
+Store acquisition is manual/provider-mediated because tester identity, signing
+and licensing must not be bypassed.

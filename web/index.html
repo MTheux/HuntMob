@@ -204,6 +204,18 @@
       </section>
     </form>
   </dialog>
+  <dialog id="newLabDialog">
+    <form method="dialog" class="dialog-shell" id="newLabForm">
+      <header><div><span class="eyebrow">APP-FIRST</span><h2>Novo laboratório Android</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
+      <label class="lab-field">Engagement<input id="labEngagement" value="ENG-2026-041" required></label>
+      <label class="lab-field">Package ID<input id="labPackage" placeholder="br.com.empresa.app" required></label>
+      <label class="lab-field">Origem do aplicativo<select id="labSource"><option value="upload">APK/AAB local</option><option value="firebase">Firebase App Distribution</option><option value="signed-url">URL assinada autorizada</option><option value="play-manual">Play Store · instalação manual</option></select></label>
+      <label class="lab-field" id="artifactField">Artefato<input id="labArtifact" type="file" accept=".apk,.aab"></label>
+      <label class="lab-approval"><input id="labApproval" type="checkbox" required> Confirmo que o aplicativo e o engagement estão autorizados.</label>
+      <div class="lab-plan" id="labPlan">O worker será iniciado em modo headless e a tela abrirá somente quando o app estiver pronto.</div>
+      <button type="submit" class="primary full">Criar plano e iniciar quando o worker estiver pronto</button>
+    </form>
+  </dialog>
   <div class="toast" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js"></script>
   <script src="app.js"></script>

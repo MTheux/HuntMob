@@ -45,6 +45,14 @@ class UiServerTests(unittest.TestCase):
         self.assertIn('id="runtimePlaceholder"', html)
         self.assertIn("Nenhuma VM HuntMob em execução", javascript)
 
+    def test_new_lab_is_an_app_first_authorized_flow(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="newLabDialog"', html)
+        self.assertIn('value="firebase"', html)
+        self.assertIn('id="labApproval"', html)
+        self.assertIn("newLabDialog.showModal()", javascript)
+
     def test_frida_ui_uses_validated_package_and_curated_scripts(self):
         html = (web_root() / "index.html").read_text(encoding="utf-8")
         javascript = (web_root() / "app.js").read_text(encoding="utf-8")

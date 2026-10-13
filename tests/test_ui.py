@@ -45,6 +45,14 @@ class UiServerTests(unittest.TestCase):
         self.assertIn("Worker pronto · device desligado", javascript)
         self.assertIn("Android Emulator e imagem AOSP instalados", javascript)
 
+    def test_runtime_inventory_refreshes_and_hides_stopped_device(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="runtimeEmpty"', html)
+        self.assertIn("runtimeDevice').hidden = true", javascript)
+        self.assertIn("window.setInterval(loadRuntime, 2500)", javascript)
+        self.assertIn("Já existe um laboratório Android ativo", javascript)
+
     def test_loopback_is_allowed(self):
         validate_bind("127.0.0.1", False)
 

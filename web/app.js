@@ -14,6 +14,8 @@ let enrolledEmbedding;
 let runtimeDevice;
 let screenTimer;
 let csrfToken;
+let runtimeLoading = false;
+let runtimeWasOnline = false;
 
 async function authorizedPost(route, body) {
   if (!csrfToken) {
@@ -50,6 +52,8 @@ function startDeviceScreen() {
 }
 
 async function loadRuntime() {
+  if (runtimeLoading) return;
+  runtimeLoading = true;
   try {
     const response = await fetch('/api/runtime', { cache: 'no-store' });
     if (!response.ok) throw new Error(`runtime API ${response.status}`);
@@ -59,6 +63,9 @@ async function loadRuntime() {
     if (!runtimeDevice) {
       const workerReady = payload.ready === true;
       window.clearInterval(screenTimer);
+      runtimeWasOnline = false;
+      document.querySelector('#runtimeDevice').hidden = true;
+      document.querySelector('#runtimeEmpty').hidden = false;
       document.querySelector('#deviceScreen').hidden = true;
       document.querySelector('.phone-screen').hidden = false;
       document.querySelector('#runtimeName').textContent = workerReady ? 'Worker pronto · device desligado' : 'Runtime próprio em construção';
@@ -82,14 +89,17 @@ async function loadRuntime() {
       return;
     }
     const online = runtimeDevice.state === 'on';
+    document.querySelector('#runtimeDevice').hidden = false;
+    document.querySelector('#runtimeEmpty').hidden = true;
     document.querySelectorAll('.toolbar-actions button').forEach((button) => { button.disabled = !online; });
     document.querySelector('#deviceViewport').classList.remove('runtime-unavailable');
     document.querySelector('#runtimePlaceholder').hidden = true;
     if (online) startDeviceScreen();
-    if (online) {
+    if (online && !runtimeWasOnline) {
       loadInstalledApps();
       refreshProxyStatus();
     }
+    runtimeWasOnline = online;
     if (online) {
       document.querySelector('#eventTime').textContent = new Date().toLocaleTimeString('pt-BR');
       document.querySelector('#eventKind').textContent = 'READY';
@@ -114,6 +124,8 @@ async function loadRuntime() {
     document.querySelector('#runtimeName').textContent = 'Runtime indisponível';
     document.querySelector('#runtimeMeta').textContent = error.message;
     document.querySelector('#runtimeState').textContent = 'OFFLINE';
+  } finally {
+    runtimeLoading = false;
   }
 }
 
@@ -447,6 +459,11 @@ function resetNewLabProgress() {
 
 document.querySelector('#newLab').addEventListener('click', () => {
   resetNewLabProgress();
+  if (runtimeDevice?.state === 'on') {
+    labError.textContent = 'Já existe um laboratório Android ativo. Encerre ou descarte a sessão atual antes de criar outro.';
+    labError.hidden = false;
+    createLabButton.disabled = true;
+  }
   newLabDialog.showModal();
 });
 document.querySelector('#closeNewLab').addEventListener('click', () => newLabDialog.close('cancel'));
@@ -469,6 +486,11 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
   const source = document.querySelector('#labSource').value;
   const errorBox = labError;
   errorBox.hidden = true;
+  if (runtimeDevice?.state === 'on') {
+    errorBox.textContent = 'Já existe um laboratório Android ativo. Encerre a sessão atual antes de criar outro.';
+    errorBox.hidden = false;
+    return;
+  }
   if (packageValue && !validPackage(packageValue)) {
     errorBox.textContent = 'Package ID inválido. Use o formato br.com.empresa.app ou deixe vazio para detecção automática.';
     errorBox.hidden = false;
@@ -515,3 +537,4 @@ document.querySelector('#destroyDevice').addEventListener('click', async () => {
 });
 loadRuntime();
 refreshProxyStatus();
+window.setInterval(loadRuntime, 2500);

@@ -56,7 +56,8 @@ class GenymotionProvider:
         instances = 0
         if list_result.returncode == 0:
             try:
-                instances = len(json.loads(list_result.stdout).get("devices", {}))
+                inventory = json.loads(list_result.stdout)
+                instances = len(inventory.get("instances", inventory.get("devices", [])))
             except (json.JSONDecodeError, AttributeError, TypeError):
                 error = "gmtool returned invalid device inventory JSON"
         return ProviderStatus(
@@ -70,6 +71,100 @@ class GenymotionProvider:
             ("Android only", "device creation requires an explicit approval gate"),
             error,
         )
+
+    def inventory(self, runner: CommandRunner = _run) -> List[Dict[str, object]]:
+        """Return the real gmtool inventory without starting or changing a VM."""
+        if not self.executable.exists():
+            return []
+        result = runner((str(self.executable), "--format", "json", "admin", "list"))
+        if result.returncode != 0:
+            return []
+        try:
+            payload = json.loads(result.stdout)
+            instances = payload.get("instances", payload.get("devices", []))
+            return list(instances) if isinstance(instances, list) else list(instances.values())
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            return []
+
+
+class AndroidBiometricProbe:
+    """Read-only Android biometric capability probe.
+
+    Genymotion exposes biometric outcomes through its own widget. HuntMob only
+    enables those controls when Android advertises a fingerprint implementation;
+    it never reports a fixture as injected when the guest cannot receive it.
+    """
+
+    adb = Path(
+        "/Applications/Genymotion.app/Contents/MacOS/player.app/Contents/MacOS/tools/adb"
+    )
+    scenarios = (
+        "recognized",
+        "unrecognized",
+        "dirty",
+        "partial",
+        "insufficient",
+        "too-fast",
+    )
+
+    def probe(
+        self, serial: str, android_api: int, runner: CommandRunner = _run
+    ) -> Dict[str, object]:
+        result: Dict[str, object] = {
+            "provider": "genymotion",
+            "serial": serial,
+            "android_api": android_api,
+            "supported": False,
+            "transport": "genymotion-widget",
+            "scenarios": list(self.scenarios),
+            "automatic_recognition": True,
+            "reason": "",
+        }
+        if not serial or not self.adb.exists():
+            result["reason"] = "ADB serial or Genymotion ADB is unavailable"
+            return result
+        if android_api < 33:
+            result["reason"] = "Genymotion biometrics requires Android 13 (API 33) or newer"
+            return result
+        feature = runner(
+            (str(self.adb), "-s", serial, "shell", "pm", "list", "features")
+        )
+        if feature.returncode != 0:
+            result["reason"] = "Android device is not reachable through ADB"
+            return result
+        has_fingerprint = "android.hardware.fingerprint" in feature.stdout
+        result["supported"] = has_fingerprint
+        result["reason"] = (
+            "Use the Genymotion Biometrics widget to inject the selected sensor outcome"
+            if has_fingerprint
+            else "Android image does not advertise a fingerprint implementation"
+        )
+        return result
+
+
+def genymotion_runtime(runner: CommandRunner = _run) -> Dict[str, object]:
+    """Describe installed Genymotion devices and their real biometric readiness."""
+    devices: List[Dict[str, object]] = []
+    biometric_probe = AndroidBiometricProbe()
+    for instance in GenymotionProvider().inventory(runner):
+        recipe = instance.get("recipe", {}) if isinstance(instance, dict) else {}
+        osimage = recipe.get("osimage", {}) if isinstance(recipe, dict) else {}
+        api_text = str(osimage.get("api_version", "0"))
+        api = int(api_text) if api_text.isdigit() else 0
+        serial = str(instance.get("adb_serial", ""))
+        devices.append(
+            {
+                "uuid": instance.get("uuid", ""),
+                "name": instance.get("name", "Unknown device"),
+                "state": instance.get("state", "unknown"),
+                "adb_serial": serial,
+                "android_version": osimage.get("android_version", "unknown"),
+                "api": api,
+                "architecture": osimage.get("architecture", "unknown"),
+                "biometrics": biometric_probe.probe(serial, api, runner),
+            }
+        )
+    return {"provider": "genymotion", "devices": devices}
 
 
 class AppleSimulatorProvider:

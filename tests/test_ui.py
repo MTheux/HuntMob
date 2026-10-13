@@ -1,11 +1,14 @@
 import unittest
 
-from huntmob.ui import validate_bind, web_root
+from huntmob.ui import HuntMobHandler, validate_bind, web_root
 
 
 class UiServerTests(unittest.TestCase):
     def test_ui_assets_exist(self):
         self.assertTrue((web_root() / "index.html").is_file())
+
+    def test_runtime_api_handler_is_installed(self):
+        self.assertTrue(hasattr(HuntMobHandler, "do_GET"))
 
     def test_loopback_is_allowed(self):
         validate_bind("127.0.0.1", False)
@@ -30,6 +33,11 @@ class UiServerTests(unittest.TestCase):
         self.assertIn("enrolledEmbedding = undefined", javascript)
         self.assertNotIn("localStorage", javascript)
         self.assertNotIn("indexedDB", javascript)
+
+    def test_biometric_widget_matches_provider_outcomes(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        for outcome in ("recognized", "unrecognized", "dirty", "partial", "insufficient", "too-fast"):
+            self.assertIn(f'data-biometric="{outcome}"', html)
 
     def test_frida_ui_uses_validated_package_and_curated_scripts(self):
         html = (web_root() / "index.html").read_text(encoding="utf-8")

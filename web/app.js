@@ -10,6 +10,37 @@ const verifyFace = document.querySelector('#verifyFace');
 let stream;
 let human;
 let enrolledEmbedding;
+let runtimeDevice;
+
+async function loadRuntime() {
+  try {
+    const response = await fetch('/api/runtime', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`runtime API ${response.status}`);
+    const payload = await response.json();
+    runtimeDevice = payload.devices?.[0];
+    document.querySelector('#runtimeCount').textContent = String(payload.devices?.length || 0);
+    if (!runtimeDevice) throw new Error('nenhum device Genymotion instalado');
+    const online = runtimeDevice.state === 'on';
+    document.querySelector('#runtimeName').textContent = runtimeDevice.name;
+    document.querySelector('#runtimeMeta').textContent = `Android ${runtimeDevice.android_version} · API ${runtimeDevice.api} · ${runtimeDevice.architecture}`;
+    document.querySelector('#stageDeviceName').textContent = runtimeDevice.name;
+    document.querySelector('#stageSerial').textContent = runtimeDevice.adb_serial || 'ADB indisponível';
+    document.querySelector('#runtimeState').textContent = online ? 'ONLINE' : runtimeDevice.state.toUpperCase();
+    const dot = document.querySelector('#runtimeDot');
+    dot.className = online ? 'online-dot' : 'offline-dot';
+    dot.setAttribute('aria-label', online ? 'Online' : 'Offline');
+    const bio = runtimeDevice.biometrics;
+    const status = document.querySelector('#biometricStatus');
+    status.textContent = bio.supported ? 'Fingerprint disponível · use o widget Biometrics do Genymotion' : `Indisponível · ${bio.reason}`;
+    status.className = `face-status ${bio.supported ? 'ready' : 'error'}`;
+    document.querySelectorAll('[data-biometric]').forEach((button) => { button.disabled = !bio.supported; });
+    document.querySelector('#automaticBiometric').disabled = !bio.supported;
+  } catch (error) {
+    document.querySelector('#runtimeName').textContent = 'Runtime indisponível';
+    document.querySelector('#runtimeMeta').textContent = error.message;
+    document.querySelector('#runtimeState').textContent = 'OFFLINE';
+  }
+}
 
 function setFaceStatus(message, state = '') {
   faceStatus.textContent = message;
@@ -81,8 +112,19 @@ document.querySelectorAll('.file').forEach((file) => file.addEventListener('clic
 }));
 
 document.querySelectorAll('[data-panel]').forEach((button) => button.addEventListener('click', () => {
-  document.querySelector('#fixtureTitle').textContent = button.dataset.panel === 'camera' ? 'Câmera' : 'Biometria facial';
+  const camera = button.dataset.panel === 'camera';
+  document.querySelector('#fixtureTitle').textContent = camera ? 'Reconhecimento facial' : 'Biometria do device';
+  document.querySelector('#deviceBiometric').hidden = camera;
+  document.querySelector('#faceRecognition').hidden = !camera;
   dialog.showModal();
+}));
+
+document.querySelectorAll('[data-biometric]').forEach((button) => button.addEventListener('click', () => {
+  if (!runtimeDevice?.biometrics?.supported) {
+    notify('Imagem atual não suporta fingerprint; use Android 13+');
+    return;
+  }
+  notify(`Selecione “${button.textContent.trim()}” no widget Biometrics do Genymotion`);
 }));
 
 document.querySelector('#enableCamera').addEventListener('click', async () => {
@@ -183,3 +225,4 @@ runFrida.addEventListener('click', () => {
 });
 document.querySelector('#openGhidra').addEventListener('click', () => notify('Abertura no Ghidra aguardando worker REA'));
 document.querySelector('#newLab').addEventListener('click', () => notify('Wizard de criação será conectado ao Worker API'));
+loadRuntime();

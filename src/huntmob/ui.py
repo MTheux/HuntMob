@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Type
+from urllib.parse import urlparse
+
+from .providers import genymotion_runtime
 
 
 LOOPBACKS = {"127.0.0.1", "::1", "localhost"}
@@ -22,6 +26,27 @@ def web_root() -> Path:
     return root
 
 
+class HuntMobHandler(SimpleHTTPRequestHandler):
+    """Static workbench plus read-only, same-origin runtime discovery."""
+
+    def __init__(self, *args, directory: str | None = None, **kwargs) -> None:
+        super().__init__(*args, directory=directory or str(web_root()), **kwargs)
+
+    def do_GET(self) -> None:  # noqa: N802 - inherited HTTP API name
+        route = urlparse(self.path).path
+        if route == "/api/runtime":
+            payload = genymotion_runtime()
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = 8090,
@@ -30,7 +55,7 @@ def serve(
     server_class: Type[ThreadingHTTPServer] = ThreadingHTTPServer,
 ) -> None:
     validate_bind(host, authorized_remote)
-    handler = lambda *args, **kwargs: SimpleHTTPRequestHandler(  # noqa: E731
+    handler = lambda *args, **kwargs: HuntMobHandler(  # noqa: E731
         *args, directory=str(web_root()), **kwargs
     )
     with server_class((host, port), handler) as server:

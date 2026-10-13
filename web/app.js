@@ -38,26 +38,16 @@ async function deviceAction(action) {
 
 function startDeviceScreen() {
   const screen = document.querySelector('#deviceScreen');
-  const refresh = () => {
-    if (!runtimeWasOnline && !runtimeDevice) return;
-    const frame = new Image();
-    frame.onload = () => {
-      if (!runtimeDevice) return;
-      screen.dataset.frameWidth = String(frame.naturalWidth);
-      screen.dataset.frameHeight = String(frame.naturalHeight);
-      screen.src = frame.src;
-    };
-    frame.onerror = () => { screenTimer = window.setTimeout(refresh, 1500); };
-    frame.src = `/api/device/screenshot?t=${Date.now()}`;
-  };
   screen.onload = () => {
     screen.hidden = false;
     document.querySelector('.phone-screen').hidden = true;
-    screenTimer = window.setTimeout(refresh, 400);
   };
-  screen.onerror = () => { screen.hidden = true; screenTimer = window.setTimeout(refresh, 1500); };
-  refresh();
-  window.clearInterval(screenTimer);
+  screen.onerror = () => {
+    if (runtimeDevice) screenTimer = window.setTimeout(() => { screen.src = `/api/device/stream?t=${Date.now()}`; }, 1000);
+  };
+  screen.dataset.frameWidth = '540';
+  screen.dataset.frameHeight = '1200';
+  screen.src = `/api/device/stream?t=${Date.now()}`;
 }
 
 async function loadRuntime() {
@@ -76,6 +66,7 @@ async function loadRuntime() {
       document.querySelector('#runtimeDevice').hidden = true;
       document.querySelector('#runtimeEmpty').hidden = false;
       document.querySelector('#deviceScreen').hidden = true;
+      document.querySelector('#deviceScreen').removeAttribute('src');
       document.querySelector('.phone-screen').hidden = false;
       document.querySelector('#runtimeName').textContent = workerReady ? 'Worker pronto · device desligado' : 'Runtime próprio em construção';
       document.querySelector('#runtimeMeta').textContent = workerReady ? 'Android Emulator e imagem AOSP instalados' : (payload.limitations?.join(' · ') || 'Imagem AOSP HuntMob necessária');

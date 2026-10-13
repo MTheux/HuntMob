@@ -14,7 +14,7 @@ class UiServerTests(unittest.TestCase):
         html = (web_root() / "index.html").read_text(encoding="utf-8")
         javascript = (web_root() / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="deviceScreen"', html)
-        self.assertIn("/api/device/screenshot", javascript)
+        self.assertIn("/api/device/stream", javascript)
 
     def test_files_tab_exposes_apk_and_sandbox_separately(self):
         html = (web_root() / "index.html").read_text(encoding="utf-8")

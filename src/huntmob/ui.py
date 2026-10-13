@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 import secrets
 import tempfile
+import shutil
+import subprocess
+import threading
+import select
+import socket
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Type
@@ -16,6 +21,7 @@ from .android_worker import AndroidWorker
 
 LOOPBACKS = {"127.0.0.1", "::1", "localhost"}
 SESSION_TOKEN = secrets.token_urlsafe(32)
+VIDEO_SLOTS = threading.BoundedSemaphore(2)
 
 
 def validate_bind(host: str, authorized_remote: bool) -> None:
@@ -39,6 +45,65 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - inherited HTTP API name
         parsed = urlparse(self.path)
         route = parsed.path
+        if route == "/api/device/stream":
+            worker = AndroidWorker()
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg or not worker.sdk or worker.status()["state"] != "device":
+                self.send_error(503, "video stream unavailable")
+                return
+            if not VIDEO_SLOTS.acquire(blocking=False):
+                self.send_error(503, "video stream capacity reached")
+                return
+            recorder = decoder = None
+            try:
+                seed = subprocess.run(
+                    (ffmpeg, "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vf", "scale=540:1200", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"),
+                    input=worker.screenshot(), capture_output=True, timeout=15,
+                ).stdout
+                recorder = subprocess.Popen(
+                    (str(worker.sdk.adb), "-s", worker.serial, "exec-out", "screenrecord",
+                     "--output-format=h264", "--size", "540x1200", "--bit-rate", "2000000", "--time-limit", "0", "-"),
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                )
+                decoder = subprocess.Popen(
+                    (ffmpeg, "-hide_banner", "-loglevel", "error", "-fflags", "+genpts", "-flags", "low_delay",
+                     "-probesize", "32", "-analyzeduration", "0", "-f", "h264", "-i", "pipe:0",
+                     "-q:v", "5", "-flush_packets", "1", "-f", "mpjpeg", "-boundary_tag", "huntmob", "pipe:1"),
+                    stdin=recorder.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                )
+                recorder.stdout.close()
+                self.send_response(200)
+                self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=huntmob")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                if seed:
+                    first_frame = b"--huntmob\r\nContent-type: image/jpeg\r\nContent-length: " + str(len(seed)).encode() + b"\r\n\r\n" + seed + b"\r\n"
+                    self.wfile.write(first_frame + first_frame)
+                    self.wfile.flush()
+                while True:
+                    readable, _, _ = select.select([decoder.stdout, self.connection], [], [], 1)
+                    if self.connection in readable and not self.connection.recv(1, socket.MSG_PEEK):
+                        break
+                    if decoder.stdout not in readable:
+                        continue
+                    chunk = decoder.stdout.read1(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            finally:
+                for process in (decoder, recorder):
+                    if process is not None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                VIDEO_SLOTS.release()
+            return
         if route == "/api/runtime":
             payload = huntmob_runtime()
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

@@ -449,12 +449,17 @@ document.querySelector('#proxyPort').addEventListener('change', refreshProxyStat
 let networkFlows = [];
 let networkHost = '';
 let networkSelection;
-let networkSide = 'request';
 function renderNetworkDetail() {
   if (!networkSelection) return;
-  const message = networkSelection[networkSide];
   document.querySelector('#networkSelected').textContent = `${networkSelection.method} ${networkSelection.host}${networkSelection.path}`;
-  document.querySelector('#networkDetail').textContent = `${networkSide.toUpperCase()}\n${Object.entries(message.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\n')}\n\n${message.body || '(body vazio)'}`;
+  const request = networkSelection.request;
+  document.querySelector('#requestEditor').value = `${networkSelection.method} ${networkSelection.path} HTTP/1.1\n${Object.entries(request.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\n')}\n\n${request.body || ''}`;
+  renderResponse(networkSelection.response, networkSelection.status);
+  document.querySelector('#sendRequest').disabled = false;
+  document.querySelector('#sendStatus').textContent = 'Resposta capturada';
+}
+function renderResponse(message, status) {
+  document.querySelector('#responseEditor').textContent = `HTTP ${status ?? 'sem resposta'}\n${Object.entries(message.headers || {}).map(([key, value]) => `${key}: ${value}`).join('\n')}\n\n${message.body || ''}`;
 }
 function renderNetwork() {
   const hosts = [...new Set(networkFlows.map(flow => flow.host))].sort();
@@ -496,8 +501,30 @@ async function loadNetwork() {
 }
 document.querySelector('#openProxyWeb').addEventListener('click', loadNetwork);
 ['#networkSearch', '#networkMethod', '#networkStatus'].forEach(selector => document.querySelector(selector).addEventListener('input', renderNetwork));
-document.querySelector('#showRequest').addEventListener('click', () => { networkSide = 'request'; renderNetworkDetail(); });
-document.querySelector('#showResponse').addEventListener('click', () => { networkSide = 'response'; renderNetworkDetail(); });
+document.querySelector('#sendRequest').addEventListener('click', async () => {
+  if (!networkSelection) return;
+  const button = document.querySelector('#sendRequest');
+  const status = document.querySelector('#sendStatus');
+  const raw = document.querySelector('#requestEditor').value.replace(/\r\n/g, '\n');
+  const boundary = raw.indexOf('\n\n');
+  const head = (boundary < 0 ? raw : raw.slice(0, boundary)).split('\n');
+  const first = head.shift().match(/^([A-Z]+) (\S+) HTTP\/1\.[01]$/);
+  if (!first) { status.textContent = 'Use MÉTODO /caminho HTTP/1.1 na primeira linha.'; return; }
+  const headers = {};
+  for (const line of head) {
+    const colon = line.indexOf(':');
+    if (colon <= 0) { status.textContent = 'Header inválido: use Nome: valor.'; return; }
+    headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
+  }
+  button.disabled = true;
+  status.textContent = 'Enviando…';
+  try {
+    const result = await authorizedPost('/api/network/send', {flow_id: networkSelection.id, method: first[1], path: first[2], headers, body: boundary < 0 ? '' : raw.slice(boundary + 2)});
+    renderResponse(result, result.status);
+    status.textContent = `${result.status} · ${result.duration_ms} ms${result.truncated ? ' · preview limitado' : ''}`;
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
+});
 window.setInterval(() => { if (document.querySelector('#tab-proxy').classList.contains('active')) loadNetwork(); }, 2000);
 loadNetwork();
 const createLabButton = document.querySelector('#createLab');

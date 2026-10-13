@@ -51,6 +51,7 @@ class NetworkCapture:
         ended = response.timestamp_end if response else None
         self.flows.append({
             "id": flow.id, "method": request.method, "host": request.host, "path": path,
+            "port": request.port, "scheme": request.scheme,
             "status": response.status_code if response else None,
             "duration_ms": round((ended - request.timestamp_start) * 1000) if ended else None,
             "request": {"headers": redact(dict(request.headers)), "body": body(request)},

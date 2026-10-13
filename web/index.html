@@ -162,7 +162,7 @@
           <div class="network-stats" id="networkStats">0 requisições · 0 hosts · 0 erros HTTP</div>
           <div class="network-filters"><input id="networkSearch" type="search" placeholder="Buscar host ou caminho" aria-label="Buscar requisições"><select id="networkMethod" aria-label="Método HTTP"><option value="">Métodos</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select><select id="networkStatus" aria-label="Status HTTP"><option value="">Status HTTP</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option></select></div>
           <div class="network-grid"><aside id="networkHosts" aria-label="Hosts capturados"></aside><div class="network-records"><div class="network-columns">MÉTODO · HOST / CAMINHO · HTTP · DURAÇÃO</div><div id="networkRows"><p>Nenhuma requisição capturada nesta sessão.</p></div></div></div>
-          <section class="network-detail" aria-label="Detalhe da requisição"><strong id="networkSelected">Selecione uma requisição</strong><div class="network-detail-tabs"><button class="outline" id="showRequest">Request</button><button class="outline" id="showResponse">Response</button></div><pre id="networkDetail">Headers e body do registro selecionado aparecerão aqui. Credenciais conhecidas são redigidas.</pre></section>
+          <section class="network-detail" aria-label="Detalhe da requisição"><strong id="networkSelected">Selecione uma requisição</strong><div class="http-split"><section><header><strong>Request</strong><button class="primary" id="sendRequest" disabled>Send</button></header><textarea id="requestEditor" aria-label="Editar request HTTP" spellcheck="false" placeholder="Selecione um registro para editar método, caminho, headers e body."></textarea></section><section><header><strong>Response</strong><span id="sendStatus" role="status">Aguardando seleção</span></header><pre id="responseEditor">A resposta capturada ou enviada aparecerá aqui.</pre></section></div></section>
         </section>
         <section class="tab-content" id="tab-evidence">
           <div class="panel-title"><div><span class="eyebrow">PROOF PACK</span><h2>Evidências</h2></div><button class="outline">Exportar</button></div>
@@ -229,6 +229,6 @@
   </dialog>
   <div class="toast" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js"></script>
-  <script src="app.js?v=network-1"></script>
+  <script src="app.js?v=network-2"></script>
 </body>
 </html>

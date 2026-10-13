@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .providers import huntmob_runtime
 from .android_worker import AndroidWorker
+from .network_replay import replay
 
 
 LOOPBACKS = {"127.0.0.1", "::1", "localhost"}
@@ -189,7 +190,7 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - inherited HTTP API name
         route = urlparse(self.path).path
-        if route not in {"/api/device/action", "/api/proxy", "/api/reverse", "/api/device/upload", "/api/device/input"}:
+        if route not in {"/api/device/action", "/api/proxy", "/api/reverse", "/api/device/upload", "/api/device/input", "/api/network/send"}:
             self.send_error(404)
             return
         if self.headers.get("X-HuntMob-CSRF") != SESSION_TOKEN:
@@ -236,7 +237,10 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             status = 403
         else:
             worker = AndroidWorker()
-            if route == "/api/device/input":
+            if route == "/api/network/send":
+                result = replay(payload)
+                status = 200 if result.get("ok") else 409
+            elif route == "/api/device/input":
                 result = worker.device_input(payload)
                 status = 200 if result.get("ok") else 409
             elif route == "/api/reverse":

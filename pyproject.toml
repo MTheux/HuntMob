@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "huntbox-mob"
+version = "0.1.0"
+description = "Governed Android and iOS analysis runtime for HuntBox/Draxen"
+requires-python = ">=3.9"
+
+[project.scripts]
+huntbox-mob = "huntbox_mob.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

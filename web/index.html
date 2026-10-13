@@ -73,8 +73,8 @@
         <div class="stage-toolbar">
           <div><span class="status-live" id="runtimeState">PROBING</span><strong id="stageDeviceName">HuntMob Runtime</strong><small id="stageSerial">aguardando worker</small></div>
           <div class="toolbar-actions">
-            <button aria-label="Rotacionar">↻</button><button aria-label="Capturar tela">⌗</button><button aria-label="Reiniciar">↺</button>
-            <button class="stop">Parar</button>
+            <button aria-label="Rotacionar">↻</button><button aria-label="Capturar tela">⌗</button><button aria-label="Reiniciar" id="rebootDevice">↺</button>
+            <button class="stop" id="stopDevice">Encerrar</button>
           </div>
         </div>
         <div class="phone-wrap" id="deviceViewport">
@@ -107,6 +107,7 @@
         <div class="analysis-tabs" role="tablist">
           <button class="active" data-tab="reverse">Reverse</button>
           <button data-tab="frida">Frida</button>
+          <button data-tab="files">Arquivos</button>
           <button data-tab="proxy">Proxy</button>
           <button data-tab="evidence">Evidências <span>12</span></button>
         </div>
@@ -135,6 +136,14 @@
 <span class="ln">06</span> }</code></pre>
               <div class="finding"><span>M2</span><div><strong>Token em memória por tempo excessivo</strong><small>Provável · REA static · CWE-316</small></div></div>
             </div>
+          </div>
+        </section>
+        <section class="tab-content" id="tab-files">
+          <div class="panel-title"><div><span class="eyebrow">DEVICE + ARTIFACT</span><h2>Arquivos do aplicativo</h2></div><button class="outline" id="refreshFiles">Atualizar</button></div>
+          <div class="files-summary"><span>Package</span><strong id="filesPackage">nenhum selecionado</strong></div>
+          <div class="files-layout">
+            <section><header><strong>Conteúdo do APK</strong><small>Manifest, DEX, recursos, assets e bibliotecas</small></header><div class="runtime-file-tree" id="apkFiles"><p>Instale ou selecione um aplicativo autorizado.</p></div></section>
+            <section><header><strong>Sandbox do aplicativo</strong><small id="sandboxRoot">/data/user/0/&lt;package&gt;</small></header><div class="runtime-file-tree" id="sandboxFiles"><p>Aguardando package.</p></div></section>
           </div>
         </section>
         <section class="tab-content" id="tab-frida">
@@ -209,12 +218,20 @@
     <form method="dialog" class="dialog-shell" id="newLabForm">
       <header><div><span class="eyebrow">APP-FIRST</span><h2>Novo laboratório Android</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
       <label class="lab-field">Engagement<input id="labEngagement" value="ENG-2026-041" required></label>
-      <label class="lab-field">Package ID<input id="labPackage" placeholder="br.com.empresa.app" required></label>
-      <label class="lab-field">Origem do aplicativo<select id="labSource"><option value="upload">APK/AAB local</option><option value="firebase">Firebase App Distribution</option><option value="signed-url">URL assinada autorizada</option><option value="play-manual">Play Store · instalação manual</option></select></label>
-      <label class="lab-field" id="artifactField">Artefato<input id="labArtifact" type="file" accept=".apk,.aab"></label>
+      <label class="lab-field">Package ID <small>opcional; detectado do APK quando possível</small><input id="labPackage" placeholder="br.com.empresa.app"></label>
+      <label class="lab-field">Origem do aplicativo<select id="labSource"><option value="empty">Device vazio</option><option value="upload">APK/AAB local</option><option value="firebase">Firebase App Distribution</option><option value="signed-url">URL assinada autorizada</option><option value="play-manual">Play Store · instalação manual</option></select></label>
+      <label class="lab-field" id="artifactField" hidden>Artefato<input id="labArtifact" type="file" accept=".apk,.aab"></label>
       <label class="lab-approval"><input id="labApproval" type="checkbox" required> Confirmo que o aplicativo e o engagement estão autorizados.</label>
-      <div class="lab-plan" id="labPlan">O worker será iniciado em modo headless e a tela abrirá somente quando o app estiver pronto.</div>
-      <button type="submit" class="primary full">Criar plano e iniciar quando o worker estiver pronto</button>
+      <div class="lab-plan" id="labPlan">Cria um Android vazio em modo headless. Você poderá instalar o app depois.</div>
+      <div class="form-error" id="labError" role="alert" hidden></div>
+      <button type="submit" class="primary full">Criar e iniciar laboratório</button>
+    </form>
+  </dialog>
+  <dialog id="sessionDialog">
+    <form method="dialog" class="dialog-shell">
+      <header><div><span class="eyebrow">SESSÃO DO DEVICE</span><h2>Encerrar laboratório?</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
+      <p class="privacy-note">Desligar preserva aplicativos e dados. Encerrar e descartar apaga definitivamente o AVD desta sessão.</p>
+      <div class="session-actions"><button value="cancel" class="outline">Cancelar</button><button type="button" id="powerOffDevice" class="outline">Desligar e preservar</button><button type="button" id="destroyDevice" class="stop">Encerrar e descartar tudo</button></div>
     </form>
   </dialog>
   <div class="toast" role="status" aria-live="polite"></div>

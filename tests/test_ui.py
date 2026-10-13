@@ -16,6 +16,14 @@ class UiServerTests(unittest.TestCase):
         self.assertIn('id="deviceScreen"', html)
         self.assertIn("/api/device/screenshot", javascript)
 
+    def test_files_tab_exposes_apk_and_sandbox_separately(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('data-tab="files"', html)
+        self.assertIn('id="apkFiles"', html)
+        self.assertIn('id="sandboxFiles"', html)
+        self.assertIn("/api/device/files", javascript)
+
     def test_loopback_is_allowed(self):
         validate_bind("127.0.0.1", False)
 
@@ -58,6 +66,14 @@ class UiServerTests(unittest.TestCase):
         self.assertIn('value="firebase"', html)
         self.assertIn('id="labApproval"', html)
         self.assertIn("newLabDialog.showModal()", javascript)
+        self.assertIn('value="empty"', html)
+
+    def test_destructive_session_end_requires_confirmation_dialog(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="sessionDialog"', html)
+        self.assertIn('id="destroyDevice"', html)
+        self.assertIn("deviceAction('destroy')", javascript)
 
     def test_frida_ui_uses_validated_package_and_curated_scripts(self):
         html = (web_root() / "index.html").read_text(encoding="utf-8")

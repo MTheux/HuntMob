@@ -28,6 +28,20 @@ class AndroidWorkerTests(unittest.TestCase):
     def test_screenshot_fails_closed_when_device_is_offline(self, _status):
         self.assertEqual(AndroidWorker(self.sdk).screenshot(), b"")
 
+    def test_file_browser_rejects_invalid_package(self):
+        result = AndroidWorker(self.sdk).app_files("bad;package")
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["blocked"])
+
+    @patch.object(AndroidWorker, "status", return_value={"state": "offline"})
+    @patch("huntmob.android_worker._run")
+    def test_destroy_targets_only_fixed_avd(self, run, _status):
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        result = AndroidWorker(self.sdk).destroy()
+        self.assertTrue(result["ok"])
+        command = run.call_args.args[0]
+        self.assertEqual(command[-1], "huntmob_api35_arm64")
+
 
 if __name__ == "__main__":
     unittest.main()

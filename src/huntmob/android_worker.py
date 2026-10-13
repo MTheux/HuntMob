@@ -7,9 +7,14 @@ import platform
 import shutil
 import subprocess
 import time
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence
+
+
+PACKAGE_ID = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
 
 
 SDK_CANDIDATES = (
@@ -135,6 +140,33 @@ class AndroidWorker:
         result = _run((str(self.sdk.adb), "-s", self.serial, "emu", "kill"))
         return {"ok": result.returncode == 0, "state": "stopping", "error": result.stderr.strip()}
 
+    def reboot(self, timeout: int = 180) -> Dict[str, object]:
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        result = _run((str(self.sdk.adb), "-s", self.serial, "reboot"))
+        if result.returncode != 0:
+            return {"ok": False, "blocked": True, "reason": "reboot command failed"}
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.status()
+            if status["state"] == "device" and status.get("properties", {}).get("sys.boot_completed") == "1":
+                return {"ok": True, "state": "device", "rebooted": True}
+            time.sleep(2)
+        return {"ok": False, "blocked": True, "reason": "reboot timed out"}
+
+    def destroy(self, timeout: int = 45) -> Dict[str, object]:
+        """Delete only the fixed HuntMob AVD after stopping its emulator."""
+        if not self.sdk:
+            return {"ok": False, "reason": "Android SDK unavailable"}
+        if self.status()["state"] == "device":
+            self.stop()
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline and self.status()["state"] != "offline":
+                time.sleep(1)
+        result = _run((str(self.sdk.avdmanager), "delete", "avd", "--name", self.avd_name), timeout=60)
+        deleted = result.returncode == 0 or "does not exist" in (result.stderr + result.stdout).lower()
+        return {"ok": deleted, "state": "destroyed" if deleted else "error", "error": "" if deleted else result.stderr.strip()}
+
     def install_and_launch(self, apk: Path, package_id: str) -> Dict[str, object]:
         if not apk.is_file() or apk.suffix.lower() != ".apk":
             return {"ok": False, "blocked": True, "reason": "an existing APK is required"}
@@ -154,3 +186,48 @@ class AndroidWorker:
             capture_output=True, timeout=15, check=False,
         )
         return result.stdout if result.returncode == 0 and result.stdout.startswith(b"\x89PNG") else b""
+
+    def app_files(self, package_id: str) -> Dict[str, object]:
+        """List APK entries and the authorized app sandbox without changing it."""
+        if not PACKAGE_ID.fullmatch(package_id):
+            return {"ok": False, "blocked": True, "reason": "invalid package ID"}
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        installed = _run((str(self.sdk.adb), "-s", self.serial, "shell", "pm", "path", package_id))
+        apk_paths = [line.removeprefix("package:").strip() for line in installed.stdout.splitlines() if line.startswith("package:")]
+        if installed.returncode != 0 or not apk_paths:
+            return {"ok": False, "blocked": True, "reason": "authorized package is not installed"}
+
+        apk_entries: List[Dict[str, object]] = []
+        with tempfile.TemporaryDirectory(prefix="huntmob-apk-") as directory:
+            for index, remote in enumerate(apk_paths[:8]):
+                local = Path(directory) / f"split-{index}.apk"
+                pulled = _run((str(self.sdk.adb), "-s", self.serial, "pull", remote, str(local)), timeout=180)
+                if pulled.returncode != 0 or not local.is_file():
+                    continue
+                try:
+                    with zipfile.ZipFile(local) as archive:
+                        for item in archive.infolist()[:5000]:
+                            apk_entries.append({"path": item.filename, "size": item.file_size, "split": Path(remote).name})
+                except zipfile.BadZipFile:
+                    continue
+
+        sandbox = _run(
+            (str(self.sdk.adb), "-s", self.serial, "shell", "run-as", package_id,
+             "find", ".", "-maxdepth", "5", "-print"), timeout=30,
+        )
+        sandbox_paths = [line.strip() for line in sandbox.stdout.splitlines() if line.strip()][:5000]
+        sandbox_ready = sandbox.returncode == 0
+        return {
+            "ok": True,
+            "package_id": package_id,
+            "apk": {"paths": apk_paths, "entries": apk_entries, "truncated": len(apk_entries) >= 5000},
+            "sandbox": {
+                "root": f"/data/user/0/{package_id}",
+                "alias": f"/data/data/{package_id}",
+                "accessible": sandbox_ready,
+                "mode": "run-as",
+                "entries": sandbox_paths,
+                "reason": "" if sandbox_ready else "run-as denied; a debuggable or explicitly prepared HuntMob lab build is required",
+            },
+        }

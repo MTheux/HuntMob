@@ -24,6 +24,13 @@ class UiServerTests(unittest.TestCase):
             html,
         )
 
+    def test_face_recognition_is_session_scoped(self):
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn("let enrolledEmbedding", javascript)
+        self.assertIn("enrolledEmbedding = undefined", javascript)
+        self.assertNotIn("localStorage", javascript)
+        self.assertNotIn("indexedDB", javascript)
+
 
 if __name__ == "__main__":
     unittest.main()

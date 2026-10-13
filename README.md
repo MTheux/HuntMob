@@ -40,7 +40,8 @@ PYTHONPATH=src python3 -m huntmob.cli ui
 
 Acesse `http://127.0.0.1:8090`. A interface demonstra o workspace unificado de
 device, REA, Frida, proxy, evidências e fixtures. A webcam só é solicitada após
-ação explícita e nenhuma biometria real é armazenada.
+ação explícita. O reconhecimento facial usa Human 3.3.6 no navegador; o embedding
+é mantido apenas em memória e descartado ao fechar a fixture.
 
 O servidor usa loopback por padrão. Exposição em VPN/Tailscale exige autenticação
 no gateway e a confirmação explícita `--authorized-remote`; não exponha o servidor

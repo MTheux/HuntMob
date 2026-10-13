@@ -159,8 +159,14 @@
   <dialog id="fixtureDialog">
     <form method="dialog" class="dialog-shell">
       <header><div><span class="eyebrow">FIXTURE CONTROLADA</span><h2 id="fixtureTitle">Biometria</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
-      <div class="camera-box"><video id="cameraPreview" autoplay playsinline muted></video><div id="cameraPlaceholder"><span>◎</span><p>A webcam só será ativada após sua confirmação.</p></div></div>
-      <p class="privacy-note">Nenhum template facial é criado ou armazenado. A imagem serve apenas como fixture visual desta sessão.</p>
+      <div class="camera-box"><video id="cameraPreview" autoplay playsinline muted></video><canvas id="faceOverlay" aria-hidden="true"></canvas><div id="cameraPlaceholder"><span>◎</span><p>A webcam só será ativada após sua confirmação.</p></div></div>
+      <div class="face-status" id="faceStatus" role="status">Motor facial inativo</div>
+      <p class="privacy-note">O reconhecimento roda neste navegador. A imagem não é enviada e o embedding fica somente na memória até fechar esta janela.</p>
+      <div class="recognition-actions">
+        <button type="button" id="enrollFace" disabled>Cadastrar rosto da sessão</button>
+        <button type="button" id="verifyFace" class="primary" disabled>Reconhecer agora</button>
+      </div>
+      <small class="fixture-label">INJEÇÃO MANUAL PARA TESTES DE ERRO</small>
       <div class="fixture-options">
         <button value="match" data-result="match">Reconhecimento aprovado</button>
         <button value="no-match" data-result="no-match">Não reconhecido</button>
@@ -170,6 +176,7 @@
     </form>
   </dialog>
   <div class="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

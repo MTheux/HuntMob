@@ -18,7 +18,7 @@ virtual device was started and no network target was contacted.
 
 ## Integration decision
 
-HuntBox Mob uses the supported `gmtool` surface as the Android runtime adapter.
+HuntMob uses the supported `gmtool` surface as the Android runtime adapter.
 REA analyzes authorized app/runtime artifacts and evidence; it does not replace
 the hypervisor. Device creation, start, mutation and deletion remain behind the
 engagement and human-approval gates.

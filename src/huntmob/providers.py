@@ -1,4 +1,4 @@
-"""Read-only runtime provider probes used by the HuntBox Mob control plane."""
+"""Read-only runtime provider probes used by the HuntMob control plane."""
 
 from __future__ import annotations
 

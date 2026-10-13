@@ -1,4 +1,4 @@
-"""Command-line entrypoint for HuntBox Mob."""
+"""Command-line entrypoint for HuntMob."""
 
 from __future__ import annotations
 
@@ -7,13 +7,20 @@ import json
 
 from .discovery import runtime_status
 from .providers import provider_catalog
+from .contracts import Platform
+from .routing import select_runtime
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="huntbox-mob")
+    parser = argparse.ArgumentParser(prog="huntmob")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="inspect local runtime prerequisites")
     commands.add_parser("providers", help="inspect local and optional runtime providers")
+    plan = commands.add_parser("plan", help="select a runtime without provisioning it")
+    plan.add_argument("platform", choices=("android", "ios"))
+    plan.add_argument("--controller-os", choices=("darwin", "windows", "linux"))
+    plan.add_argument("--privileged-ios", action="store_true")
+    plan.add_argument("--physical-hardware", action="store_true")
     return parser
 
 
@@ -25,6 +32,15 @@ def main() -> int:
         return 0 if result["ok"] else 2
     if args.command == "providers":
         print(json.dumps(provider_catalog(), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "plan":
+        result = select_runtime(
+            Platform(args.platform),
+            controller_os=args.controller_os,
+            privileged_ios=args.privileged_ios,
+            physical_hardware=args.physical_hardware,
+        )
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
         return 0
     return 2
 

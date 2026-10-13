@@ -3,7 +3,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from huntbox_mob.providers import AppleSimulatorProvider, GenymotionProvider
+from huntmob.providers import AppleSimulatorProvider, GenymotionProvider
 
 
 def completed(command, stdout="", stderr="", returncode=0):
@@ -27,7 +27,7 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(status.instances, 0)
         self.assertFalse(any("start" in command for command in commands))
 
-    @patch("huntbox_mob.providers.platform.system", return_value="Darwin")
+    @patch("huntmob.providers.platform.system", return_value="Darwin")
     def test_apple_simulator_requires_installed_runtime(self, _system):
         status = AppleSimulatorProvider().probe(
             lambda command: completed(command, '{"runtimes": []}')

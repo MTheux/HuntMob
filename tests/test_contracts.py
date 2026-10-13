@@ -1,6 +1,6 @@
 import unittest
 
-from huntbox_mob.contracts import EngagementGate, Platform
+from huntmob.contracts import EngagementGate, Platform
 
 
 class EngagementGateTests(unittest.TestCase):

@@ -1,0 +1,18 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -7497,6 +7497,14 @@
+     bool format = (dw10 == 0);
+     uint8_t buffer[4096] = { 0 };
+ 
++    /* The inherited vendor formatter guesses namespace 1. An own-identity
++     * cohort must never erase that backing through this unimplemented path.
++     * Reject before DMA/backend access; stock namespace READ/WRITE is intact.
++     */
++    if (n->virtual_sep && format) {
++        return NVME_INVALID_FIELD | NVME_DNR;
++    }
++
+     nvme_h2c(n, buffer, sizeof(buffer), req);
+     if (!format) {
+         return NVME_SUCCESS;

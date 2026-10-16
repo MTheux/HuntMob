@@ -51,7 +51,7 @@ class UiServerTests(unittest.TestCase):
         self.assertIn('id="runtimeEmpty"', html)
         self.assertIn("runtimeDevice').hidden = true", javascript)
         self.assertIn("window.setInterval(loadRuntime, 2500)", javascript)
-        self.assertIn("Já existe um laboratório Android ativo", javascript)
+        self.assertIn("O lab atual será preservado", javascript)
 
     def test_loopback_is_allowed(self):
         validate_bind("127.0.0.1", False)
@@ -74,7 +74,11 @@ class UiServerTests(unittest.TestCase):
         javascript = (web_root() / "app.js").read_text(encoding="utf-8")
         self.assertIn("let enrolledEmbedding", javascript)
         self.assertIn("enrolledEmbedding = undefined", javascript)
-        self.assertNotIn("localStorage", javascript)
+        # Only layout/navigation preferences persist; biometric data stays in memory.
+        import re
+        writes = re.findall(r"localStorage\.setItem\(([^;]+)\)", javascript)
+        self.assertEqual(writes, ["'huntmob.analysisOpen', analysisPreference", "'huntmob.activeTool',tab.dataset.tab"])
+        self.assertNotIn("JSON.stringify(enrolledEmbedding)", javascript)
         self.assertNotIn("indexedDB", javascript)
 
     def test_biometric_widget_matches_provider_outcomes(self):
@@ -118,3 +122,60 @@ class UiServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class DeviceApiFailureTests(unittest.TestCase):
+    def test_invalid_engagement_returns_json_without_mutation(self):
+        import json,threading,urllib.request,urllib.error
+        from http.server import ThreadingHTTPServer
+        from unittest.mock import patch
+        from huntmob.ui import SESSION_TOKEN
+        server=ThreadingHTTPServer(('127.0.0.1',0),HuntMobHandler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        try:
+            data={'action':'new-lab','engagement':'bad\nname','authorized':True,'approved':True}
+            request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/device/action',data=json.dumps(data).encode(),headers={'X-HuntMob-CSRF':SESSION_TOKEN,'Content-Type':'application/json'})
+            with patch('huntmob.ui.AndroidWorker') as worker,patch('huntmob.lab_sessions.save') as save:
+                with self.assertRaises(urllib.error.HTTPError) as response:urllib.request.urlopen(request,timeout=3)
+                self.assertEqual(response.exception.code,400)
+                self.assertFalse(json.load(response.exception)['ok'])
+                worker.return_value.stop.assert_not_called();save.assert_not_called()
+        finally:server.shutdown();server.server_close();thread.join(2)
+
+
+class DetachedServerTests(unittest.TestCase):
+    def test_http_responses_survive_broken_or_closed_log_stream(self):
+        import io
+        import json
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        from unittest.mock import patch
+
+        class BrokenLog(io.StringIO):
+            def write(self, text):
+                raise BrokenPipeError('terminal reader exited')
+
+        closed = io.StringIO()
+        closed.close()
+        server = ThreadingHTTPServer(('127.0.0.1', 0), HuntMobHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            for stream in (BrokenLog(), closed):
+                with self.subTest(stream=type(stream).__name__), patch('sys.stderr', stream):
+                    with urllib.request.urlopen(base + '/api/client/ping', timeout=3) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertTrue(json.load(response)['ok'])
+                    with urllib.request.urlopen(base + '/', timeout=3) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertIn(b'deviceScreen', response.read())
+                    with self.assertRaises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(base + '/missing-detached-worker', timeout=3)
+                    self.assertEqual(error.exception.code, 404)
+                    error.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(2)

@@ -1,0 +1,37 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -4726,6 +4726,22 @@
+ 
+     req->ns = ns;
+ 
++    /* iOS 14.0 18A5351d AppleNVMeRequest BuildCommandRead/WriteStruct
++     * sets first-dword 0x400 (wrapped) or 0x800 (unwrapped). These are
++     * flags-byte bits 2/3. The following 64-byte crypto extension and
++     * SEP-backed transform are not implemented by this controller.
++     * Reject before mapping or submitting data to the block backend.
++     * Combined modes are invalid as well; never fall back to plaintext. */
++    if (n->params.is_apple_ans &&
++        (req->cmd.opcode == NVME_CMD_READ ||
++         req->cmd.opcode == NVME_CMD_WRITE) &&
++        (req->cmd.flags & 0x0c)) {
++        trace_pci_nvme_apple_ans_protected_io_rejected(
++            nvme_sqid(req), nvme_cid(req), req->cmd.opcode,
++            (req->cmd.flags & 0x0c) >> 2);
++        return NVME_INVALID_FIELD | NVME_DNR;
++    }
++
+     switch (ns->csi) {
+     case NVME_CSI_NVM:
+         return nvme_io_cmd_nvm(n, req);
+diff --git a/hw/nvme/trace-events b/hw/nvme/trace-events
+--- a/hw/nvme/trace-events
++++ b/hw/nvme/trace-events
+@@ -222,3 +222,7 @@
+ pci_nvme_apple_ans_submit(uint16_t sqid, uint16_t cid, uint8_t opcode, uint32_t nsid) "sqid=%u cid=%u opcode=0x%02x nsid=%u"
+ pci_nvme_apple_ans_complete(uint16_t sqid, uint16_t cid, uint8_t opcode, uint16_t status) "sqid=%u cid=%u opcode=0x%02x status=0x%04x"
+ pci_nvme_apple_ans_admin_unimplemented(uint16_t sqid, uint16_t cid, uint8_t opcode) "sqid=%u cid=%u opcode=0x%02x"
++
++# Protection mode enum: 1=wrapped, 2=unwrapped, 3=contradictory.
++# No crypto extension, key material, data addresses or payloads.
++pci_nvme_apple_ans_protected_io_rejected(uint16_t sqid, uint16_t cid, uint8_t opcode, uint8_t mode) "sqid=%u cid=%u opcode=0x%02x mode=%u unsupported crypto; I/O rejected"

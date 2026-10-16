@@ -1,0 +1,109 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -5053,6 +5053,39 @@
+                          req->apple_ans_lab_key[index + 16];
+         }
+         if (!valid || !different) {
++            /* Diagnostics only: preserve the acceptance conjunction above.
++             * Every result is a fixed category; never trace command dwords,
++             * addresses, envelope bytes, keys or crypto error strings. */
++            const char *result = "xts-key-invalid";
++            uint16_t control = le16_to_cpu(rw->control);
++            if (!enabled) {
++                result = "flags";
++            } else if (req->sq->entry_count != 7) {
++                result = "iosqe";
++            } else if (!req->apple_ans_lab_key_valid) {
++                result = "context-unavailable";
++            } else if (!nvme_apple_ans_lab_current(req)) {
++                result = "context-stale";
++            } else if (ns->csi != NVME_CSI_NVM || ns->lbasz != 4096 ||
++                       ns->lbaf.ms || nvme_ns_ext(ns) ||
++                       NVME_ID_NS_DPS_TYPE(ns->id_ns.dps)) {
++                result = "namespace-format";
++            } else if (ns->params.zoned ||
++                       (ns->endgrp && ns->endgrp->fdp.enabled)) {
++                result = "namespace-features";
++            } else if (req->cmd.mptr) {
++                result = "metadata-pointer";
++            } else if (control) {
++                result = control == NVME_RW_FUA ? "control-fua" :
++                         control == NVME_RW_LR ? "control-lr" :
++                                                 "control-other";
++            } else if (blocks > 256) {
++                result = "transfer-size";
++            } else if (blocks - 1 > UINT64_MAX - unit) {
++                result = "unit-overflow";
++            }
++            trace_pci_nvme_apple_ans_protected_gate(
++                nvme_sqid(req), nvme_cid(req), "protected-gate", result);
+             trace_pci_nvme_apple_ans_protected_io_rejected(
+                 nvme_sqid(req), nvme_cid(req), req->cmd.opcode,
+                 (req->cmd.flags & 0x0c) >> 2);
+@@ -8155,6 +8188,7 @@
+             sq->entry_count == 7) {
+             uint8_t extension[64] = { 0 };
+             uint8_t unknown = 0;
++            const char *decode_result = "extension-unavailable";
+             /* Only a complete 128-byte IOSQE is accepted. Raw fixtures use
+              * a zero32 prefix. Wrapped fixtures carry the exact codec64 frame
+              * and require an explicit synthetic host context; never guess one. */
+@@ -8162,9 +8196,31 @@
+                 !nvme_addr_read(n, addr + sizeof(cmd), extension,
+                                 sizeof(extension))) {
+                 if (cmd.flags == 0x04) {
++                    bool ready_before = !n->virtual_sep ||
++                        huntmob_virtual_sep_is_ready(n->virtual_sep);
++                    bool frame_supported = ldl_le_p(extension) ==
++                        HUNTMOB_WRAPPED_REFERENCE_FLAGS;
++                    uint8_t reserved = 0;
++                    /* Shape classification does not change the decoder call
++                     * or expose metadata values. The codec remains opaque. */
++                    for (size_t index = 4; index < 16; index++) {
++                        reserved |= extension[index];
++                    }
++                    frame_supported = frame_supported && !reserved;
+                     req->apple_ans_lab_key_valid = nvme_apple_ans_lab_unwrap(
+                         n, extension, req->apple_ans_lab_key,
+                         &req->virtual_sep_generation);
++                    if (req->apple_ans_lab_key_valid) {
++                        decode_result = "accepted";
++                    } else if (!ready_before ||
++                               (n->virtual_sep &&
++                                !huntmob_virtual_sep_is_ready(n->virtual_sep))) {
++                        decode_result = "provider-unavailable";
++                    } else if (!frame_supported) {
++                        decode_result = "frame-unsupported";
++                    } else {
++                        decode_result = "context-unavailable";
++                    }
+                 } else {
+                     for (size_t index = 0; index < 32; index++) {
+                         unknown |= extension[index];
+@@ -8173,11 +8229,15 @@
+                         memcpy(req->apple_ans_lab_key, extension + 0x20, 32);
+                         req->apple_ans_lab_key_valid = true;
+                     }
++                    decode_result = req->apple_ans_lab_key_valid ?
++                        "accepted" : "frame-unsupported";
+                 }
+             }
+             if (req->apple_ans_lab_key_valid) {
+                 req->apple_ans_lab_generation = n->apple_ans_lab_generation;
+             }
++            trace_pci_nvme_apple_ans_protected_gate(
++                sq->sqid, nvme_cid(req), "sq-context", decode_result);
+             nvme_apple_ans_lab_wipe(extension, sizeof(extension));
+         }
+ 
+diff --git a/hw/nvme/trace-events b/hw/nvme/trace-events
+--- a/hw/nvme/trace-events
++++ b/hw/nvme/trace-events
+@@ -226,3 +226,6 @@
+ # Protection mode enum: 1=wrapped, 2=unwrapped, 3=contradictory.
+ # No crypto extension, key material, data addresses or payloads.
+ pci_nvme_apple_ans_protected_io_rejected(uint16_t sqid, uint16_t cid, uint8_t opcode, uint8_t mode) "sqid=%u cid=%u opcode=0x%02x mode=%u unsupported crypto; I/O rejected"
++
++# Fixed diagnostic categories only; no command dwords, addresses or payloads.
++pci_nvme_apple_ans_protected_gate(uint16_t sqid, uint16_t cid, const char *stage, const char *result) "sqid=%u cid=%u stage=%s result=%s"

@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=touch-2">
+  <link rel="stylesheet" href="styles.css?v=runtime-71-rea-results">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
   <header class="topbar">
-    <div class="brand"><span>HUNT</span><b>MOB</b><small>LAB</small></div>
-    <div class="engagement"><span class="pulse"></span><span>ENG-2026-041</span><strong>Autorizado</strong></div>
-    <div class="top-actions">
+    <div class="brand"><span>HUNT</span><b>MOB</b></div>
+
+    <div class="top-actions"><button type="button" class="outline" id="toggleDeviceList" aria-expanded="false">Dispositivos</button>
       <button class="icon-button" aria-label="Abrir evidências" title="Evidências">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h6"/></svg>
       </button>
@@ -20,69 +20,49 @@
   </header>
 
   <div class="shell">
-    <nav class="rail" aria-label="Navegação do laboratório">
-      <button class="rail-item active" data-view="device" aria-label="Dispositivo" title="Dispositivo">
-        <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 18h4"/></svg>
-      </button>
-      <button class="rail-item" data-view="reverse" aria-label="Engenharia reversa" title="Engenharia reversa">
-        <svg viewBox="0 0 24 24"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></svg>
-      </button>
-      <button class="rail-item" data-view="traffic" aria-label="Tráfego" title="Tráfego">
-        <svg viewBox="0 0 24 24"><path d="M4 18V8M10 18V4M16 18v-7M22 18V6"/></svg>
-      </button>
-      <button class="rail-item" data-view="scripts" aria-label="Scripts Frida" title="Scripts Frida">
-        <svg viewBox="0 0 24 24"><path d="M8 4h8l3 3v13H5V4zM9 11l-2 2 2 2M15 11l2 2-2 2M13 9l-2 8"/></svg>
-      </button>
-      <button class="rail-item" data-view="fixtures" aria-label="Fixtures" title="Fixtures">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12h3M2 12h3M12 5V2M12 22v-3M17 7l2-2M5 19l2-2M17 17l2 2M5 5l2 2"/></svg>
-      </button>
-      <div class="rail-spacer"></div>
-      <button class="rail-item" aria-label="Configurações" title="Configurações">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.7-1.7.9-1.9-2.1-2.1-1.9.9-1.7-.7L10.5 2h-3l-.7 2-1.7.7-1.9-.9L1.1 5.9l.9 1.9-.7 1.7-2 .7v3l2 .7.7 1.7-.9 1.9 2.1 2.1 1.9-.9 1.7.7.7 2h3l.7-2 1.7-.7 1.9.9 2.1-2.1-.9-1.9.7-1.7z"/></svg>
-      </button>
-    </nav>
 
-    <aside class="device-list">
+
+    <aside class="device-list" aria-label="Aparelhos e laboratórios">
       <div class="aside-head">
-        <div><span class="eyebrow">RUNTIMES</span><h1>Dispositivos</h1></div>
-        <button class="square-button" aria-label="Adicionar dispositivo">+</button>
+        <div><span class="eyebrow">SEU AMBIENTE</span><h1>Dispositivos</h1></div>
+        <button class="square-button" id="sidebarNewLab" type="button" aria-label="Criar novo laboratório" title="Criar novo laboratório">+</button>
       </div>
-      <label class="search"><span class="sr-only">Buscar dispositivo</span><input type="search" placeholder="Buscar dispositivo…"></label>
-      <div class="group-label"><span>HUNTMOB RUNTIME</span><small id="runtimeCount">—</small></div>
-      <button class="device-row selected" id="runtimeDevice">
-        <span class="device-thumb android">A</span>
-        <span><strong id="runtimeName">Carregando runtime…</strong><small id="runtimeMeta">Worker próprio · sem provider externo</small></span>
-        <i class="offline-dot" id="runtimeDot" aria-label="Estado desconhecido"></i>
-      </button>
-      <p class="runtime-empty" id="runtimeEmpty" hidden>Nenhum laboratório Android em execução.</p>
-      <div class="group-label"><span>DISPONÍVEIS</span><small>2</small></div>
-      <button class="device-row">
-        <span class="device-thumb ios">i</span>
-        <span><strong>iPhone 16 Pro</strong><small>iOS 18 · Mac worker</small></span>
-        <i class="offline-dot" aria-label="Offline"></i>
-      </button>
-      <button class="device-row">
-        <span class="device-thumb ios">i</span>
-        <span><strong>iPhone 15</strong><small>iOS 17 · Corellium</small></span>
-        <i class="offline-dot" aria-label="Offline"></i>
-      </button>
-      <div class="worker-status"><span>WORKER MAC-01</span><strong>Sem runtime iOS</strong><small>Instale um runtime pelo Xcode</small></div>
+      <label class="search sidebar-search" for="deviceSearch"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="sr-only">Buscar aparelhos ou laboratórios</span><input id="deviceSearch" type="search" placeholder="Buscar aparelhos ou labs…" autocomplete="off" spellcheck="false"></label>
+      <div class="sidebar-scroll">
+        <section class="sidebar-section" id="workspaceDeviceSection" aria-labelledby="workspaceDevicesHeading">
+          <div class="group-label"><h2 id="workspaceDevicesHeading">Neste laboratório</h2><small id="runtimeCount">—</small></div>
+          <button class="device-row selected" id="runtimeDevice" type="button">
+            <span class="device-thumb android"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4m-3 14h2"/></svg></span>
+            <span class="sidebar-device-copy"><span class="sidebar-row-heading"><span class="sidebar-device-role">Principal</span><span id="runtimeRowState" class="sidebar-device-state">Verificando</span></span><strong id="runtimeName">Consultando aparelho…</strong><small id="runtimeMeta">Aguardando worker</small></span>
+            <i class="offline-dot" id="runtimeDot" aria-label="Estado desconhecido"></i>
+          </button>
+          <p class="runtime-empty" id="runtimeEmpty" hidden>Nenhum Android em execução.</p>
+          <div id="sidebarCompanions" aria-label="Aparelhos adicionais"></div>
+        </section>
+        <section class="sidebar-section" id="workerDeviceSection" aria-labelledby="workerDevicesHeading">
+          <div class="group-label"><h2 id="workerDevicesHeading">Outros dispositivos</h2><small id="iosAvailability">—</small></div>
+          <button class="device-row" id="iosDevice" type="button"><span class="device-thumb ios"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4m-2 13v1"/></svg></span><span class="sidebar-device-copy"><span class="sidebar-row-heading"><strong id="iosDeviceName">iPhone Simulator</strong><span id="iosRowState" class="sidebar-device-state">Verificando</span></span><small id="iosDeviceMeta">Consultando Simulator…</small></span><i class="offline-dot" id="iosDeviceDot" aria-label="Offline"></i></button>
+        </section>
+        <section class="sidebar-section" id="savedLabSection" aria-labelledby="savedLabsHeading"><div class="group-label" id="savedLabsLabel"><h2 id="savedLabsHeading">Labs salvos</h2><small id="savedLabCount">—</small></div><div id="savedLabs"><p class="runtime-empty">Consultando laboratórios…</p></div></section>
+        <p class="sidebar-search-empty" id="sidebarSearchEmpty" role="status" hidden>Nenhum aparelho ou lab encontrado.</p>
+      </div>
+      <div class="worker-status sidebar-worker"><div class="sidebar-worker-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8m-4-5v5"/></svg><span>Worker local</span><span class="sidebar-worker-platform" id="sidebarWorkerPlatform">Local</span></div><strong id="iosWorkerStatus">Verificando conexão…</strong><details><summary>Detalhes da conexão</summary><small id="iosWorkerHelp">Aguardando resposta do worker.</small></details></div>
     </aside>
 
-    <main id="workspace" class="workspace">
+    <main id="workspace" class="workspace analysis-collapsed">
       <section class="device-stage" aria-label="Tela do dispositivo">
         <div class="stage-toolbar">
-          <div><span class="status-live" id="runtimeState">PROBING</span><strong id="stageDeviceName">HuntMob Runtime</strong><small id="stageSerial">aguardando worker</small></div>
-          <div class="toolbar-actions">
-            <button aria-label="Rotacionar">↻</button><button aria-label="Capturar tela">⌗</button><button aria-label="Reiniciar" id="rebootDevice">↺</button>
-            <button class="stop" id="stopDevice">Encerrar</button>
-            <button type="button" id="deviceBack" aria-label="Voltar no Android">Voltar</button>
-          </div>
+          <div><span class="status-live" id="runtimeState">PROBING</span><strong id="stageDeviceName">HuntMob Runtime</strong><small id="stageSerial">aguardando worker</small><button class="outline" id="addWorkspaceDevice" type="button" disabled>Adicionar aparelho</button><button class="outline" id="connectWorkspaceAgent" type="button" disabled>Conectar agente</button><button class="outline" id="chooseDeviceFile" type="button" title="Enviar arquivo ao Android principal">Enviar arquivo</button><input id="deviceFileInput" class="sr-only" type="file" aria-label="Arquivo para o Android principal"></div>
+
+        <button class="analysis-toggle" id="analysisToggle" aria-controls="analysisPanel" aria-expanded="false" title="Abrir ferramentas"><span id="analysisChevron" aria-hidden="true">‹</span><span id="analysisToggleLabel">Ferramentas</span></button>
         </div>
-        <div class="phone-wrap" id="deviceViewport">
-          <div class="runtime-placeholder" id="runtimePlaceholder" hidden><strong>Runtime ainda não provisionado</strong><span>Prévia de interface · nenhum Android ou aplicativo está executando aqui</span></div>
-          <div class="phone">
+
+        <div class="phone-wrap runtime-unavailable" id="deviceViewport">
+          <div class="device-drop-overlay" id="deviceDropOverlay" role="status" aria-live="polite" hidden><strong id="deviceDropTitle">Solte no Android</strong><span id="deviceDropDetail">APK instala e abre · demais arquivos vão para Downloads</span></div>
+          <div class="runtime-placeholder" id="runtimePlaceholder"><strong>Consultando dispositivo…</strong><span>Aguardando resposta do worker local</span></div>
+          <div class="phone-canvas" id="phoneCanvas"><section class="device-tile primary-tile" id="primaryDeviceTile"><header class="device-tile-head"><strong>Principal · ferramentas</strong><small id="primaryDeviceSerial"></small></header><div class="phone">
             <div class="phone-camera"></div>
+            <canvas id="deviceVideo" class="device-screen" aria-label="Tela interativa do Android" hidden></canvas>
             <img id="deviceScreen" class="device-screen" alt="Tela interativa do Android HuntMob: toque, arraste e digite" draggable="false" hidden>
             <div class="phone-screen">
               <div class="mobile-status"><span>9:41</span><span>▮▮▮ 100%</span></div>
@@ -94,79 +74,208 @@
               <button type="button" data-panel="biometric">Entrar com biometria</button>
               <small>Build 4.18.2-lab</small>
             </div>
+            <div class="root-progress" id="rootProgress" role="status" aria-live="polite" hidden><span class="root-progress-spinner" aria-hidden="true"></span><strong id="rootProgressTitle">Ativando Magisk</strong><small>O Android reinicia seus processos neste mesmo AVD. Aguarde a confirmação.</small></div>
+          </div></section>
           </div>
-          <div class="device-controls" aria-label="Controles rápidos">
-            <button data-panel="biometric"><span>◎</span>Biometria</button>
-            <button data-panel="camera"><span>◉</span>Câmera</button>
-            <button><span>⌖</span>Localização</button>
-            <button><span>⌁</span>Rede</button>
-          </div>
+
         </div>
+        <div class="viewport-tools"><span class="zoom-hint" id="screenConnection" role="status">Tela desconectada</span><div class="zoom-controls" role="group" aria-label="Zoom do emulador"><button id="zoomOut" aria-label="Diminuir zoom">−</button><output id="zoomValue" aria-label="Zoom atual">100%</output><button id="zoomIn" aria-label="Aumentar zoom">+</button><button id="zoomFit">Ajustar</button></div></div>
+
         <div class="event-strip"><span id="eventTime">—</span><b id="eventKind">STATE</b><p id="eventMessage">Aguardando runtime HuntMob</p><span id="eventReceipt">sem receipt</span></div>
       </section>
 
-      <aside class="analysis-panel">
-        <div class="analysis-tabs" role="tablist">
-          <button class="active" data-tab="reverse">Reverse</button>
-          <button data-tab="frida">Frida</button>
-          <button data-tab="files">Arquivos</button>
-          <button data-tab="proxy">Proxy</button>
-          <button data-tab="evidence">Evidências <span>12</span></button>
-        </div>
-        <section class="tab-content active" id="tab-reverse">
+      <aside class="analysis-panel" id="analysisPanel" hidden>
+        <header class="toolbox-head"><div><span class="eyebrow">WORKBENCH</span><strong>Ferramentas</strong></div><button id="closeToolbox" class="icon-button" aria-label="Recolher ferramentas">×</button></header>
+        <nav class="analysis-tabs" role="tablist" aria-label="Ferramentas de pentest">
+          <span class="tool-group-label" aria-hidden="true">APARELHO</span>
+          <button data-tab="device-tools" role="tab" aria-selected="false" aria-controls="tab-device-tools"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="tab-label">Dispositivo</span></button>
+          <button data-tab="files" role="tab" aria-selected="false" aria-controls="tab-files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 3h9v11H3Z"/></svg><span class="tab-label">Arquivos</span></button>
+          <span class="tool-group-label" aria-hidden="true">ANÁLISE</span>
+          <button class="active" data-tab="reverse" role="tab" aria-selected="true" aria-controls="tab-reverse"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span class="tab-label">Reverse</span></button>
+          <button data-tab="frida" role="tab" aria-selected="false" aria-controls="tab-frida"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 6 0m-5 0v6l-6 10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2L14 9V3M8 15h8"/></svg><span class="tab-label">Frida</span></button>
+          <button data-tab="dast" role="tab" aria-selected="false" aria-controls="tab-dast"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v6c0 5 9 8 9 8s9-3 9-8V7Zm-4 9 3 3 5-6"/></svg><span class="tab-label">DAST</span></button>
+          <span class="tool-group-label" aria-hidden="true">TRÁFEGO</span>
+          <button data-tab="proxy" role="tab" aria-selected="false" aria-controls="tab-proxy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/></svg><span class="tab-label">Proxy</span></button>
+          <span class="tool-group-label" aria-hidden="true">REGISTROS</span>
+          <button data-tab="evidence" role="tab" aria-selected="false" aria-controls="tab-evidence"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V2h6v2M8 10h8m-8 5h8"/></svg><span class="tab-label">Evidências</span><span id="evidenceCount">0</span></button>
+        </nav>
+
+        <section class="tab-content" id="tab-device-tools">
+          <div class="panel-title"><div><span class="eyebrow">APARELHO ATIVO</span><h2>Dispositivo</h2></div></div>
+          <label class="lab-field tools-device-picker">Aplicar controles em<select id="toolsDeviceTarget"><option value="primary">Principal</option></select></label>
+          <p class="profile-description" id="toolsDeviceIdentity" role="status">Consultando aparelho…</p>
+
+          <div class="tools-lifecycle"><button type="button" id="toolsStopDevice">Desligar e fechar quadro</button><button type="button" id="toolsBackDevice">Voltar</button><button type="button" id="toolsStoreDevice">Play Store</button></div>
+          <div class="device-controls" aria-label="Controles do laboratório">
+            <span class="controls-label">Controles</span>
+            <button type="button" id="quickRoot" aria-pressed="false" aria-describedby="quickRootHelp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4v6c0 5-8 8-8 8s-8-3-8-8V7Z"/><circle cx="12" cy="11" r="2"/><path d="M12 13v4"/></svg><span id="quickRootLabel">Root</span></button>
+            <button type="button" data-panel="biometric" title="Eventos biométricos do Android"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 0 1 16 0m-12 9c1-3 1-6 1-9a3 3 0 0 1 6 0c0 4 0 7-1 10M5 15v-4a7 7 0 0 1 14 0v5m-7-5v6m-7 3 1-3"/></svg><span>Biometria</span></button>
+            <button type="button" data-panel="camera" title="Fixture facial no navegador"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="4"/></svg><span>Câmera</span></button>
+            <button type="button" data-control-panel="location" title="Simular posição GPS"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/></svg><span>GPS</span></button>
+            <button type="button" data-control-panel="network" title="Rádios e conectividade"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0m-10 4a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1"/></svg><span>Rede</span></button>
+            <button type="button" data-control-panel="battery" title="Simular carga e restaurar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4M6 10v4m4-4v4m4-4v4"/></svg><span>Bateria</span></button>
+            <button type="button" data-control-panel="rotation" title="Orientação do Android"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="5" width="8" height="14" rx="1"/><path d="M3 9a9 9 0 0 1 15-5M3 9V4m0 5h5m13 6a9 9 0 0 1-15 5m15-5v5m0-5h-5"/></svg><span>Rotação</span></button>
+            <button type="button" data-control-panel="sensor" title="Acelerômetro emulado"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20m-7-7-3-3-3 3m10 4 3 3-3 3"/></svg><span>Sensores</span></button>
+            <button type="button" data-control-panel="system" title="Teclas e navegação Android"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></svg><span>Sistema</span></button>
+            <button type="button" data-device-key="home" title="Tela inicial"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v11h-7v-7h-4v7H3Z"/></svg><span>Home</span></button>
+            <button type="button" data-device-key="recents" title="Aplicativos recentes"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5v14"/></svg><span>Recentes</span></button>
+            <button type="button" id="quickScreenshot" title="Salvar evidência de tela"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V2h6v2M8 10h8m-8 5h8"/></svg><span>Screenshot</span></button>
+            <button type="button" data-tool-shortcut="proxy" title="Abrir captura e requisições"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/></svg><span>Proxy</span></button>
+            <button type="button" data-tool-shortcut="frida" title="Abrir instrumentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 6 0m-5 0v6l-6 10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2L14 9V3M8 15h8"/></svg><span>Frida</span></button>
+          </div>
+<p class="profile-description root-control-help" id="quickRootHelp" role="status">Verificando root para apps neste aparelho…</p>
+<details class="primary-device-actions"><summary>Janela e conexão do principal</summary>          <div class="toolbar-actions tools-stage-actions"><button type="button" id="openViewer">Abrir janela</button><button type="button" id="openDeviceKeyboard">Teclado</button>
+            <button disabled aria-label="Rotacionar" hidden data-control-panel="rotation">↻</button><button disabled id="captureEvidence" hidden aria-label="Capturar tela">⌗</button><button disabled aria-label="Reiniciar" id="rebootDevice">↺</button>
+            <button disabled class="stop" id="stopDevice" hidden>Encerrar</button>
+            <button disabled type="button" id="reconnectScreen">Reconectar tela</button>
+            <button disabled type="button" id="deviceBack" hidden aria-label="Voltar no Android">Voltar</button>
+          </div></details>
+          <p class="profile-description">Reverse, Proxy, Frida e evidências continuam vinculados ao aparelho principal.</p>
+          <details class="device-profile-details" id="deviceProfileDetails"><summary>Imagem e runtime</summary><div class="platform-ios" id="iosProfile">
+          <section class="ios-native-status" aria-labelledby="iosNativeTitle">
+            <div class="panel-title"><div><span class="eyebrow">RUNTIME PRÓPRIO</span><h2 id="iosNativeTitle">iOS virtual</h2></div><span id="iosNativeState" class="safe-badge">Verificando</span></div>
+            <p id="iosNativeSummary" class="profile-description">Consultando a última validação deste worker.</p>
+            <ol id="iosNativeStages" class="runtime-milestones" aria-label="Etapas de preparação do iOS virtual"></ol>
+            <details class="runtime-validation-details"><summary>Detalhes da validação</summary><p id="iosNativeValidation" class="profile-description"></p><p class="profile-description">Data Protection continua obrigatória. Seu funcionamento completo ainda precisa de validação.</p></details>
+            <p class="profile-description">Enquanto o runtime é preparado, a análise local do IPA está disponível em Reverse.</p>
+            <button type="button" class="outline" data-tool-shortcut="reverse">Analisar IPA</button>
+          </section>
+          <section class="ios-native-status" aria-labelledby="iosIdentityTitle"><div class="panel-title"><div><span class="eyebrow">IDENTIDADE DO DISPOSITIVO</span><h2 id="iosIdentityTitle">UUID do Simulator</h2></div></div><p id="iosIdentityValue" class="profile-description">Consultando…</p><div class="control-presets"><button type="button" id="copyIosIdentity">Copiar identificador</button><button type="button" id="exportIosIdentity">Exportar identidade</button></div><p id="iosIdentityReason" class="profile-description">Não comprova provisioning Apple ou liberação pelo backend.</p></section>
+          <section class="ios-native-status" aria-labelledby="xtoolTitle">
+            <div class="panel-title"><div><span class="eyebrow">DISPOSITIVO USB · XTOOL</span><h2 id="xtoolTitle">Instalar IPA no iPhone</h2></div><span id="xtoolState" class="safe-badge">Não consultado</span></div>
+            <p class="profile-description">Requer iPhone conectado e pareado ao worker. Não inicia um iPhone virtual. Configure a conta Apple no terminal com <code>xtool setup</code>.</p>
+            <button class="outline" id="xtoolRefresh" type="button">Verificar xtool e dispositivos</button>
+            <div class="ios-upload">
+              <label class="lab-field">Dispositivo USB<select id="xtoolDevice"><option value="">Verifique os dispositivos</option></select></label>
+              <label class="lab-field">IPA autorizado<input id="xtoolIpa" type="file" accept=".ipa"></label>
+              <label class="lab-approval"><input id="xtoolApproval" type="checkbox"> Autorizo instalação e assinatura deste app no dispositivo selecionado.</label>
+              <button id="xtoolInstall" type="button" class="primary" disabled>Instalar IPA</button>
+              <label class="lab-field">Bundle ID instalado<input id="xtoolBundle" placeholder="com.empresa.app" autocomplete="off"></label>
+              <button id="xtoolLaunch" type="button" class="outline" disabled>Abrir app no iPhone</button>
+            </div>
+            <p id="xtoolStatus" class="profile-description" role="status">Windows usa WSL e encaminhamento USB. Tela do iPhone físico não está integrada.</p>
+          </section>
+          <div class="panel-title"><div><span class="eyebrow">PERFIL DISPONÍVEL</span><h2>Apple Simulator</h2></div><span id="iosState" class="safe-badge">Verificando</span></div><p class="profile-description">Instala builds para Simulator (.app.zip). Use os controles abaixo para esse perfil.</p><div class="dynamic-actions"><button id="startIos" class="primary">Iniciar Simulator</button><button id="fixtureIos" class="outline">Abrir fixture HuntMob</button><button id="captureIos" class="outline">Capturar evidência</button><button id="stopIos" class="outline">Desligar e preservar</button></div><div class="ios-upload"><label class="lab-field">Build para Simulator (.app.zip)<input id="iosAppFile" type="file" accept=".zip"></label><label class="lab-approval"><input id="iosAppApproval" type="checkbox"> Aplicativo autorizado para este laboratório.</label><button id="installIos" class="primary">Instalar e abrir aplicativo</button></div><p id="iosTarget" class="profile-description">Nenhum aplicativo instalado pelo HuntMob.</p><div id="iosActionStatus" class="console" role="status">Aguardando ação.</div></div><div class="platform-android">
+          <div class="panel-title"><div><span class="eyebrow">LABORATÓRIO</span><h2>Perfil Android</h2></div></div>
+          <p class="profile-description">A imagem Google Play não aceita ADB root. Trocar para AOSP cria ou retoma outro Android; o atual fica preservado. O APK é reinstalado, mas os dados internos do app não são copiados.</p>
+          <div class="root-profile-controls"><label for="deviceRootMode">Perfil Android</label><select id="deviceRootMode"><option value="root">Com root · AOSP</option><option value="stock">Sem root · Google Play</option></select><button id="prepareRootProfile" class="outline">Preparar imagem</button><button id="switchRootProfile" class="outline">Trocar perfil</button><span id="rootProfileStatus" role="status">Root ainda não verificado</span></div>
+        </div></details></section>
+        <section class="tab-content active" id="tab-reverse"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2>Análise iOS</h2></div></div><div class="ios-upload"><label class="lab-field">Análise local de IPA<input id="iosStaticFile" type="file" accept=".ipa"></label><button id="analyzeIos" class="outline">Analisar IPA sem instalar</button></div><p class="profile-description">Info.plist · permissões · URL schemes · ATS · SHA256. Funciona sem device. Frida/Objection e sandbox exigem runtime compatível; o iOS virtual está em validação.</p><pre id="iosStaticResult" class="console" role="status">Selecione um IPA autorizado para ver os resultados.</pre></div><div class="platform-android">
           <div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><button class="outline" id="refreshApps">Atualizar apps</button></div>
-          <div class="artifact-meta"><span>APK instalado</span><span id="reverseHash">SHA256 pendente</span><span>JADX local</span></div>
+          <div class="artifact-meta"><span id="targetAppState">Nenhum app selecionado</span><span id="reverseHash">SHA256 pendente</span><span id="analysisEngineState">Verificando motor integrado…</span></div>
+          <section class="reverse-engines" aria-label="REA e Reconstruction Companion">
+            <div class="panel-title"><div><span class="eyebrow">ANÁLISE ESTÁTICA · APK SELECIONADO</span><h3>Do APK à evidência</h3></div><span id="reverseProvidersState" class="safe-badge">Verificando worker…</span></div>
+            <p class="profile-description">O REA lê o APK e registra fatos verificáveis. O Companion entrega esse contexto ao agente. O modelo local só avalia quando você solicitar e a resposta exige revisão humana.</p>
+            <section id="reaResultPanel" class="rea-result-panel" aria-label="Resultado da inspeção REA" hidden>
+              <div class="rea-result-heading"><div><span class="eyebrow">RESULTADO OBSERVADO</span><h4 id="reaResultTitle">Leitura do APK</h4><p id="reaResultSubtitle"></p></div><span class="rea-observed-badge">Estático · não validado em runtime</span></div>
+              <div class="rea-metrics" id="reaMetrics"></div>
+              <div class="rea-result-grid"><section><h5>O que o REA encontrou</h5><div id="reaFindings"></div></section><section><h5>O que ainda precisa verificar</h5><div id="reaLimits"></div></section></div>
+              <div class="rea-result-provenance" id="reaProvenance"></div>
+            </section>
+            <div class="rea-stage-guide" aria-label="Etapas da análise"><span><b>01</b> Inspecionar APK</span><span><b>02</b> Preparar contexto</span><span><b>03</b> Revisar avaliação</span></div>
+            <div class="reverse-engine-selectors">
+              <label>Inspeção<select id="reaOperation"><option value="package">Package e Manifest</option><option value="classes">Buscar classes</option><option value="class">Membros da classe</option><option value="method">Decompilar método</option><option value="references">Referências da classe</option></select></label>
+              <label id="reaQueryField" hidden>Busca de classe<input id="reaQuery" maxlength="512" placeholder="Ex.: Login"></label>
+              <label id="reaClassField" hidden>Classe exata<input id="reaClass" maxlength="512" placeholder="com.exemplo.app.LoginActivity" spellcheck="false"></label>
+              <label id="reaMethodField" hidden>Método<input id="reaMethod" maxlength="512" placeholder="onCreate" spellcheck="false"></label>
+              <label id="reaOverloadField" hidden>Overload opcional<input id="reaOverload" type="number" min="0" max="10000" placeholder="Índice da classe"></label>
+            </div>
+            <div class="reader-actions"><button type="button" id="runRea" class="outline" disabled>Inspecionar com REA</button><button type="button" id="prepareCompanion" class="outline" disabled>Preparar contexto Companion</button><button type="button" id="runLocalModel" class="outline" disabled>Avaliar com modelo local</button><a id="downloadCompanion" class="outline" hidden>Baixar contexto do agente</a></div>
+            <p id="localModelState" class="rea-model-state">Verificando modelo local…</p>
+            <p id="reverseEngineStatus" role="status">Prepare a decompilação do app selecionado para habilitar a análise.</p>
+            <div class="rea-review-head"><div><strong>Avaliação do agente</strong><small>Separada da evidência estática e sempre sujeita a revisão.</small></div><button type="button" id="refreshAgentReview" class="outline" disabled>Atualizar</button></div>
+            <p id="reaReviewEmpty" class="rea-empty-review">Nenhuma avaliação executada nesta análise. O modelo conectado ainda não foi chamado.</p>
+            <details id="agentReviewDetails" hidden><summary>Avaliação recebida · requer revisão humana</summary><div id="agentReviewOutput" class="rea-review-content"></div></details>
+            <details id="reaEvidenceDetails" hidden><summary>Registro de evidências REA</summary><div id="reaEvidenceOutput" class="rea-evidence-list"></div><details class="rea-raw-details"><summary>JSON técnico completo</summary><pre id="reaEvidenceRaw" class="console"></pre></details></details>
+          </section>
           <div class="re-layout">
             <div class="file-tree" id="installedApps" role="list" aria-label="Aplicativos instalados">
               <p>Nenhum device online.</p>
             </div>
             <div class="code-pane">
               <div class="code-head"><span id="fileName">Workspace ainda não preparado</span><button id="openGhidra" disabled>Abrir no Ghidra</button></div>
-              <div class="reverse-empty" id="reverseOutput"><strong>Engenharia reversa do package selecionado</strong><p>O APK será extraído do device autorizado e decompilado localmente com JADX. Nenhum finding é criado sem evidência.</p><button class="primary" id="prepareReverse" disabled>Analisar com JADX</button></div>
+              <div class="reverse-empty" id="reverseOutput"><strong>Engenharia reversa do package selecionado</strong><p>O APK será extraído do device autorizado e analisado pelo motor integrado do HuntMob. Nenhum finding é criado sem evidência.</p><button class="primary" id="prepareReverse" disabled>Analisar aplicativo</button></div>
             </div>
           </div>
-        </section>
-        <section class="tab-content" id="tab-files">
+        </div></section>
+        <section class="tab-content" id="tab-files"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">iOS</span><h2>Arquivos</h2></div><span class="safe-badge">Indisponível</span></div><p class="profile-description">Acesso ao sandbox do aplicativo iOS ainda não integrado.</p></div><div class="platform-android">
           <div class="panel-title"><div><span class="eyebrow">DEVICE + ARTIFACT</span><h2>Arquivos do aplicativo</h2></div><button class="outline" id="refreshFiles">Atualizar</button></div>
           <div class="files-summary"><span>Package</span><strong id="filesPackage">nenhum selecionado</strong></div>
           <div class="files-layout">
             <section><header><strong>Conteúdo do APK</strong><small>Manifest, DEX, recursos, assets e bibliotecas</small></header><div class="runtime-file-tree" id="apkFiles"><p>Instale ou selecione um aplicativo autorizado.</p></div></section>
             <section><header><strong>Sandbox do aplicativo</strong><small id="sandboxRoot">/data/user/0/&lt;package&gt;</small></header><div class="runtime-file-tree" id="sandboxFiles"><p>Aguardando package.</p></div></section>
           </div>
+        </div></section>
+        <section class="tab-content" id="tab-dast"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">iOS</span><h2>DAST</h2></div><span class="safe-badge">Indisponível</span></div><p class="profile-description">DAST iOS ainda não integrado ao runtime selecionado. A análise estática do IPA está em Reverse.</p></div><div class="platform-android">
+          <div class="panel-title"><div><span class="eyebrow">ANÁLISE EM EXECUÇÃO</span><h2>Sessão DAST</h2></div><span id="dastState" class="safe-badge">Sem sessão</span></div>
+          <p class="profile-description">Inicie a sessão, exercite o app e encerre para analisar. Os seis observadores coletam evidências; os resultados abaixo distinguem achados candidatos, cobertura e testes pendentes.</p>
+          <div class="dynamic-actions"><button class="primary" id="startDast">Iniciar sessão DAST</button><button class="outline" id="stopDast">Encerrar e analisar</button><button class="outline" id="captureDast">Capturar evidência</button><a class="outline" id="exportDast" href="/api/dynamic/export">Exportar sessão JSON</a></div>
+          <div class="artifact-meta"><span id="dastTarget">Selecione um aplicativo</span><span id="dastMetrics">Sem eventos</span></div>
+
+          <section class="native-dast-analysis" aria-label="Análise nativa da sessão">
+            <div class="panel-title"><div><span class="eyebrow">HUNTMOB</span><h2>Resultados DAST</h2></div><button id="analyzeDast" class="outline">Analisar evidências</button></div>
+            <p class="profile-description" id="nativeReportStatus">Encerre a sessão para gerar o relatório, ou analise uma captura em andamento.</p>
+            <div class="report-metrics" id="nativeMetrics" hidden></div>
+            <div class="report-navigation" aria-label="Seções do relatório"><button data-report-section="nativeCandidates">Achados</button><button data-report-section="nativeCoverage">Cobertura</button><button data-report-section="nativeObservations">Observações</button><button data-report-section="nativeLimitations">Limitações</button></div>
+            <h3 class="report-heading">Achados para revisão</h3>
+            <div id="nativeCandidates" class="native-candidates"><p>O relatório aparecerá aqui ao encerrar e analisar a sessão.</p></div>
+            <h3 class="report-heading">O que foi avaliado</h3><div class="native-coverage" id="nativeCoverage"></div>
+            <h3 class="report-heading">Observações de execução</h3><div class="native-observations" id="nativeObservations"></div>
+            <details class="report-limitations"><summary>Limitações e próximos testes</summary><ul id="nativeLimitations"></ul></details>
+            <details class="report-limitations"><summary>Testes pendentes · lógica, autorização e sessão</summary><div id="nativeManualChecks"></div></details>
+            <div class="dynamic-actions"><a class="outline" id="nativeReportJson" href="/api/dynamic/report.json" hidden>Baixar relatório JSON</a><a class="outline" id="nativeReportHtml" href="/api/dynamic/report.html" hidden>Baixar relatório HTML</a></div>
+          </div></section>
+          <details class="session-log"><summary>Eventos da sessão · console</summary><div class="console dynamic-events" id="dastEvents" aria-live="polite">Inicie uma sessão para observar eventos reais.</div></details>
         </section>
-        <section class="tab-content" id="tab-frida">
-          <div class="panel-title"><div><span class="eyebrow">INSTRUMENTAÇÃO</span><h2>Frida Script Center</h2></div><span class="safe-badge">Gate ativo</span></div>
+        <section class="tab-content" id="tab-frida"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">iOS · SIMMY</span><h2>Inspeção Frida nativa</h2></div><span class="safe-badge">Experimental</span></div><p class="profile-description">Sonda de leitura no binário autorizado deste lab. A conexão ainda falhou nos testes com iOS 26 e 27; o erro será apresentado se persistir.</p><button type="button" class="primary" id="iosFridaInspect">Testar conexão e inspecionar</button><pre id="iosFridaOutput">Selecione um app autorizado.</pre></div><div class="platform-android">
+          <div class="panel-title"><div><span class="eyebrow">INSTRUMENTAÇÃO</span><h2>Frida Script Center</h2></div><span class="safe-badge">App autorizado</span></div>
           <div class="frida-target">
             <label for="packageId">Package / Bundle ID</label>
             <div><input id="packageId" value="br.com.huntmob.demo" spellcheck="false" autocomplete="off"><button type="button" id="detectApps">Detectar apps</button></div>
             <small>O identificador deve corresponder ao engagement autorizado.</small>
           </div>
-          <div class="script-filter"><input id="scriptSearch" type="search" placeholder="Buscar scripts…"><span id="selectedCount">0 selecionados</span></div>
-          <div class="script-catalog" id="scriptCatalog">
+          <section class="script-library" aria-label="Biblioteca de observadores"><div class="script-filter"><input id="scriptSearch" type="search" placeholder="Buscar scripts…"><span id="selectedCount">0 selecionados</span></div>
+          <div class="script-presets"><strong>Observadores nativos</strong><div><button class="outline" id="selectObservers">Selecionar todos</button><button class="outline" id="clearObservers">Limpar seleção</button></div></div><div class="script-catalog" id="scriptCatalog">
             <label class="script-option"><input type="checkbox" value="tls-observe"><span class="script-code">TLS</span><span><strong>TLS pinning diagnostics</strong><small>Observa trust managers e callbacks sem alterar retorno</small></span><i>LOW</i></label>
-            <label class="script-option high"><input type="checkbox" value="tls-lab-override"><span class="script-code">TLS+</span><span><strong>TLS trust override</strong><small>Override ativo somente no package autorizado</small></span><i>HIGH</i></label>
-            <label class="script-option"><input type="checkbox" value="biometric-monitor"><span class="script-code">BIO</span><span><strong>Biometric API monitor</strong><small>Prompts, resultados, cancelamento e lockout</small></span><i>LOW</i></label>
-            <label class="script-option"><input type="checkbox" value="biometric-fixture"><span class="script-code">BIO+</span><span><strong>Biometric result fixture</strong><small>Injeta match, no-match ou cancel no laboratório</small></span><i>MED</i></label>
-            <label class="script-option"><input type="checkbox" value="root-detection-observe"><span class="script-code">ROOT</span><span><strong>Root / jailbreak checks</strong><small>Mapeia verificações de integridade executadas</small></span><i>LOW</i></label>
-            <label class="script-option"><input type="checkbox" value="webview-observe"><span class="script-code">WEB</span><span><strong>WebView navigation trace</strong><small>URLs carregadas e bridges registradas</small></span><i>LOW</i></label>
-            <label class="script-option"><input type="checkbox" value="crypto-observe"><span class="script-code">CRYPTO</span><span><strong>Crypto API trace</strong><small>Algoritmos e uso de chaves com valores redigidos</small></span><i>MED</i></label>
-            <label class="script-option"><input type="checkbox" value="file-observe"><span class="script-code">FILE</span><span><strong>Application file I/O</strong><small>Acessos dentro do sandbox do aplicativo</small></span><i>LOW</i></label>
+            <label class="script-option"><input type="checkbox" value="biometric-monitor"><span class="script-code">BIO</span><span><strong>Biometric API monitor</strong><small>Observa chamadas a authenticate sem alterar o resultado</small></span><i>LOW</i></label>
+            <label class="script-option"><input type="checkbox" value="root-detection-observe"><span class="script-code">ROOT</span><span><strong>Android integrity checks</strong><small>Mapeia verificações de integridade executadas</small></span><i>LOW</i></label>
+            <label class="script-option"><input type="checkbox" value="webview-observe"><span class="script-code">WEB</span><span><strong>WebView navigation trace</strong><small>Scheme, host e bridges; sem query ou payload</small></span><i>LOW</i></label>
+            <label class="script-option"><input type="checkbox" value="crypto-observe"><span class="script-code">CRYPTO</span><span><strong>Crypto API monitor</strong><small>Algoritmos e chamadas; sem coletar chaves ou buffers</small></span><i>MED</i></label>
+            <label class="script-option"><input type="checkbox" value="file-observe"><span class="script-code">FILE</span><span><strong>Application file I/O</strong><small>Chamadas de I/O; sem paths ou conteúdo de arquivos</small></span><i>LOW</i></label>
           </div>
-          <div class="frida-runbar"><div><span>SPAWN MODE</span><small>Frida conecta, carrega os scripts e abre o app.</small></div><button class="primary" id="runFrida" disabled>Testar no app</button></div>
-          <div class="console" id="fridaConsole"><div>$ aguardando plano de execução</div><span>Selecione um ou mais scripts.</span></div>
-        </section>
-        <section class="tab-content" id="tab-proxy">
-          <div class="panel-title"><div><span class="eyebrow">TRÁFEGO</span><h2>Proxy do laboratório</h2></div><span class="safe-badge" id="proxyBadge">Desconectado</span></div>
-          <div class="proxy-state"><input id="proxyPort" type="number" min="1024" max="65534" value="8080" aria-label="Porta do proxy"><div><strong id="proxyTitle">Listener local</strong><small id="proxyStatus">Aguardando verificação</small></div><button id="configureProxy">Configurar Burp</button></div>
-          <div class="network-capture-controls"><strong id="captureTitle">Captura inativa</strong><p id="captureHelp">Tráfego do proxy gerenciado aparece abaixo. HTTPS exige a CA instalada no device.</p><button class="primary" id="startCapture">Iniciar captura</button><button class="outline" id="stopCapture" hidden>Parar captura</button><button class="outline" id="openProxyWeb">Atualizar registros</button></div>
-          <div class="network-stats" id="networkStats">0 requisições · 0 hosts · 0 erros HTTP</div>
-          <div class="network-filters"><input id="networkSearch" type="search" placeholder="Buscar host ou caminho" aria-label="Buscar requisições"><select id="networkMethod" aria-label="Método HTTP"><option value="">Métodos</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select><select id="networkStatus" aria-label="Status HTTP"><option value="">Status HTTP</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option></select></div>
-          <div class="network-grid"><aside id="networkHosts" aria-label="Hosts capturados"></aside><div class="network-records"><div class="network-columns">MÉTODO · HOST / CAMINHO · HTTP · DURAÇÃO</div><div id="networkRows"><p>Nenhuma requisição capturada nesta sessão.</p></div></div></div>
-          <section class="network-detail" aria-label="Detalhe da requisição"><strong id="networkSelected">Selecione uma requisição</strong><div class="http-split"><section><header><strong>Request</strong><button class="primary" id="sendRequest" disabled>Send</button></header><textarea id="requestEditor" aria-label="Editar request HTTP" spellcheck="false" placeholder="Selecione um registro para editar método, caminho, headers e body."></textarea></section><section><header><strong>Response</strong><span id="sendStatus" role="status">Aguardando seleção</span></header><pre id="responseEditor">A resposta capturada ou enviada aparecerá aqui.</pre></section></div></section>
+          <details class="unavailable-scripts"><summary>Recursos adicionais · indisponíveis neste worker</summary>            <label class="script-option high"><input type="checkbox" value="tls-lab-override" disabled><span class="script-code">TLS+</span><span><strong>TLS trust override</strong><small>Não disponível neste worker de observação</small></span><i>HIGH</i></label>
+            <label class="script-option"><input type="checkbox" value="biometric-fixture" disabled><span class="script-code">BIO+</span><span><strong>Biometric result fixture</strong><small>Não disponível neste worker de observação</small></span><i>MED</i></label>
+</details></section>
+          <section class="frida-execution" aria-label="Execução e retorno"><div class="frida-runbar"><div><span>EXECUÇÃO NO APP</span><small>Frida conecta, carrega os scripts e abre o app.</small></div><select id="fridaMode" aria-label="Modo Frida"><option value="spawn">Abrir e instrumentar</option><option value="attach">Conectar ao app aberto / Gadget</option></select><button class="outline" id="prepareFrida">Preparar Frida</button><button class="outline" id="stopFrida">Parar</button><button class="primary" id="runFrida" disabled>Testar no app</button></div>
+          <details class="frida-events" open><summary>Retorno da sessão <span id="fridaSessionState" class="safe-badge">Sem sessão</span></summary><div class="console" id="fridaConsole"><div>$ aguardando plano de execução</div><span>Selecione um ou mais scripts.</span></div></details></section>
+        </div></section>
+        <section class="tab-content" id="tab-proxy"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">iOS · CAPTURA LOCAL</span><h2>Proxy do lab iOS</h2></div><span class="safe-badge" id="iosProxyState">Parado</span></div><p class="profile-description">Listener separado do Android. A fixture configura o proxy no próprio URLSession. Outros apps precisam configurar o roteamento; TLS e pinning não são alterados automaticamente.</p><div class="control-presets"><button class="primary" type="button" data-ios-proxy="start">Iniciar captura</button><button type="button" data-ios-proxy="stop">Parar</button><button type="button" data-ios-proxy="clear">Limpar</button><button type="button" id="iosProxyRefresh">Atualizar</button></div><p id="iosProxyStatus" role="status">Selecione um app autorizado.</p><pre id="iosProxyFlows">Nenhuma requisição capturada.</pre></div><div class="platform-android">
+          <div class="panel-title proxy-heading"><div><span class="eyebrow">TRÁFEGO · ANDROID</span><h2>Proxy</h2><p>Capture, filtre e repita requisições do laboratório.</p></div><div class="proxy-heading-actions"><span class="safe-badge" id="proxyBadge">Desconectado</span><button class="outline" type="button" id="proxyFocusToggle" aria-pressed="false">Expandir área</button></div></div>
+          <div class="proxy-commandbar"><div><span class="proxy-live-dot" aria-hidden="true"></span><strong id="captureTitle">Captura inativa</strong><small id="proxyRouteSummary">Sem rota no Android</small></div><button class="primary" id="startCapture">Iniciar captura</button><button class="outline" id="stopCapture" hidden>Remover rota</button></div>
+          <nav class="proxy-views" aria-label="Áreas do proxy"><button type="button" class="active" data-proxy-view="history" aria-current="page">Histórico HTTP</button><button type="button" data-proxy-view="replay">Repetir requisição</button><button type="button" data-proxy-view="setup">Configuração e CA</button></nav>
+          <div class="proxy-view active" id="proxy-view-history">
+            <div class="proxy-section-head"><div><span class="eyebrow">HTTP HISTORY</span><h3>Requisições capturadas</h3></div><div><button class="outline" id="openProxyWeb">Atualizar</button><button class="outline" id="clearNetwork">Limpar</button></div></div>
+            <div class="network-stats" id="networkStats">0 requisições · 0 hosts · 0 erros HTTP</div>
+            <div class="network-filters"><input id="networkSearch" type="search" placeholder="Buscar host ou caminho" aria-label="Buscar requisições"><select id="networkMethod" aria-label="Método HTTP"><option value="">Métodos</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select><select id="networkStatus" aria-label="Status HTTP"><option value="">Status HTTP</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option></select></div>
+            <div class="network-grid"><aside id="networkHosts" aria-label="Hosts capturados"></aside><div class="network-records"><div class="network-columns"><span>MÉTODO</span><span>HOST / CAMINHO</span><span>STATUS</span><span>TEMPO</span></div><div id="networkRows"><p>Nenhuma requisição capturada nesta sessão.</p></div></div></div>
+            <p class="proxy-footnote">A captura registra tráfego que usa esta rota. Tráfego com TLS sem CA confiável ou certificate pinning pode não aparecer descriptografado.</p>
+          </div>
+          <div class="proxy-view" id="proxy-view-replay" hidden>
+            <div class="proxy-section-head"><div><span class="eyebrow">REPLAY</span><h3>Editar e enviar</h3></div><button class="outline" type="button" id="backToHistory">Voltar ao histórico</button></div>
+            <section class="network-detail" aria-label="Detalhe da requisição"><strong id="networkSelected">Selecione uma requisição no histórico</strong><div class="http-split"><section><header><strong>Request · edição</strong><button class="primary" id="sendRequest" disabled>Enviar</button></header><textarea id="requestEditor" aria-label="Editar request HTTP" spellcheck="false" placeholder="Selecione um registro para editar método, caminho, headers e body."></textarea></section><section><header><strong>Response · último envio ou captura</strong><span id="sendStatus" role="status">Aguardando seleção</span></header><pre id="responseEditor">A resposta capturada ou enviada aparecerá aqui.</pre></section></div></section>
+          </div>
+          <div class="proxy-view" id="proxy-view-setup" hidden>
+            <div class="proxy-section-head"><div><span class="eyebrow">SETUP</span><h3>Rota e certificado</h3></div></div>
+            <div class="proxy-setup-grid"><section class="proxy-setup-card"><span class="proxy-step">01 / LISTENER</span><h4>Usar o próprio Burp</h4><p>Abra um listener no Burp nesta mesma máquina do worker. Informe a porta e aplique a rota no Android.</p><div class="proxy-state"><label for="proxyPort">Porta local</label><input id="proxyPort" type="number" min="1024" max="65534" value="8080"><button class="primary" id="configureProxy">Aplicar rota</button></div><strong id="proxyTitle">Listener local</strong><small id="proxyStatus" role="status">Aguardando verificação</small><p class="proxy-hint">Android Emulator → 10.0.2.2:porta → listener em 127.0.0.1:porta. O histórico do Burp aparece no próprio Burp.</p></section>
+            <section class="proxy-setup-card"><span class="proxy-step">02 / CA</span><h4>Enviar CA pública ao Android</h4><p>Exporte o certificado CA público do Burp em .cer, .crt ou .pem. Nunca envie a chave privada.</p><input id="proxyCaFile" type="file" accept=".cer,.crt,.pem,application/x-x509-ca-cert" aria-label="Selecionar certificado CA público"><button class="outline" type="button" id="sendProxyCa">Enviar certificado</button><small id="proxyCaStatus" role="status">Nenhum certificado enviado nesta sessão.</small><button class="outline" type="button" id="openProxyCertSettings">Abrir segurança no Android</button><p class="proxy-hint">No Android: Segurança → Criptografia e credenciais → Instalar certificado → CA. Escolha o arquivo em Downloads/HuntMob e confirme o aviso.</p></section>
+            <section class="proxy-setup-card proxy-check-card"><span class="proxy-step">03 / VALIDAÇÃO</span><h4>Verifique no app de teste</h4><ol><li>Confirme listener e rota ativos.</li><li>Instale a CA no Android e confira em credenciais do usuário.</li><li>Abra um endpoint HTTPS autorizado e veja a requisição no Burp.</li></ol><p id="captureHelp">A instalação e a confiança da CA ainda não foram verificadas.</p><p class="proxy-hint">Apps Android modernos podem não confiar em CAs do usuário. Certificate pinning também exige validação específica no app autorizado. O HuntMob não altera essas proteções automaticamente.</p></section></div>
+            <p class="proxy-footnote">Na captura HuntMob, serviços de login e busca Google passam com o certificado original. APIs em googleapis.com permanecem no escopo da captura.</p>
+          </div>
         </section>
         <section class="tab-content" id="tab-evidence">
-          <div class="panel-title"><div><span class="eyebrow">PROOF PACK</span><h2>Evidências</h2></div><button class="outline">Exportar</button></div>
-          <ol class="timeline"><li><time>09:41:12</time><div><strong>Aplicativo iniciado</strong><small>receipt ev_2af9</small></div></li><li><time>09:40:58</time><div><strong>Artefato analisado pelo REA</strong><small>SHA256 verificado</small></div></li><li><time>09:40:21</time><div><strong>Engagement validado</strong><small>escopo mobile-lab</small></div></li></ol>
+          <div class="panel-title"><div><span class="eyebrow">PROOF PACK</span><h2>Evidências</h2></div><button class="outline" id="refreshEvidence">Atualizar</button></div>
+          <p class="panel-copy" id="evidenceStatus" role="status">Nenhuma evidência registrada.</p>
+          <ol class="timeline" id="evidenceTimeline"></ol>
         </section>
       </aside>
     </main>
@@ -177,18 +286,20 @@
       <header><div><span class="eyebrow">FIXTURE CONTROLADA</span><h2 id="fixtureTitle">Biometria do device</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
       <section class="device-biometric" id="deviceBiometric">
         <div class="face-status" id="biometricStatus" role="status">Consultando capacidade do Android…</div>
-        <p class="privacy-note">Eventos de fingerprint serão enviados ao Android virtual pelo HAL biométrico do HuntMob. A câmera não é usada nesta modalidade.</p>
-        <label class="automatic-biometric"><input type="checkbox" id="automaticBiometric"> Reconhecer automaticamente durante cadastro/autenticação</label>
+        <p class="privacy-note">O Android Emulator recebe toques no sensor virtual. O Android e o app decidem o resultado; não há alteração do código de autenticação.</p>
+        <p class="privacy-note" id="biometricHelp">Cadastre uma digital em Configurações → Segurança. Depois abra o prompt no aplicativo. Os toques usam IDs sintéticos, sem uma digital real.</p>
+        <label class="lab-field">ID da digital simulada<input id="biometricFingerId" type="number" min="1" max="65534" value="1"></label>
+        <label class="automatic-biometric"><input type="checkbox" id="automaticBiometric"> Repetir toques no cadastro (até 20; somente com esta janela aberta)</label>
         <div class="biometric-outcomes" id="biometricOutcomes">
-          <button type="button" data-biometric="recognized">Reconhecido</button>
-          <button type="button" data-biometric="unrecognized">Não reconhecido</button>
-          <button type="button" data-biometric="dirty">Sensor sujo</button>
-          <button type="button" data-biometric="partial">Leitura parcial</button>
-          <button type="button" data-biometric="insufficient">Qualidade insuficiente</button>
-          <button type="button" data-biometric="too-fast">Rápido demais</button>
+          <button type="button" data-biometric="recognized">Enviar toque desta digital</button>
+          <button type="button" data-biometric="unrecognized">Enviar outra digital</button>
+          <button type="button" data-biometric="dirty" disabled title="O console nativo do Android Emulator não oferece este cenário">Sensor sujo</button>
+          <button type="button" data-biometric="partial" disabled title="O console nativo do Android Emulator não oferece este cenário">Leitura parcial</button>
+          <button type="button" data-biometric="insufficient" disabled title="O console nativo do Android Emulator não oferece este cenário">Qualidade insuficiente</button>
+          <button type="button" data-biometric="too-fast" disabled title="O console nativo do Android Emulator não oferece este cenário">Rápido demais</button>
         </div>
       </section>
-      <section class="face-recognition" id="faceRecognition" hidden>
+      <section class="face-recognition" id="faceRecognition" hidden><div class="camera-device-action"><button type="button" class="outline" id="openAndroidCamera">Abrir câmera Android</button><p class="privacy-note">A câmera Android usa o sensor emulado do AVD. A fixture facial abaixo funciona no navegador e não injeta imagem na câmera do app.</p></div>
       <div class="camera-box"><video id="cameraPreview" autoplay playsinline muted></video><canvas id="faceOverlay" aria-hidden="true"></canvas><div id="cameraPlaceholder"><span>◎</span><p>A webcam só será ativada após sua confirmação.</p></div></div>
       <div class="face-status" id="faceStatus" role="status">Motor facial inativo</div>
       <p class="privacy-note">O reconhecimento roda neste navegador. A imagem não é enviada e o embedding fica somente na memória até fechar esta janela.</p>
@@ -206,16 +317,35 @@
       </section>
     </form>
   </dialog>
+  <dialog id="deviceControlDialog">
+    <form class="dialog-shell" id="deviceControlForm">
+      <header><div><span class="eyebrow">LABORATÓRIO ANDROID</span><h2 id="controlTitle">Controle do device</h2></div><button type="button" id="closeDeviceControl" aria-label="Fechar">×</button></header>
+      <section data-control-section="location"><p class="privacy-note">Envia uma posição ao GPS emulado. O app precisa de permissão e usar o provedor de localização.</p><div class="control-fields"><label>Latitude<input id="gpsLatitude" type="number" min="-90" max="90" step="any" value="-23.55052"></label><label>Longitude<input id="gpsLongitude" type="number" min="-180" max="180" step="any" value="-46.63331"></label></div><button class="primary" data-control-action="location" type="button">Aplicar posição GPS</button></section>
+      <section data-control-section="network" hidden><p class="privacy-note">Altera Wi-Fi e dados móveis apenas neste Android. Não modifica o proxy. A resposta abaixo mostra o estado dos rádios; acesso ao backend depende da rota.</p><div class="control-presets"><button type="button" data-control-action="network" data-profile="wifi">Wi-Fi</button><button type="button" data-control-action="network" data-profile="mobile">Dados móveis</button><button type="button" data-control-action="network" data-profile="offline">Offline</button></div><h3 class="control-subheading">Velocidade e latência</h3><p class="privacy-note">Aplica apenas à rede celular/ethernet emulada. Wi-Fi não recebe esse limite.</p><div class="control-presets"><button type="button" data-control-action="network-shape" data-profile="slow">EDGE + latência</button><button type="button" data-control-action="network-shape" data-profile="lte">LTE</button><button type="button" data-control-action="network-shape" data-profile="normal">Sem limite</button></div><button type="button" class="outline" data-tool-shortcut="proxy">Abrir Proxy e tráfego</button></section>
+      <section data-control-section="battery" hidden><p class="privacy-note">Teste o comportamento do app em carga baixa. Restaurar remove a simulação.</p><label class="lab-field">Carga (%)<input id="batteryLevel" type="number" min="0" max="100" step="1" value="15"></label><div class="control-presets"><button class="primary" type="button" data-control-action="battery">Aplicar carga</button><button class="outline" type="button" data-control-action="battery-reset">Restaurar bateria</button></div></section>
+      <section data-control-section="biometric" hidden><p class="privacy-note">Eventos de teste do Simulator. Não capturam biometria real nem alteram autenticação do aplicativo.</p><label class="lab-field">Sensor<select id="iosBiometricKind"><option value="face">Face ID</option><option value="touch">Touch ID</option></select></label><div class="control-presets"><button type="button" data-ios-biometric="enroll">Habilitar cadastro</button><button type="button" data-ios-biometric="unenroll">Remover cadastro</button><button type="button" data-ios-biometric="match">Correspondência</button><button type="button" data-ios-biometric="no-match">Não corresponde</button></div></section>
+      <section data-control-section="rotation" hidden><p class="privacy-note">Apps com orientação fixa podem manter a própria orientação.</p><div class="control-presets"><button type="button" data-control-action="rotation" data-orientation="portrait">Retrato</button><button type="button" data-control-action="rotation" data-orientation="landscape">Paisagem</button><button type="button" data-control-action="rotation-reset">Automática</button></div></section>
+      <section data-control-section="sensor" hidden><p class="privacy-note">Simula aceleração no sensor virtual (m/s²), sem usar sensores do computador. Valores permitidos: −20 a 20.</p><div class="control-fields sensor-fields"><label>X<input id="sensorX" type="number" step="any" min="-20" max="20" value="0"></label><label>Y<input id="sensorY" type="number" step="any" min="-20" max="20" value="9.81"></label><label>Z<input id="sensorZ" type="number" step="any" min="-20" max="20" value="0"></label></div><button type="button" class="primary" data-control-action="sensor">Aplicar aceleração</button></section>
+      <section data-control-section="system" hidden><p class="privacy-note">Eventos de hardware e navegação enviados apenas ao emulador deste laboratório.</p><div class="control-presets"><button type="button" data-control-action="home">Home</button><button type="button" data-control-action="back">Voltar</button><button type="button" data-control-action="recents">Recentes</button><button type="button" data-control-action="wake">Acordar tela</button><button type="button" data-control-action="volume-up">Volume +</button><button type="button" data-control-action="volume-down">Volume −</button></div></section>
+      <p id="controlStatus" class="privacy-note" role="status">Escolha uma ação.</p><details id="controlReadback" hidden><summary>Estado retornado pelo Android</summary><pre id="controlReadbackText"></pre></details>
+    </form>
+  </dialog>
   <dialog id="newLabDialog">
     <form method="dialog" class="dialog-shell" id="newLabForm">
-      <header><div><span class="eyebrow">APP-FIRST</span><h2>Novo laboratório Android</h2></div><button type="button" id="closeNewLab" aria-label="Fechar">×</button></header>
-      <label class="lab-field">Engagement<input id="labEngagement" value="ENG-2026-041" required></label>
-      <label class="lab-field">Package ID <small>opcional; detectado do APK quando possível</small><input id="labPackage" placeholder="br.com.empresa.app"></label>
-      <label class="lab-field">Origem do aplicativo<select id="labSource"><option value="empty">Device vazio</option><option value="upload">APK/AAB local</option><option value="firebase">Firebase App Distribution</option><option value="signed-url">URL assinada autorizada</option><option value="play-manual">Play Store · instalação manual</option></select></label>
-      <label class="lab-field" id="artifactField" hidden>Artefato<input id="labArtifact" type="file" accept=".apk"></label>
+      <header><div><span class="eyebrow">APP-FIRST</span><h2>Novo laboratório</h2></div><button type="button" id="closeNewLab" aria-label="Fechar">×</button></header>
+      <label class="lab-field">Plataforma<select id="labPlatform"><option value="android">Android</option><option value="ios">iOS · Simulator no Mac</option></select></label>
+      <label class="lab-field">Versão<select id="labVersion"><option value="36">Android 16 · API 36</option><option value="35" selected>Android 15 · API 35</option><option value="34">Android 14 · API 34</option><option value="33">Android 13 · API 33</option><option value="32">Android 12L · API 32</option><option value="31">Android 12 · API 31</option><option value="30">Android 11 · API 30</option></select><small id="labVersionHelp">A imagem da arquitetura deste worker é preparada no primeiro uso.</small></label>
+      <button type="button" class="outline" id="manageLabIosVersions" hidden>Gerenciar versões de iOS</button>
+      <label class="lab-field" id="labModelField" hidden>Modelo iPhone<select id="labModel"></select><small>Compatibilidade entre modelo e versão é verificada antes da criação.</small></label>
+      <div id="labLegacyModels" hidden></div>
+      <label class="lab-field" id="labIosAccessField" hidden>Perfil iOS<select id="labIosAccess"><option value="stock">Sem jailbreak · Simulator</option><option value="jailbreak" disabled>Com jailbreak · runtime ainda indisponível</option></select></label>
+      <label class="lab-field" id="labPackageField"><span id="labPackageLabel">Package ID</span> <small id="labPackageHelp">opcional; detectado do APK quando possível</small><input id="labPackage" placeholder="br.com.empresa.app"></label>
+      <label class="lab-field">Origem do aplicativo<select id="labSource"><option value="upload">APK local · lab exclusivo</option><option value="empty">Lab vazio · avançado</option><option value="firebase">Firebase App Distribution</option><option value="signed-url">URL assinada autorizada</option><option value="play-manual">Play Store · instalação manual</option></select></label>
+      <label class="lab-field" id="artifactField">Artefato<input id="labArtifact" type="file" accept=".apk"></label>
+      <label class="lab-field">Perfil Android<select id="labRootMode"><option value="root">AOSP · ADB root; Magisk opcional</option><option value="stock">Google Play · sem root</option></select><small>Cada perfil mantém apps e dados próprios. A imagem é preparada no primeiro uso.</small></label>
       <label class="lab-approval"><input id="labLegacySdk" type="checkbox"> Compatibilidade com APK antigo (target SDK abaixo de 24), somente neste laboratório.</label>
-      <label class="lab-approval"><input id="labApproval" type="checkbox" required> Confirmo que o aplicativo e o engagement estão autorizados.</label>
-      <div class="lab-plan" id="labPlan">Cria um Android vazio em modo headless. Você poderá instalar o app depois.</div>
+      <label class="lab-approval"><input id="labApproval" type="checkbox" required> Tenho autorização para usar este laboratório e testar os aplicativos nele instalados.</label>
+      <div class="lab-plan" id="labPlan">Cria um Android limpo para este APK. O lab atual será desligado e preservado para retomada.</div>
       <div class="form-error" id="labError" role="alert" hidden></div>
       <button type="submit" class="primary full" id="createLab">Criar e iniciar laboratório</button>
     </form>
@@ -227,8 +357,34 @@
       <div class="session-actions"><button value="cancel" class="outline">Cancelar</button><button type="button" id="powerOffDevice" class="outline">Desligar e preservar</button><button type="button" id="destroyDevice" class="stop">Encerrar e descartar tudo</button></div>
     </form>
   </dialog>
+  <dialog id="viewerDialog"><form method="dialog" class="dialog-shell"><header><div><span class="eyebrow">DISPOSITIVO EM JANELA</span><h2>HuntMob Viewer</h2></div><button value="cancel" aria-label="Fechar viewer">×</button></header><p class="privacy-note">Visualiza a sessão deste worker. O emulador continua no computador ligado; o viewer não executa uma VM local.</p><div class="control-presets"><button type="button" id="openBrowserViewer" class="primary">Abrir no navegador</button><a id="openNativeViewer" class="outline">Abrir aplicativo instalado</a></div><p class="privacy-note">Baixe o pacote do seu sistema, extraia e abra HuntMob Viewer. Em outro computador, conecte pelo endereço HTTPS do Tailscale.</p><div id="viewerDownloads"></div><p id="viewerStatus" role="status">Consultando pacotes…</p><details><summary>Validar este aparelho</summary><p class="privacy-note">Mede acesso ao worker e verifica a imagem exibida. Toque, arraste e teclado precisam ser exercitados manualmente. O resultado fica neste navegador até você baixar o JSON.</p><div class="control-presets"><button type="button" id="checkClientConnection" class="outline">Testar conexão</button><button type="button" id="exportClientCheck" class="outline" disabled>Baixar resultado</button></div><p id="clientCheckStatus" role="status">Teste ainda não executado neste aparelho.</p></details></form></dialog>
+  <dialog id="remoteKeyboardDialog"><form method="dialog" class="dialog-shell">
+    <header><div><span class="eyebrow">ENTRADA NO DISPOSITIVO</span><h2>Teclado</h2></div><button value="cancel" aria-label="Fechar teclado">×</button></header>
+    <p class="privacy-note">Toque primeiro no campo do app. O texto será enviado ao dispositivo selecionado.</p>
+    <label class="lab-field">Texto<input id="remoteKeyboardText" maxlength="256" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+    <div class="control-presets"><button type="button" id="sendDeviceText" class="primary">Enviar texto</button><button type="button" data-remote-key="Backspace">Apagar</button><button type="button" data-remote-key="Enter">Enter</button><button type="button" data-remote-key="Tab">Tab</button></div>
+    <p id="remoteKeyboardStatus" role="status">Sem texto enviado.</p>
+  </form></dialog>
+  <dialog id="workspaceDeviceDialog"><form class="dialog-shell" method="dialog"><header><div><span class="eyebrow">MESMO WORKSPACE</span><h2>Adicionar aparelho</h2></div><button aria-label="Fechar" value="cancel">×</button></header><label class="lab-field">Plataforma<select id="workspaceDevicePlatform"><option value="android">Android · mesma configuração</option><option value="ios">iOS · Simulator no Mac</option></select></label><label class="lab-field" id="workspaceAndroidProfileField">Perfil deste Android<select id="workspaceAndroidProfile"><option value="">Mesmo perfil do principal</option><option value="root">Com root · AOSP</option><option value="stock">Sem root · Google Play</option></select><small>Cada aparelho mantém seu próprio perfil e dados.</small></label><div id="workspaceIosFields" hidden><label class="lab-field">Versão iOS<select id="workspaceIosRuntime"></select></label><button type="button" class="outline" id="manageWorkspaceIosVersions">Gerenciar versões de iOS</button><label class="lab-field">Modelo iPhone<select id="workspaceIosModel"></select></label><div id="workspaceLegacyModels"></div></div><p class="privacy-note" id="workspaceDevicePlan">Herda versão, perfil e configuração de tela do principal. Os apps, contas e dados começam vazios.</p><p class="privacy-note">O aparelho atual continua ligado. Até quatro aparelhos por workspace.</p><p id="workspaceDeviceStatus" role="status"></p><button type="button" class="primary full" id="createWorkspaceDevice">Criar e abrir ao lado</button></form></dialog>
+  <dialog id="iosRuntimesDialog"><form class="dialog-shell" method="dialog"><header><div><span class="eyebrow">CATÁLOGO DO WORKER</span><h2>Versões de iOS</h2></div><button aria-label="Fechar" value="cancel">×</button></header><p class="privacy-note" id="iosRuntimesHost"></p><label class="lab-field">Buscar versão<input id="iosRuntimesSearch" type="search" placeholder="Ex.: 18.5 ou 17" autocomplete="off"></label><p class="privacy-note" id="iosRuntimesJob" role="status"></p><div id="iosRuntimesList" class="ios-runtime-list"></div><p class="privacy-note">O download usa os runtimes oficiais da Apple. Versões antigas exigem um worker compatível; listagem não significa runtime instalado. IPA de iPhone físico continua incompatível com Simulator.</p><button class="outline" type="button" id="refreshIosRuntimes">Atualizar catálogo</button></form></dialog>
+  <dialog id="workspaceAgentDialog"><form class="dialog-shell" method="dialog"><header><div><span class="eyebrow">MCP · STDIO LOCAL</span><h2>Conectar agente ao workspace</h2></div><button aria-label="Fechar" value="cancel">×</button></header><p class="privacy-note">Adicione esta configuração ao cliente MCP que roda no worker. O agente poderá listar e capturar os aparelhos deste workspace, criar Androids e iPhones adicionais, desligá-los e retomá-los. As ferramentas da interface continuam vinculadas ao principal. O MCP também oferece inspeções estáticas REA e o contexto Companion do APK selecionado, com execução e SHA256 explícitos.</p><pre id="workspaceAgentConfig" class="workspace-agent-config"></pre><p id="workspaceAgentStatus" role="status"></p><button type="button" id="copyWorkspaceAgent" class="primary full">Copiar configuração MCP</button></form></dialog>
   <div class="toast" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js"></script>
-  <script src="app.js?v=network-2"></script>
+  <script src="screen-geometry.js?v=runtime-58-workspace"></script>
+  <script src="ios-video.js?v=runtime-58-workspace"></script>
+  <script src="ios-models.js?v=runtime-61-root-models"></script>
+  <script src="ios.js?v=runtime-68-android16"></script>
+  <script src="video.js?v=runtime-58-workspace"></script>
+  <script src="device-sidebar.js?v=runtime-64-same-avd-root"></script>
+  <script src="app.js?v=runtime-71-rea-results"></script>
+  <script src="reverse-engines.js?v=runtime-71-rea-results"></script>
+  <script src="ios-runtimes.js?v=runtime-58-workspace"></script>
+  <script src="workspace-devices.js?v=runtime-68-android16"></script>
+  <script src="workspace-canvas.js?v=runtime-69-visible-device"></script>
+  <script src="device-drop.js?v=runtime-70-device-drop"></script>
+  <script src="device-tools.js?v=runtime-67-app-root"></script>
+  <script src="remote.js?v=runtime-42"></script>
+  <script src="viewer.js?v=runtime-42"></script>
+  <script src="client-validation.js?v=runtime-42"></script>
 </body>
 </html>

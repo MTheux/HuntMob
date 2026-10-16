@@ -11,10 +11,15 @@ import time
 import tempfile
 import zipfile
 import socket
+import threading
 from dataclasses import dataclass
+from uuid import uuid4
+from .analysis_core import EmbeddedAnalysis
 from pathlib import Path
 from typing import Dict, List, Sequence
 
+
+START_LOCK = threading.Lock()
 
 PACKAGE_ID = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
 
@@ -27,10 +32,10 @@ SDK_CANDIDATES = (
 )
 
 
-def _run(command: Sequence[str], timeout: int = 30, input_text: str | None = None):
+def _run(command: Sequence[str], timeout: int = 30, input_text: str | None = None, env=None):
     return subprocess.run(
         command, input=input_text, capture_output=True, text=True,
-        timeout=timeout, check=False,
+        timeout=timeout, check=False, env=env,
     )
 
 
@@ -67,18 +72,163 @@ class AndroidWorker:
     serial = "emulator-5556"
     port = "5556"
 
-    def __init__(self, sdk: AndroidSdk | None = None) -> None:
+    def __init__(self, sdk: AndroidSdk | None = None, *, avd_name: str | None = None, root_mode: str | None = None, android_api: int | None = None, port: int | None = None) -> None:
+        from .lab_sessions import current, LAB_NAME
         self.sdk = sdk or AndroidSdk.discover()
+        if port is not None:
+            if type(port) is not int or port < 5558 or port > 5680 or port % 2:
+                raise ValueError('Porta do emulador inválida')
+            self.port = str(port)
+            self.serial = 'emulator-' + str(port)
+        if avd_name is not None:
+            if not LAB_NAME.fullmatch(avd_name) and avd_name != type(self).avd_name:
+                raise ValueError("Invalid HuntMob AVD name")
+            self.avd_name = avd_name
+        elif sdk is None:
+            self.avd_name = current().get('id', type(self).avd_name)
+
+        if root_mode is None:
+            record = current()
+            if record.get('id') != self.avd_name:
+                try:
+                    import json
+                    from .lab_sessions import root
+                    record = json.loads((root() / (self.avd_name + '.json')).read_text())
+                except (OSError, ValueError):
+                    record = {}
+            root_mode = record.get('root_mode', 'root')
+        if root_mode not in {'root', 'stock'}:
+            raise ValueError('Invalid root profile')
+        self.root_mode = root_mode
+        if android_api is None:
+            android_api = record.get('android_api', 35) if 'record' in locals() else 35
+        if type(android_api) is not int or android_api not in {30, 31, 32, 33, 34, 35, 36}: raise ValueError('Unsupported Android API')
+        self.android_api = android_api
+        from .host_runtime import android_host
+        self.host = android_host()
+        self.architecture = self.host.get('architecture','unsupported')
+        self.package = 'system-images;android-' + str(android_api) + ';' + ('default' if root_mode == 'root' else 'google_apis_playstore') + ';' + self.architecture
+
+    def select_target(self, package_id):
+        """Bind an explicitly selected installed app to its owned per-app lab."""
+        from .lab_sessions import LAB_LOCK,current,save
+        if not isinstance(package_id,str) or not PACKAGE_ID.fullmatch(package_id):return {'ok':False,'reason':'Package ID inválido.'}
+        with LAB_LOCK:
+            lab=current()
+            if lab.get('id')!=self.avd_name:return {'ok':False,'reason':'Lab selecionado mudou; atualize os dispositivos.'}
+            if lab.get('package_id') and lab['package_id']!=package_id:return {'ok':False,'reason':'Outro app exige um lab separado. Crie um novo laboratório.'}
+            if not self.sdk or self.status().get('state')!='device':return {'ok':False,'reason':'Android autorizado não está online.'}
+            installed=_run((str(self.sdk.adb),'-s',self.serial,'shell','pm','path',package_id),timeout=10)
+            paths=[line.removeprefix('package:').strip() for line in installed.stdout.splitlines() if line.startswith('package:')]
+            if installed.returncode or not paths:return {'ok':False,'reason':'App selecionado não está instalado.'}
+            with tempfile.TemporaryDirectory(prefix='huntmob-target-') as directory:
+                apk=Path(directory)/'base.apk'
+                pulled=_run((str(self.sdk.adb),'-s',self.serial,'pull',paths[0],str(apk)),timeout=180)
+                if pulled.returncode or not apk.is_file():return {'ok':False,'reason':'Não foi possível identificar o APK instalado.'}
+                digest=hashlib.sha256()
+                with apk.open('rb') as source:
+                    for chunk in iter(lambda:source.read(1024*1024),b''):digest.update(chunk)
+                value=digest.hexdigest()
+            if current().get('id')!=lab['id']:return {'ok':False,'reason':'Lab mudou durante a seleção; nenhum alvo foi atualizado.'}
+            if value!=lab.get('apk_sha256'):
+                from .dynamic_runtime import DYNAMIC
+                DYNAMIC.stop()
+            record={**lab,'package_id':package_id,'apk_sha256':value}
+            save(record)
+            return {'ok':True,'lab':record,'reason':'App instalado vinculado ao lab e SHA256 calculado.'}
+
+    def open_play_store(self, package_id=''):
+        if self.root_mode!='stock':return {'ok':False,'reason':'Play Store exige o perfil sem root com Google Play.'}
+        if package_id and (not isinstance(package_id,str) or not PACKAGE_ID.fullmatch(package_id)):
+            return {'ok':False,'reason':'Package ID inválido.'}
+        status=self.status()
+        if status.get('state')!='device' or status.get('properties',{}).get('sys.boot_completed')!='1':return {'ok':False,'reason':'Android Google Play não está pronto.'}
+        packages=_run((str(self.sdk.adb),'-s',self.serial,'shell','pm','path','com.android.vending'),timeout=10)
+        if packages.returncode or 'package:' not in packages.stdout:
+            return {'ok':False,'reason':'Este device não tem Play Store. Use uma imagem Google Play oficial.'}
+        command=(str(self.sdk.adb),'-s',self.serial,'shell','am','start','-W')
+        command+=('-a','android.intent.action.VIEW','-d','market://details?id='+package_id,'-p','com.android.vending') if package_id else ('-a','android.intent.action.MAIN','-c','android.intent.category.LAUNCHER','-p','com.android.vending')
+        result=_run(command,timeout=20)
+        ok=result.returncode==0 and 'Error:' not in result.stdout and 'Error:' not in result.stderr
+        return {'ok':ok,'reason':'Play Store aberta. Faça login manualmente no dispositivo; instalação e compatibilidade do app ainda precisam de validação.' if ok else 'Play Store não abriu. Confira o runtime Google Play.'}
+
+    def prepare_profile(self, mode):
+        if mode not in {'root', 'stock'} or not self.sdk:
+            return {'ok': False, 'reason': 'Perfil ou SDK indisponível.'}
+        target = AndroidWorker(self.sdk, root_mode=mode, android_api=self.android_api)
+        if not target.host['supported']:
+            return {'ok':False,'reason':target.host['reason']}
+        if target.prerequisites().get('ready'):
+            return {'ok': True, 'already_installed': True}
+        try:
+            result = _run((str(self.sdk.sdkmanager), '--sdk_root=' + str(self.sdk.root), target.package), timeout=900, input_text='')
+        except (OSError, subprocess.TimeoutExpired):
+            return {'ok': False, 'reason': 'Preparação não concluída. Verifique conexão e armazenamento do SDK.'}
+        ready = target.prerequisites().get('ready')
+        return {'ok': bool(ready), 'reason': '' if ready else 'Imagem não instalada. Verifique licenças Android no SDK Manager e conexão; nenhuma licença foi aceita automaticamente.'}
+
+    def root_status(self):
+        if not self.sdk or self.status().get('state') != 'device':
+            return {'verified': False, 'reason': 'Device offline'}
+        command = (str(self.sdk.adb), '-s', self.serial)
+        try:
+            shell = _run(command + ('shell', 'id'), timeout=5)
+            su = _run(command + ('shell', 'su', '0', 'id'), timeout=5)
+            build = _run(command + ('shell', 'getprop', 'ro.build.type'), timeout=5).stdout.strip()
+            debuggable = _run(command + ('shell', 'getprop', 'ro.debuggable'), timeout=5).stdout.strip()
+            rooted = 'uid=0(' in shell.stdout or (su.returncode == 0 and 'uid=0(' in su.stdout)
+            matched = rooted if self.root_mode == 'root' else not rooted and build == 'user' and debuggable == '0'
+            return {'verified': matched, 'root_available': rooted, 'build_type': build, 'debuggable': debuggable, 'profile': self.root_mode}
+        except (OSError, subprocess.TimeoutExpired):
+            return {'verified': False, 'reason': 'Root verification unavailable'}
+
+    def enable_adb_root(self):
+        """Enable adbd root only on this owned, debug-capable AVD and read it back."""
+        if self.root_mode != 'root' or not self.sdk or self.status().get('state') != 'device':
+            return {'ok': False, 'reason': 'ADB root exige um Android AOSP ativo.'}
+        base = (str(self.sdk.adb), '-s', self.serial)
+        name = _run(base + ('emu', 'avd', 'name'), timeout=5)
+        if name.returncode or self.avd_name not in name.stdout.splitlines():
+            return {'ok': False, 'reason': 'Identidade do AVD não confirmada para ADB root.'}
+        identity = _run(base + ('shell', 'id', '-u'), timeout=5)
+        if identity.returncode:
+            return {'ok': False, 'reason': 'Não foi possível consultar o UID do ADB.'}
+        if identity.stdout.strip() == '0':
+            return {'ok': True, 'adb_root_enabled': True}
+        build = _run(base + ('shell', 'getprop', 'ro.build.type'), timeout=5)
+        debug = _run(base + ('shell', 'getprop', 'ro.debuggable'), timeout=5)
+        if build.returncode or debug.returncode or build.stdout.strip() not in {'userdebug', 'eng'} or debug.stdout.strip() != '1':
+            return {'ok': False, 'reason': 'A imagem iniciada não permite ADB root.'}
+        changed = _run(base + ('root',), timeout=15)
+        if changed.returncode or 'cannot run as root' in (changed.stdout + changed.stderr).lower():
+            return {'ok': False, 'reason': 'O AVD recusou ADB root.'}
+        waited = _run(base + ('wait-for-device',), timeout=25)
+        observed = _run(base + ('emu', 'avd', 'name'), timeout=5)
+        identity = _run(base + ('shell', 'id', '-u'), timeout=5)
+        if waited.returncode or observed.returncode or self.avd_name not in observed.stdout.splitlines() or identity.returncode or identity.stdout.strip() != '0':
+            return {'ok': False, 'reason': 'ADB root não foi confirmado no mesmo AVD AOSP.'}
+        return {'ok': True, 'adb_root_enabled': True}
 
     def prerequisites(self) -> Dict[str, object]:
+        if not self.host['supported']:
+            return {'ready':False,'reason':self.host['reason'],'host':self.host}
         if not self.sdk:
             return {"ready": False, "reason": "Android SDK command-line tools not found"}
-        image = self.sdk.root / "system-images/android-35/default/arm64-v8a/system.img"
+        config=Path(os.environ.get('ANDROID_AVD_HOME',str(Path.home()/'.android/avd')))/(self.avd_name+'.avd')/'config.ini'
+        if config.is_file():
+            values=dict(line.split('=',1) for line in config.read_text().splitlines() if '=' in line)
+            actual=values.get('abi.type')
+            if actual and actual!=self.architecture:
+                return {'ready':False,'reason':'Arquitetura do lab salvo incompatível com este host; use o worker original ou crie um lab novo.','architecture':self.architecture,'saved_architecture':actual}
+        image = self.sdk.root.joinpath(*self.package.split(";"), "system.img")
         return {
             "ready": self.sdk.emulator.exists() and image.exists(),
             "sdk_root": str(self.sdk.root),
             "emulator": str(self.sdk.emulator),
             "image": str(image),
+            "architecture": self.architecture,
+            "required_package": self.package,
+            "apk_metadata_ready": any(path.is_file() and path.name in {'aapt','aapt.exe'} for path in (self.sdk.root/'build-tools').glob('*/aapt*')),
             "accelerator": {"Darwin": "hvf", "Linux": "kvm", "Windows": "whpx"}.get(platform.system(), "unknown"),
         }
 
@@ -99,37 +249,88 @@ class AndroidWorker:
     def status(self) -> Dict[str, object]:
         if not self.sdk:
             return {"state": "unavailable", "serial": self.serial}
-        result = _run((str(self.sdk.adb), "devices"))
+        try:
+            result = _run((str(self.sdk.adb), "devices"), timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return {"state": "error", "serial": self.serial, "reason": "ADB did not respond; check the local worker"}
+        if result.returncode != 0:
+            return {"state": "error", "serial": self.serial, "reason": "ADB discovery failed"}
         state = "offline"
+        attached = False
         for line in result.stdout.splitlines():
             if line.startswith(f"{self.serial}\t"):
+                attached = True
                 state = line.split("\t", 1)[1].strip()
-        payload: Dict[str, object] = {"state": state, "serial": self.serial, "avd": self.avd_name}
+        payload: Dict[str, object] = {"state": state, "serial": self.serial, "avd": self.avd_name, "attached": attached}
         if state == "device":
+            try:
+                identity = _run((str(self.sdk.adb), "-s", self.serial, "emu", "avd", "name"), timeout=3)
+                observed = identity.stdout.splitlines()[0].strip() if identity.stdout.splitlines() else ""
+            except (OSError, subprocess.TimeoutExpired):
+                return {**payload, "state":"error", "ownership_verified":False, "reason":"Identidade do emulador indisponível; nenhuma ação será enviada."}
+            if identity.returncode or observed != self.avd_name:
+                return {**payload, "state":"error", "ownership_verified":False, "reason":"O serial ADB pertence a outro AVD. Reconecte o laboratório selecionado."}
+            payload["ownership_verified"] = True
             props = {}
             for key in ("ro.build.version.release", "ro.build.version.sdk", "ro.product.cpu.abi", "sys.boot_completed"):
-                value = _run((str(self.sdk.adb), "-s", self.serial, "shell", "getprop", key)).stdout.strip()
+                try:
+                    prop = _run((str(self.sdk.adb), "-s", self.serial, "shell", "getprop", key), timeout=3)
+                except (OSError, subprocess.TimeoutExpired):
+                    return {"state": "error", "serial": self.serial, "reason": "Android properties are unavailable"}
+                if prop.returncode != 0:
+                    return {"state": "error", "serial": self.serial, "reason": "Android disconnected during discovery"}
+                value = prop.stdout.strip()
                 props[key] = value
             payload["properties"] = props
         return payload
 
     def start(self, timeout: int = 180) -> Dict[str, object]:
+        if not START_LOCK.acquire(blocking=False):
+            return {"ok": False, "blocked": True, "reason": "Android is already starting; wait for the current operation"}
+        try:
+            return self._start(timeout)
+        finally:
+            START_LOCK.release()
+
+    def _start(self, timeout: int) -> Dict[str, object]:
         existing = self.status()
         if existing["state"] == "device" and existing.get("properties", {}).get("sys.boot_completed") == "1":
             return {"ok": True, "started": False, **existing}
+        if existing["state"] in {"error", "unauthorized"}:
+            return {"ok": False, "blocked": True, "reason": existing.get("reason", "Device authorization is required")}
         created = self.create()
         if not created["ok"]:
             return created
         log_dir = Path.home() / ".huntmob/logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        log = (log_dir / "android-worker.log").open("a", encoding="utf-8")
+        log_path = log_dir / ("android-" + self.avd_name + ".log")
+        log = log_path.open("a", encoding="utf-8")
+        log_offset = log.tell()
         command = (
-            str(self.sdk.emulator), f"@{self.avd_name}", "-no-window", "-no-audio",
-            "-no-boot-anim", "-gpu", "auto", "-port", self.port, "-no-snapshot-save",
+            str(self.sdk.emulator), f"@{self.avd_name}", *(("-writable-system",) if self.android_api == 30 else ()), "-no-window", "-no-audio",
+            "-no-boot-anim", "-port", self.port, "-no-snapshot-save",
         )
-        subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        # A device already visible to ADB may still be booting; never launch it twice.
+        process = None
+        if not existing.get("attached") and existing["state"] not in {"device", "unauthorized"}:
+            try:
+                process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            finally:
+                log.close()
+        else:
+            log.close()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if process is not None and process.poll() is not None:
+                with log_path.open('rb') as details:
+                    details.seek(log_offset)
+                    failure_log = details.read(262144).decode('utf-8', errors='replace')
+                if 'not have enough disk space' in failure_log:
+                    import shutil
+                    return {'ok': False, 'blocked': True, 'error_code': 'insufficient_disk_space',
+                            'free_bytes': shutil.disk_usage(Path.home()).free,
+                            'reason': 'Espaço insuficiente no worker para iniciar o Android. Libere espaço no Mac e clique novamente no aparelho na lista lateral. A identidade e os dados foram preservados.'}
+                return {"ok": False, "blocked": True, "reason": "Android Emulator exited before boot completed; check worker logs"}
             current = self.status()
             if current["state"] == "device" and current.get("properties", {}).get("sys.boot_completed") == "1":
                 return {"ok": True, "started": True, **current}
@@ -139,8 +340,26 @@ class AndroidWorker:
     def stop(self) -> Dict[str, object]:
         if not self.sdk:
             return {"ok": False, "reason": "Android SDK unavailable"}
+        status=self.status()
+        if not status.get('attached') and status.get('state')=='offline':return {'ok':True,'state':'stopped'}
+        if status.get('ownership_verified') is not True:return {'ok':False,'blocked':True,'reason':'Não foi possível confirmar o AVD selecionado; nenhum device foi desligado.'}
         result = _run((str(self.sdk.adb), "-s", self.serial, "emu", "kill"))
-        return {"ok": result.returncode == 0, "state": "stopping", "error": result.stderr.strip()}
+        if result.returncode:
+            return {"ok": False, "state": "stopping", "error": result.stderr.strip()}
+        # ADB acknowledges `emu kill` before QEMU releases its console port.
+        # An immediate Resume would otherwise start a second process on that port.
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            detached = self.status().get('attached') is False
+            try:
+                with socket.create_connection(('127.0.0.1', int(self.port)), timeout=0.25):
+                    port_free = False
+            except OSError:
+                port_free = True
+            if detached and port_free:
+                return {"ok": True, "state": "stopped"}
+            time.sleep(0.5)
+        return {"ok": False, "state": "stopping", "reason": "O Android ainda está desligando; aguarde e tente retomar novamente."}
 
     def reboot(self, timeout: int = 180) -> Dict[str, object]:
         if not self.sdk or self.status()["state"] != "device":
@@ -160,13 +379,25 @@ class AndroidWorker:
         """Delete only the fixed HuntMob AVD after stopping its emulator."""
         if not self.sdk:
             return {"ok": False, "reason": "Android SDK unavailable"}
-        if self.status()["state"] == "device":
-            self.stop()
+        status=self.status()
+        if status.get('attached') and status.get('state')!='device':return {'ok':False,'blocked':True,'reason':'Android ainda está conectado sem identidade validada; lab preservado.'}
+        if status.get('state') in {'error','unauthorized'}:return {'ok':False,'blocked':True,'reason':status.get('reason','Device não identificado; lab preservado.')}
+        if status["state"] == "device":
+            stopped=self.stop()
+            if not stopped.get('ok'):return stopped
             deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline and self.status()["state"] != "offline":
+            while time.monotonic() < deadline:
+                state=self.status()
+                if state.get('state')=='offline' and not state.get('attached'):break
                 time.sleep(1)
+            else:return {'ok':False,'blocked':True,'reason':'Android ainda está conectado; nenhum AVD foi apagado.'}
         result = _run((str(self.sdk.avdmanager), "delete", "avd", "--name", self.avd_name), timeout=60)
         deleted = result.returncode == 0 or "does not exist" in (result.stderr + result.stdout).lower()
+        if deleted:
+            from .lab_sessions import current, save
+            record = current()
+            if record.get('id') == self.avd_name:
+                save({**record, 'state': 'destroyed'})
         return {"ok": deleted, "state": "destroyed" if deleted else "error", "error": "" if deleted else result.stderr.strip()}
 
     def install_and_launch(self, apk: Path, package_id: str, *, legacy_sdk: bool = False) -> Dict[str, object]:
@@ -176,13 +407,19 @@ class AndroidWorker:
             return {"ok": False, "blocked": True, "reason": "an existing APK is required"}
         if self.status()["state"] != "device":
             return {"ok": False, "blocked": True, "reason": "device is not online"}
-        flags = ("--bypass-low-target-sdk-block",) if legacy_sdk else ()
+        api = int(self.status().get("properties", {}).get("ro.build.version.sdk", "0"))
+        flags = ("--bypass-low-target-sdk-block",) if legacy_sdk and api >= 34 else ()
         install = _run((str(self.sdk.adb), "-s", self.serial, "install", "-r", *flags, str(apk)), timeout=180)
         if install.returncode != 0:
             details = (install.stderr + "\n" + install.stdout).strip()
             failure = __import__("re").search(r"Failure \[(.*?)\]", details, __import__("re").S)
             reason = failure[1] if failure else "APK installation failed"
             return {"ok": False, "blocked": True, "reason": reason, "error": details}
+        return self.launch_app(package_id)
+
+    def launch_app(self, package_id):
+        if not self.sdk or not PACKAGE_ID.fullmatch(package_id):
+            return {'ok': False, 'reason': 'Invalid package or SDK unavailable'}
         resolved = _run((str(self.sdk.adb), "-s", self.serial, "shell", "cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", package_id))
         component = next((line.strip() for line in reversed(resolved.stdout.splitlines()) if line.strip().startswith(package_id + "/")), "")
         if not component:
@@ -191,7 +428,24 @@ class AndroidWorker:
         launched = launch.returncode == 0 and "Error:" not in launch.stdout + launch.stderr
         return {"ok": launched, "package_id": package_id, "installed": True, "launched": launched, "reason": "" if launched else (launch.stderr + launch.stdout).strip()}
 
-    def upload_and_launch(self, apk: Path, *, legacy_sdk: bool = False) -> Dict[str, object]:
+    def install_apk_set(self, apks, package_id, *, legacy_sdk=False):
+        """Install an original base and split set without changing its signatures."""
+        if not PACKAGE_ID.fullmatch(package_id) or not isinstance(apks, (list, tuple)) or not 1 <= len(apks) <= 128:
+            return {'ok': False, 'reason': 'Conjunto de APKs inválido.'}
+        if any(not isinstance(path, Path) or not path.is_file() or path.suffix != '.apk' for path in apks):
+            return {'ok': False, 'reason': 'Conjunto de APKs incompleto.'}
+        if len(apks) == 1:
+            return self.install_and_launch(apks[0], package_id, legacy_sdk=legacy_sdk)
+        if not self.sdk or self.status().get('state') != 'device':
+            return {'ok': False, 'reason': 'Android desconectado.'}
+        api = int(self.status().get('properties', {}).get('ro.build.version.sdk', '0'))
+        flags = ('--bypass-low-target-sdk-block',) if legacy_sdk and api >= 34 else ()
+        result = _run((str(self.sdk.adb), '-s', self.serial, 'install-multiple', '-r', *flags, *(str(path) for path in apks)), timeout=180)
+        if result.returncode or 'Success' not in result.stdout:
+            return {'ok': False, 'reason': 'Não foi possível instalar o conjunto original de APKs.', 'error': (result.stderr + result.stdout).strip()}
+        return {**self.launch_app(package_id), 'apk_count': len(apks)}
+
+    def upload_and_launch(self, apk: Path, *, legacy_sdk: bool = False, new_lab: bool = False, root_mode: str = "root", android_api: int = 35, engagement: str = '') -> Dict[str, object]:
         if not self.sdk:
             return {"ok": False, "reason": "Android SDK unavailable"}
         candidates = sorted((self.sdk.root / "build-tools").glob("*/aapt*"))
@@ -202,10 +456,23 @@ class AndroidWorker:
         match = __import__("re").search(r"package: name='([^']+)'", metadata.stdout)
         if metadata.returncode or not match or not PACKAGE_ID.fullmatch(match[1]):
             return {"ok": False, "reason": "invalid APK or unreadable package metadata"}
-        started = self.start()
+        from .lab_sessions import create_lab, current, save
+        bound = current().get('package_id', '')
+        if not new_lab and bound and bound != match[1]:
+            return {"ok": False, "reason": "Different app requires a new isolated lab"}
+        digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+        started = create_lab(self, match[1], digest, root_mode=root_mode, android_api=android_api, engagement=engagement) if new_lab else self.start()
         if not started.get("ok"):
             return started
-        return self.install_and_launch(apk, match[1], legacy_sdk=legacy_sdk)
+        target = AndroidWorker(self.sdk, avd_name=started['lab']['id']) if new_lab else self
+        result = target.install_and_launch(apk, match[1], legacy_sdk=legacy_sdk)
+        if new_lab:
+            result['lab'] = started['lab']
+        elif result.get('installed') and current().get('id') == self.avd_name:
+            record = {**current(), 'package_id': match[1], 'apk_sha256': digest}
+            save(record)
+            result['lab'] = record
+        return result
 
     def device_input(self, payload: dict) -> Dict[str, object]:
         if not self.sdk or self.status()["state"] != "device":
@@ -213,14 +480,24 @@ class AndroidWorker:
         action = payload.get("action")
         if action == "back":
             command = ("keyevent", "4")
+        elif action == 'key':
+            key={'Backspace':'67','Enter':'66','Tab':'61','ArrowUp':'19','ArrowDown':'20','ArrowLeft':'21','ArrowRight':'22'}.get(payload.get('key'))
+            if not key: return {'ok':False,'reason':'Unsupported key'}
+            command=('keyevent',key)
         elif action == "text":
             value = str(payload.get("text", ""))
             if not value or len(value) > 256 or not __import__("re").fullmatch(r"[A-Za-z0-9 @._+:/-]+", value):
                 return {"ok": False, "reason": "Use ASCII text up to 256 characters"}
             command = ("text", value.replace(" ", "%s"))
         elif action in {"tap", "swipe"}:
-            size = _run((str(self.sdk.adb), "-s", self.serial, "shell", "wm", "size")).stdout
-            matches = __import__("re").findall(r"(\d+)x(\d+)", size)
+            # Input viewport dimensions follow actual display rotation, including
+            # apps which keep portrait despite a requested landscape orientation.
+            viewport = _run((str(self.sdk.adb), "-s", self.serial, "shell", "dumpsys", "input"), timeout=5).stdout
+            matches = __import__("re").findall(r"Viewport INTERNAL: displayId=0[^\n]*logicalFrame=\[0, 0, (\d+), (\d+)\]", viewport)
+            matches = [match for match in matches if int(match[0]) > 0 and int(match[1]) > 0]
+            if not matches:
+                size = _run((str(self.sdk.adb), "-s", self.serial, "shell", "wm", "size")).stdout
+                matches = __import__("re").findall(r"(\d+)x(\d+)", size)
             if not matches:
                 return {"ok": False, "reason": "display size unavailable"}
             width, height = map(int, matches[-1])
@@ -313,7 +590,22 @@ class AndroidWorker:
                 listening = True
         except OSError:
             listening = False
-        return {"configured": configured not in {"", ":0", "null"}, "device_proxy": configured, "listener": listening, "host_port": port}
+        from .lab_sessions import current
+        route_required = current().get('package_id') == 'com.android.insecurebankv2'
+        route_active = False
+        capture_note = ''
+        try:
+            import json
+            from .lab_sessions import current
+            record = json.loads((Path.home() / '.huntmob/run/app-capture.json').read_text())
+            if self.sdk and record.get('lab_id') == current().get('id') and record.get('proxy_port') == port:
+                rules = _run((str(self.sdk.adb), '-s', self.serial, 'shell', 'su', '0', 'iptables', '-t', 'nat', '-S', 'OUTPUT'), timeout=5).stdout
+                route_active = any('HuntMob-local-app' in line and f"--uid-owner {int(record['uid'])} " in line and f"--dport {int(record['backend_port'])} " in line and f"--to-destination 10.0.2.2:{port}" in line for line in rules.splitlines())
+                capture_note = 'Captura HTTP por app ativa.' if route_active else 'Rota do app ausente. Clique em Iniciar captura para reaplicar.'
+        except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
+            pass
+        from .managed_proxy import owned
+        return {"configured": configured == f"10.0.2.2:{port}", "device_proxy_set": configured not in {"", ":0", "null"}, "device_proxy": configured, "listener": listening, "native_listener":listening and owned(port), "host_port": port, "direct_capture": route_active, "direct_capture_required": route_required, "capture_note": capture_note}
 
     def configure_proxy(self, port: int = 8080) -> Dict[str, object]:
         if not 1024 <= port <= 65535:
@@ -327,42 +619,130 @@ class AndroidWorker:
         result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "settings", "put", "global", "http_proxy", route))
         return {"ok": result.returncode == 0, "device_proxy": route, "listener": True}
 
+    def configure_local_app_capture(self, port: int) -> Dict[str, object]:
+        """Route only the known lab app's local HTTP backend through the proxy."""
+        import json
+        import xml.etree.ElementTree as ET
+        from .lab_sessions import current
+        lab = current()
+        if lab.get('package_id') != 'com.android.insecurebankv2' or lab.get('apk_sha256') != 'b18af2a0e44d7634bbcdf93664d9c78a2695e050393fcfbb5e8b91f902d194a4':
+            return {'direct_capture': False, 'capture_note': 'Proxy Android configurado; confirme que o app usa essa rota.'}
+        root = _run((str(self.sdk.adb), '-s', self.serial, 'shell', 'su', '0', 'id'), timeout=5)
+        if root.returncode != 0 or 'uid=0' not in root.stdout:
+            return {'direct_capture': False, 'capture_note': 'Este cliente HTTP ignora o proxy; o worker não oferece roteamento por app.'}
+        prefs = _run((str(self.sdk.adb), '-s', self.serial, 'shell', 'run-as', lab['package_id'], 'cat', 'shared_prefs/com.android.insecurebankv2_preferences.xml'), timeout=5)
+        try:
+            values = {node.attrib.get('name'): node.text or '' for node in ET.fromstring(prefs.stdout)}
+            host = values.get('serverip', '')
+            backend_port = int(values.get('serverport', ''))
+        except (ValueError, ET.ParseError):
+            return {'direct_capture': False, 'capture_note': 'Configure o backend local no aplicativo antes de capturar login.'}
+        if host != '10.0.2.2' or not 1024 <= backend_port <= 65535 or backend_port == port:
+            return {'direct_capture': False, 'capture_note': 'Roteamento direto disponível somente para backend HTTP local via 10.0.2.2, em porta diferente do proxy.'}
+        package = _run((str(self.sdk.adb), '-s', self.serial, 'shell', 'cmd', 'package', 'list', 'packages', '-U', lab['package_id']), timeout=5)
+        match = __import__('re').search(r'^package:com\.android\.insecurebankv2 uid:(\d+)$', package.stdout.strip(), __import__('re').M)
+        if not match:
+            return {'direct_capture': False, 'capture_note': 'UID do app não confirmado.'}
+        uid = match[1]
+        self.clear_local_app_capture()
+        rule = ('OUTPUT', '-p', 'tcp', '-m', 'owner', '--uid-owner', uid, '-d', '10.0.2.2/32', '--dport', str(backend_port), '-m', 'comment', '--comment', 'HuntMob-local-app', '-j', 'DNAT', '--to-destination', f'10.0.2.2:{port}')
+        command = (str(self.sdk.adb), '-s', self.serial, 'shell', 'su', '0', 'iptables', '-t', 'nat')
+        checked = _run(command + ('-C',) + rule, timeout=5)
+        if checked.returncode != 0:
+            added = _run(command + ('-A',) + rule, timeout=5)
+            if added.returncode != 0:
+                return {'direct_capture': False, 'capture_note': 'Não foi possível instalar a rota por app.'}
+        record = {'lab_id': lab['id'], 'package_id': lab['package_id'], 'uid': int(uid), 'backend_port': backend_port, 'proxy_port': port}
+        store = Path.home() / '.huntmob/run/app-capture.json'
+        store.parent.mkdir(parents=True, exist_ok=True)
+        with os.fdopen(os.open(store, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as stream:
+            json.dump(record, stream)
+        try:
+            with socket.create_connection(('127.0.0.1', backend_port), timeout=.3):
+                backend_available = True
+        except OSError:
+            backend_available = False
+        return {'direct_capture': True, 'backend_available': backend_available,
+                'capture_note': 'Captura HTTP por app ativa.' + ('' if backend_available else f' Backend local na porta {backend_port} indisponível; o login poderá falhar, mas a tentativa será capturada.')}
+
+    def clear_local_app_capture(self) -> None:
+        import json
+        from .lab_sessions import current
+        store = Path.home() / '.huntmob/run/app-capture.json'
+        try:
+            record = json.loads(store.read_text())
+            if record.get('package_id') != 'com.android.insecurebankv2':
+                return
+            if record.get('lab_id') == current().get('id'):
+                uid, backend_port, port = int(record['uid']), int(record['backend_port']), int(record['proxy_port'])
+                if not 10000 <= uid <= 999999 or not 1024 <= backend_port <= 65535 or not 1024 <= port <= 65534:
+                    return
+                rule = ('OUTPUT', '-p', 'tcp', '-m', 'owner', '--uid-owner', str(uid), '-d', '10.0.2.2/32', '--dport', str(backend_port), '-m', 'comment', '--comment', 'HuntMob-local-app', '-j', 'DNAT', '--to-destination', f'10.0.2.2:{port}')
+                result = _run((str(self.sdk.adb), '-s', self.serial, 'shell', 'su', '0', 'iptables', '-t', 'nat', '-D') + rule, timeout=5)
+                if result.returncode != 0:
+                    return
+            store.unlink(missing_ok=True)
+        except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
+            pass
+
     def clear_proxy(self) -> Dict[str, object]:
+        self.clear_local_app_capture()
         if not self.sdk or self.status()["state"] != "device":
             return {"ok": False, "blocked": True, "reason": "device is not online"}
         result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "settings", "put", "global", "http_proxy", ":0"))
         return {"ok": result.returncode == 0, "device_proxy": ":0"}
 
-    def start_managed_proxy(self, port: int = 8080) -> Dict[str, object]:
-        """Start a local mitmweb listener and route only the owned emulator to it."""
-        if not 1024 <= port <= 65534:
-            return {"ok": False, "blocked": True, "reason": "proxy port must be between 1024 and 65534"}
-        executable = shutil.which("mitmweb")
-        if not executable:
-            return {"ok": False, "blocked": True, "reason": "mitmweb is not installed"}
+    def open_certificate_settings(self) -> Dict[str, object]:
+        """Open Android's security settings; certificate trust remains a user action."""
         if not self.sdk or self.status()["state"] != "device":
             return {"ok": False, "blocked": True, "reason": "device is not online"}
-        if not self.proxy_status(port)["listener"]:
+        result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "am", "start", "-a", "android.settings.SECURITY_SETTINGS"), timeout=10)
+        return {"ok": result.returncode == 0, "reason": "Não foi possível abrir os ajustes de segurança." if result.returncode else "Ajustes de segurança abertos; instale e confira a CA manualmente."}
+
+    def start_managed_proxy(self, port: int = 8080) -> Dict[str, object]:
+        """Start a headless capture listener; the HuntMob UI owns the inspector."""
+        if not 1024 <= port <= 65534:
+            return {"ok": False, "blocked": True, "reason": "proxy port must be between 1024 and 65534"}
+        from .lab_backend import supported_lab, ensure_backend
+        backend = ensure_backend() if supported_lab() else {}
+        executable = shutil.which("mitmdump")
+        if not executable:
+            return {"ok": False, "blocked": True, "reason": "O worker de captura não está disponível (mitmdump)."}
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        from . import managed_proxy
+        listener=self.proxy_status(port)['listener']
+        if listener and not managed_proxy.owned(port):
+            return {'ok':False,'reason':'Porta ocupada por um listener sem identidade HuntMob confirmada. Escolha outra porta para captura nativa ou use Configurar Burp.'}
+        if not listener:
             run_dir = Path.home() / ".huntmob" / "run"
             run_dir.mkdir(parents=True, exist_ok=True)
             log = (run_dir / "proxy.log").open("a", encoding="utf-8")
             command = (
-                executable, "--listen-host", "0.0.0.0", "--listen-port", str(port),
+                executable, "--quiet", "--listen-host", "127.0.0.1", "--listen-port", str(port),
                 "-s", str(Path(__file__).with_name("network_capture.py")),
-                "--web-host", "127.0.0.1", "--web-port", str(port + 1),
                 "--set", "block_global=false",
             )
-            subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            try:
+                process=subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                managed_proxy.remember(port,process,command)
+            finally:
+                log.close()
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline and not self.proxy_status(port)["listener"]:
+                if process.poll() is not None:break
                 time.sleep(0.25)
+            if process.poll() is not None or not managed_proxy.owned(port):
+                return {'ok':False,'reason':'Motor de captura não iniciou ou não foi identificado; nenhuma rota do device foi alterada.'}
         configured = self.configure_proxy(port)
         if not configured.get("ok"):
             return configured
         return {
             **configured,
             "managed": True,
-            "web_url": f"http://127.0.0.1:{port + 1}",
+            "capture_backend": "headless",
+            "lab_backend": backend,
+            **self.configure_local_app_capture(port),
             "ca_path": str(Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.cer"),
             "ca_installed": False,
         }
@@ -377,19 +757,64 @@ class AndroidWorker:
         apk_paths = [line.removeprefix("package:").strip() for line in installed.stdout.splitlines() if line.startswith("package:")]
         if installed.returncode != 0 or not apk_paths:
             return {"ok": False, "blocked": True, "reason": "authorized package is not installed"}
-        jadx = shutil.which("jadx")
-        if not jadx:
-            return {"ok": False, "blocked": True, "reason": "jadx is not installed"}
-        workspace = Path.home() / ".huntmob" / "workspaces" / package_id
+        engine = EmbeddedAnalysis()
+        engine_status = engine.status()
+        if not engine_status['ready']:
+            return {"ok": False, "blocked": True, "reason": engine_status['reason']}
+        workspace = Path.home() / ".huntmob" / "workspaces" / self.avd_name / package_id
         workspace.mkdir(parents=True, exist_ok=True)
         base_apk = workspace / "base.apk"
         pulled = _run((str(self.sdk.adb), "-s", self.serial, "pull", apk_paths[0], str(base_apk)), timeout=180)
         if pulled.returncode != 0 or not base_apk.is_file():
             return {"ok": False, "blocked": True, "reason": "APK pull failed"}
-        output = workspace / "jadx"
-        decoded = _run((jadx, "--output-dir", str(output), str(base_apk)), timeout=300)
-        if decoded.returncode != 0:
-            return {"ok": False, "blocked": True, "reason": "JADX analysis failed", "error": decoded.stderr[-1000:]}
-        files = [str(path.relative_to(output)) for path in output.rglob("*") if path.is_file()][:5000]
+        # Each run has fresh output; earlier files must not hide a failed run.
+        output = workspace / "jadx-runs" / uuid4().hex
+        output.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(base_apk.read_bytes()).hexdigest()
-        return {"ok": True, "package_id": package_id, "sha256": digest, "workspace": str(workspace), "files": files, "truncated": len(files) >= 5000}
+        try:
+            decoded = _run(engine.command(base_apk, output), timeout=300, env=engine.environment())
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "blocked": True, "reason": "A análise excedeu 5 minutos. Tente novamente com mais recursos no worker.", "sha256": digest}
+        except OSError:
+            return {"ok": False, "blocked": True, "reason": "Não foi possível iniciar o motor integrado. Verifique a instalação do HuntMob.", "sha256": digest}
+        files = sorted(str(path.relative_to(output)) for path in output.rglob("*") if path.is_file())
+        # JADX 1.5.5 exits 3 after saving code with decompilation errors.
+        # Other nonzero exits remain failures, even if some files were written.
+        partial = decoded.returncode == 3 and bool(files)
+        if decoded.returncode not in (0, 3) or not files:
+            exhausted = 'OutOfMemoryError' in decoded.stderr or 'OutOfMemoryError' in decoded.stdout
+            reason = ('Memória insuficiente para decompilar este APK no motor integrado. Feche outras análises e tente novamente em um host com mais memória.'
+                      if exhausted else f'O motor integrado não gerou uma análise utilizável (saída {decoded.returncode}). Verifique o APK e tente novamente.')
+            return {"ok": False, "blocked": True, "reason": reason, "exit_code": decoded.returncode, "sha256": digest}
+        match = __import__("re").search(r"finished with errors, count:\s*(\d+)", decoded.stdout + "\n" + decoded.stderr)
+        errors_count = int(match[1]) if match else None
+        problem_files = []
+        for path in output.rglob('*.java'):
+            content = path.read_text(encoding='utf-8', errors='replace')
+            if 'JADX ERROR' in content or 'Method not decompiled' in content:
+                problem_files.append(str(path.relative_to(output)))
+        fallback_status = 'not_needed'
+        # A second full pass over a large APK can double the request duration.
+        # Preserve the first pass and its per-file errors instead of timing out.
+        if partial and len(files) > 5000:
+            fallback_status = 'skipped_large_analysis'
+        elif partial:
+            try:
+                rescue = _run(engine.command(base_apk, output / 'instructions') + ('--decompilation-mode', 'fallback', '--no-res'), timeout=300, env=engine.environment())
+                fallback_files = [path for path in (output / 'instructions').rglob('*') if path.is_file()]
+                fallback_status = 'available' if rescue.returncode == 0 and fallback_files else 'partial' if rescue.returncode == 3 and fallback_files else 'unavailable'
+            except (OSError, subprocess.TimeoutExpired):
+                fallback_status = 'unavailable'
+        files = sorted(str(path.relative_to(output)) for path in output.rglob('*') if path.is_file())
+        result = {"ok": True, "package_id": package_id, "sha256": digest,
+                "workspace": str(workspace), "output_directory": str(output), 'run_id': output.name,
+                "files": files, "file_count": len(files), "truncated": False,
+                "status": "partial" if partial else "complete", "exit_code": decoded.returncode,
+                "errors_count": errors_count, 'fallback_status': fallback_status, 'problem_files': problem_files,
+                "warning": "Reconstrução Java parcial; consulte as instruções de baixo nível nos métodos com erro." if partial else ""}
+        import json
+        temporary = workspace / ('analysis-' + uuid4().hex + '.tmp')
+        with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+            json.dump(result, stream)
+        temporary.replace(workspace / 'analysis.json')
+        return result

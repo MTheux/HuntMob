@@ -1,0 +1,36 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -1956,6 +1956,18 @@
+         return;
+     }
+ 
++    if (s->virtual_sep && addr == 0x8 && data == 4) {
++        /* Own virtual lifecycle policy: the ROM-known clear operation
++         * retires every inline lease, without erasing the VM identity root. */
++        huntmob_virtual_sep_revoke(s->virtual_sep);
++        sep_virtual_erase(s->aess_state.in_full, sizeof(s->aess_state.in_full));
++        sep_virtual_erase(s->aess_state.out_full, sizeof(s->aess_state.out_full));
++        sep_virtual_erase(s->aess_state.key_256_in, sizeof(s->aess_state.key_256_in));
++        s->aess_state.virtual_custom_key_loaded = false;
++        trace_apple_sep_derivation_readiness("virtual-clear", "provider", false);
++        return;
++    }
++
+     /* Transfers are not implemented here. Observe endpoint and access width
+      * without exposing key material, slot selectors or register contents. */
+     if (addr == SEP_KEY_BASE_SEND_KEY_PKA_OFFSET ||
+@@ -2777,6 +2789,13 @@
+         break;
+     default:
+         if (op == 0 || op == 0x10) {
++            if (cmd == 0x200 || cmd == 0x80) {
++                /* Virtual engine initialization retires old bindings before
++                 * the guest replays its cached contexts. No success-only lease. */
++                huntmob_virtual_sep_revoke(p);
++                sep_virtual_erase(s->key_256_in, sizeof(s->key_256_in));
++                s->virtual_custom_key_loaded = false;
++            }
+             /* Preserve the model's seed-sync conditions, without copying any
+              * public UID into the virtual private key state. */
+             if (gid1) {

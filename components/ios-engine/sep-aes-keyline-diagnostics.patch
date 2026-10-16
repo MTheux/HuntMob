@@ -1,0 +1,88 @@
+diff --git a/hw/misc/apple-silicon/aes.c b/hw/misc/apple-silicon/aes.c
+--- a/hw/misc/apple-silicon/aes.c
++++ b/hw/misc/apple-silicon/aes.c
+@@ -252,6 +252,11 @@
+                 s->keys[ctx].algo, key_mode(s->keys[ctx].mode),
+                 s->keys[ctx].key, s->keys[ctx].len, &error_abort);
+         }
++        /* Operation class and result only; never expose selectors or payload. */
++        trace_apple_aes_key_mode(
++            s->keys[ctx].select != KEY_SELECT_SOFTWARE ? "hardware" :
++            s->keys[ctx].wrapped ? "software-wrapped" : "software",
++            s->keys[ctx].disabled);
+         break;
+     }
+     case OPCODE_IV: {
+@@ -286,6 +291,7 @@
+         if (len & 0xf) {
+             lock_reg();
+             s->reg.int_status.invalid_data_length = true;
++            trace_apple_aes_data_rejected("invalid-length");
+             break;
+         }
+         if (s->keys[key_ctx].disabled || !s->keys[key_ctx].cipher) {
+@@ -295,6 +301,7 @@
+             } else {
+                 s->reg.int_status.key_0_disabled = true;
+             }
++            trace_apple_aes_data_rejected("disabled-key");
+             break;
+         }
+ 
+@@ -318,6 +325,8 @@
+             res = qcrypto_cipher_decrypt(s->keys[key_ctx].cipher, buffer,
+                                          buffer, len, &errp);
+         }
++        /* This is the cipher-call return code, not proof of protected I/O. */
++        trace_apple_aes_cipher_result(res);
+         if (res != 0) {
+             fprintf(stderr, "AES %scryption failed, res = %s\n",
+                     s->keys[key_ctx].encrypt ? "en" : "de", strerror(-res));
+diff --git a/hw/misc/apple-silicon/trace-events b/hw/misc/apple-silicon/trace-events
+--- a/hw/misc/apple-silicon/trace-events
++++ b/hw/misc/apple-silicon/trace-events
+@@ -3,3 +3,9 @@
+ apple_aes_reg_write(uint64_t addr, uint32_t orig, uint32_t old, uint32_t result) "0x%04" PRIx64 " orig 0x%08x old 0x%08x val 0x%08x"
+ apple_aes_update_irq(uint32_t level) "level %d"
+ apple_aes_process_command(uint32_t op) "op 0x%x"
++
++# AP AES metadata only: no register words, key selectors, IVs or DMA addresses.
++# A successful cipher call does not validate wrapped-key handling or storage.
++apple_aes_key_mode(const char *mode, bool disabled) "mode=%s disabled=%d"
++apple_aes_data_rejected(const char *reason) "reason=%s"
++apple_aes_cipher_result(int result) "result=%d"
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -1885,6 +1885,20 @@
+ {
+     AppleSEPState *s = opaque;
+ 
++    /* Observe requests, not key state or selector values. Control writes
++     * have no documented active bit, so report false for that category. */
++    if (addr == SEP_KEY_BASE_LOAD_KEY_OFFSET) {
++        trace_apple_sep_keyline_request("load",
++                                       (data & SEP_KEY_BASE_LOAD_KEY_ACTIVE) != 0);
++    } else if (addr == 0x8) {
++        trace_apple_sep_keyline_request("control", false);
++    } else if (addr == SEP_KEY_BASE_SEND_KEY_PKA_OFFSET ||
++               addr == SEP_KEY_BASE_SEND_KEY_AESH_OFFSET ||
++               addr == SEP_KEY_BASE_SEND_KEY_AES2_OFFSET) {
++        trace_apple_sep_keyline_request("send",
++                                       (data & SEP_KEY_BASE_SEND_KEY_ACTIVE) != 0);
++    }
++
+     /* Transfers are not implemented here. Observe endpoint and access width
+      * without exposing key material, slot selectors or register contents. */
+     if (addr == SEP_KEY_BASE_SEND_KEY_PKA_OFFSET ||
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -15,3 +15,7 @@
+ apple_sep_ssc_complete(uint8_t operation, uint8_t response_flags) "operation=0x%02x response_flags=0x%02x"
+ apple_sep_ssc_backing_io(uint8_t operation, bool write, size_t bytes, int result) "operation=0x%02x write=%d bytes=%zu result=%d"
+ apple_sep_ssc_reset(void) "volatile SSC session state reset; backing unchanged"
++
++# Coarse KEY_BASE requests only; no command words, interfaces or key slots.
++# active is a request bit, not proof of a key load/handoff or availability.
++apple_sep_keyline_request(const char *operation, bool active) "operation=%s active=%d"

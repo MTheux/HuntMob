@@ -1,0 +1,153 @@
+diff --git a/include/hw/arm/apple-silicon/t8030.h b/include/hw/arm/apple-silicon/t8030.h
+--- a/include/hw/arm/apple-silicon/t8030.h
++++ b/include/hw/arm/apple-silicon/t8030.h
+@@ -88,6 +88,7 @@
+     struct HuntMobVirtualMPEMemory *virtual_mpe_memory;
+     char *virtual_sep_root_secret;
+     char *virtual_sep_vm_id;
++    bool virtual_data_v2;
+     Error *virtual_sep_migration_blocker;
+ } AppleT8030MachineState;
+ 
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -1341,6 +1341,9 @@
+     assert_nonnull(ans);
+     if (t8030->virtual_sep) {
+         apple_ans_set_virtual_provider(ans, t8030->virtual_sep);
++        if (t8030->virtual_data_v2) {
++            apple_ans_set_virtual_data_v2(ans);
++        }
+     }
+     object_property_add_const_link(OBJECT(ans), "dma-mr",
+                                    OBJECT(sysbus_mmio_get_region(sart, 1)));
+@@ -2766,6 +2769,11 @@
+ 
+     t8030 = APPLE_T8030(machine);
+ 
++    if (t8030->virtual_data_v2 &&
++        (!t8030->virtual_sep_root_secret || !t8030->virtual_sep_vm_id)) {
++        error_setg(&error_fatal, "Own DATA-v2 requires a complete virtual SEP identity");
++        return;
++    }
+     if (t8030->virtual_sep_root_secret || t8030->virtual_sep_vm_id) {
+         QemuUUID vm_id;
+         if (!t8030->virtual_sep_root_secret || !*t8030->virtual_sep_root_secret ||
+@@ -3169,6 +3177,26 @@
+     s->virtual_sep_vm_id = g_strdup(value);
+ }
+ 
++static char *t8030_get_virtual_data_profile(Object *obj, Error **errp)
++{
++    return g_strdup(APPLE_T8030(obj)->virtual_data_v2 ? "v2" : "v1");
++}
++
++static void t8030_set_virtual_data_profile(Object *obj, const char *value,
++                                          Error **errp)
++{
++    AppleT8030MachineState *s = APPLE_T8030(obj);
++    if (s->virtual_sep) {
++        error_setg(errp, "Own DATA profile is immutable after initialization");
++        return;
++    }
++    if (!value || (strcmp(value, "v1") && strcmp(value, "v2"))) {
++        error_setg(errp, "Only own DATA profiles v1 and v2 are supported");
++        return;
++    }
++    s->virtual_data_v2 = !strcmp(value, "v2");
++}
++
+ static void t8030_virtual_finalize(Object *obj)
+ {
+     AppleT8030MachineState *s = APPLE_T8030(obj);
+@@ -3190,6 +3218,9 @@
+                                   t8030_get_virtual_root, t8030_set_virtual_root);
+     object_class_property_add_str(klass, "huntmob-virtual-sep-vm-id",
+                                   t8030_get_virtual_id, t8030_set_virtual_id);
++    object_class_property_add_str(klass, "huntmob-virtual-data-profile",
++                                  t8030_get_virtual_data_profile,
++                                  t8030_set_virtual_data_profile);
+     mc->desc = "Apple T8030 SoC (iPhone 11)";
+     mc->init = t8030_init;
+     mc->reset = t8030_reset;
+diff --git a/include/hw/block/apple-silicon/ans.h b/include/hw/block/apple-silicon/ans.h
+--- a/include/hw/block/apple-silicon/ans.h
++++ b/include/hw/block/apple-silicon/ans.h
+@@ -10,6 +10,9 @@
+ void apple_ans_set_virtual_provider(SysBusDevice *dev,
+                                     struct HuntMobVirtualSEP *provider);
+ 
++/* Explicit own DATA-v2 semantics; only before realize with a virtual provider. */
++void apple_ans_set_virtual_data_v2(SysBusDevice *dev);
++
+ SysBusDevice *apple_ans_from_node(AppleDTNode *node, AppleA7IOPVersion version,
+                                   PCIBus *pci_bus);
+ 
+diff --git a/hw/block/apple-silicon/ans.c b/hw/block/apple-silicon/ans.c
+--- a/hw/block/apple-silicon/ans.c
++++ b/hw/block/apple-silicon/ans.c
+@@ -299,6 +299,13 @@
+     s->nvme->virtual_sep = provider;
+ }
+ 
++void apple_ans_set_virtual_data_v2(SysBusDevice *dev)
++{
++    AppleANSState *s = APPLE_ANS(dev);
++    assert(!qdev_is_realized(DEVICE(dev)) && s->nvme->virtual_sep);
++    s->nvme->virtual_data_v2 = true;
++}
++
+ static void apple_ans_realize(DeviceState *dev, Error **errp)
+ {
+     AppleANSState *s = APPLE_ANS(dev);
+diff --git a/hw/nvme/nvme.h b/hw/nvme/nvme.h
+--- a/hw/nvme/nvme.h
++++ b/hw/nvme/nvme.h
+@@ -588,6 +588,7 @@
+ 
+     /* Own virtual identity; borrowed for machine lifetime, no guest key getter. */
+     struct HuntMobVirtualSEP *virtual_sep;
++    bool virtual_data_v2;
+ 
+     /* Main-loop-owned synthetic state; no SEP provider or migration state. */
+     uint64_t    apple_ans_lab_generation;
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -5037,14 +5037,21 @@
+                         req->cmd.flags == 0x08) ||
+                        ((n->params.apple_ans_lab_wrapped_xts || n->virtual_sep) &&
+                         req->cmd.flags == 0x04);
++        /* Own DATA-v2 deliberately defines both authenticated formats as
++         * AES-128-XTS with a 32-byte pair and 4-KiB units. This is an explicit
++         * virtual policy, NOT a claim about Apple ANS hardware format bits.
++         * The legacy profile must continue rejecting the native variant. */
++        bool data_format = req->cmd.flags != 0x04 ||
++            req->apple_ans_lab_wrapped_format == HUNTMOB_WRAPPED_REFERENCE_FLAGS ||
++            (n->virtual_sep && n->virtual_data_v2 &&
++             req->apple_ans_lab_wrapped_format ==
++                 HUNTMOB_WRAPPED_REFERENCE_FLAGS_NATIVE);
+         bool valid = enabled &&
+                      (req->cmd.opcode == NVME_CMD_READ ||
+                       req->cmd.opcode == NVME_CMD_WRITE) &&
+                      req->sq->entry_count == 7 &&
+                      nvme_apple_ans_lab_current(req) &&
+-                     (req->cmd.flags != 0x04 ||
+-                      req->apple_ans_lab_wrapped_format ==
+-                          HUNTMOB_WRAPPED_REFERENCE_FLAGS) &&
++                     data_format &&
+                      ns->csi == NVME_CSI_NVM && ns->lbasz == 4096 &&
+                      !ns->lbaf.ms && !nvme_ns_ext(ns) &&
+                      !NVME_ID_NS_DPS_TYPE(ns->id_ns.dps) &&
+@@ -5070,9 +5077,7 @@
+                 result = "context-unavailable";
+             } else if (!nvme_apple_ans_lab_current(req)) {
+                 result = "context-stale";
+-            } else if (req->cmd.flags == 0x04 &&
+-                       req->apple_ans_lab_wrapped_format !=
+-                           HUNTMOB_WRAPPED_REFERENCE_FLAGS) {
++            } else if (!data_format) {
+                 /* Envelope authentication does not prove DATA-mode semantics.
+                  * Reject before namespace transfer mapping or backend I/O. */
+                 result = "data-format-unsupported";

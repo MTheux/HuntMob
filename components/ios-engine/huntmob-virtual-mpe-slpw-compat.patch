@@ -1,0 +1,22 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -3959,6 +3959,18 @@
+     bool ok = false;
+ 
+     assert(bql_locked());
++    if (addr == 0x180 && (size == 4 || size == 8)) {
++        /* Preserve the existing sleep/wake handshake. This legacy control
++         * does not configure, initialize or publish MPE readiness. */
++        uint64_t legacy = value & ~UINT64_C(1);
++        if (size == 4) {
++            stl_le_p(&s->misc1_regs[addr], legacy);
++        } else {
++            stq_le_p(&s->misc1_regs[addr], legacy);
++        }
++        trace_apple_sep_virtual_mpe_control("legacy-slpw", addr, 0, true);
++        return true;
++    }
+     s->virtual_mpe_started = true;
+     if (size != 4 || value > UINT32_MAX || s->virtual_mpe_faulted ||
+         !memory || !huntmob_virtual_mpe_memory_consumer_ready(memory)) {

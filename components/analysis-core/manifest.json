@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "engine": {
+    "name": "jadx",
+    "version": "1.5.5",
+    "url": "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip",
+    "sha256": "38a5766d3c8170c41566b4b13ea0ede2430e3008421af4927235c2880234d51a"
+  },
+  "java": {
+    "vendor": "Eclipse Temurin",
+    "version": "21.0.11+10",
+    "targets": {
+      "mac-aarch64": {
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_aarch64_mac_hotspot_21.0.11_10.tar.gz",
+        "sha256": "4b7a8cd23102c251c8b8be42a9a5f1263fb337cf1037f6f64b25f3070efe4b76",
+        "size": 48149317
+      },
+      "mac-x64": {
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_x64_mac_hotspot_21.0.11_10.tar.gz",
+        "sha256": "b341fb8ed5b70d49066b98176bc98e30f55082192403deb60e0cd5948b6e7923",
+        "size": 42129623
+      },
+      "linux-aarch64": {
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_aarch64_linux_hotspot_21.0.11_10.tar.gz",
+        "sha256": "fa23d9d9945053e67bcc7638410eabf1e17a7672c7c95a24f70cd08b8407d36e",
+        "size": 51184429
+      },
+      "linux-x64": {
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_x64_linux_hotspot_21.0.11_10.tar.gz",
+        "sha256": "e5038aae3ca9ff670bc696496b0728dbd23d280026bad30291cb919221ecfdcb",
+        "size": 52099793
+      },
+      "windows-aarch64": {
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_aarch64_windows_hotspot_21.0.11_10.zip",
+        "sha256": "22e2c2b83a7dc5653c938c9a49d87ad52a1faa38f7f3d80a96ceb0795ab99637",
+        "size": 40076904
+      },
+      "windows-x64": {
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_x64_windows_hotspot_21.0.11_10.zip",
+        "sha256": "be26677aaa20b39a62edcaab4c8857a8b76673b0f45abc0b6143b142b62717e4",
+        "size": 49005708
+      }
+    }
+  }
+}

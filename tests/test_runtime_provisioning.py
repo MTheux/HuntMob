@@ -4,10 +4,11 @@ from huntmob.runtime_provisioning import DeviceRecipe, provision_plan
 
 
 class RuntimeProvisioningTests(unittest.TestCase):
-    def test_linux_worker_uses_docker_and_kvm(self):
+    def test_linux_worker_runs_natively_with_optional_docker_and_kvm(self):
         plan = provision_plan(DeviceRecipe("pixel-lab", 35, "x86_64"), "linux")
         self.assertTrue(plan["ok"])
-        self.assertEqual(plan["execution"], "docker-worker")
+        self.assertEqual(plan["execution"], "native-worker")
+        self.assertTrue(plan['docker']['optional'])
         self.assertEqual(plan["accelerator"], "kvm")
         self.assertEqual(plan["docker"]["required_devices"], ["/dev/kvm"])
 

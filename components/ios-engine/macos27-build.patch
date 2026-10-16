@@ -1,0 +1,11 @@
+diff --git a/configs/devices/aarch64-softmmu/default.mak b/configs/devices/aarch64-softmmu/default.mak
+index d8062c0..926dea3 100644
+--- a/configs/devices/aarch64-softmmu/default.mak
++++ b/configs/devices/aarch64-softmmu/default.mak
+@@ -9,5 +9,5 @@ include ../arm-softmmu/default.mak
+ # CONFIG_XLNX_VERSAL=n
+ # CONFIG_SBSA_REF=n
+ # CONFIG_NPCM8XX=n
+-# CONFIG_VMAPPLE=n
++CONFIG_VMAPPLE=n
+ # CONFIG_APPLE_SOC=n

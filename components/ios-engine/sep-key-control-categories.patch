@@ -1,0 +1,26 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -1892,6 +1892,12 @@
+                                        (data & SEP_KEY_BASE_LOAD_KEY_ACTIVE) != 0);
+     } else if (addr == 0x8) {
+         trace_apple_sep_keyline_request("control", false);
++        /* ROM-proven families only. No selector, key, or register value is
++         * emitted; all unclassified commands remain semantically unknown. */
++        trace_apple_sep_key_control_category(
++            data == 4 ? "clear" :
++            ((data >= 0x20 && data <= 0x26) ||
++             data == 0x30 || data == 0x31) ? "seed" : "other");
+     } else if (addr == SEP_KEY_BASE_SEND_KEY_PKA_OFFSET ||
+                addr == SEP_KEY_BASE_SEND_KEY_AESH_OFFSET ||
+                addr == SEP_KEY_BASE_SEND_KEY_AES2_OFFSET) {
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -19,3 +19,6 @@
+ # Coarse KEY_BASE requests only; no command words, interfaces or key slots.
+ # active is a request bit, not proof of a key load/handoff or availability.
+ apple_sep_keyline_request(const char *operation, bool active) "operation=%s active=%d"
++
++# ROM-proven coarse control family; not a key setup/handoff completion.
++apple_sep_key_control_category(const char *category) "category=%s"

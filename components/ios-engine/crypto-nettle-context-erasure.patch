@@ -1,0 +1,73 @@
+diff --git a/crypto/cipher-nettle.c.inc b/crypto/cipher-nettle.c.inc
+--- a/crypto/cipher-nettle.c.inc
++++ b/crypto/cipher-nettle.c.inc
+@@ -49,9 +49,22 @@
+ }
+ 
+ 
+-static void qcrypto_cipher_ctx_free(QCryptoCipher *ctx)
+-{
+-    g_free(ctx);
++/* Wipe the complete concrete allocation, including schedules and IV, before
++ * returning it to the allocator. Volatile stores must survive optimization. */
++static void qcrypto_nettle_ctx_wipe(void *buffer, size_t bytes)
++{
++    volatile uint8_t *p = buffer;
++    while (bytes--) {
++        *p++ = 0;
++    }
++}
++
++#define DEFINE_FREE(NAME, TYPE)                                      \
++static void NAME##_free(QCryptoCipher *cipher)                        \
++{                                                                    \
++    TYPE *ctx = container_of(cipher, TYPE, base);                     \
++    qcrypto_nettle_ctx_wipe(ctx, sizeof(*ctx));                        \
++    g_free(ctx);                                                     \
+ }
+ 
+ static int qcrypto_cipher_no_setiv(QCryptoCipher *cipher,
+@@ -101,6 +114,7 @@
+ 
+ 
+ #define DEFINE_ECB(NAME, TYPE, BLEN, ENCRYPT, DECRYPT)                  \
++DEFINE_FREE(NAME, TYPE)                                               \
+ static int NAME##_encrypt_ecb(QCryptoCipher *cipher, const void *in,    \
+                               void *out, size_t len, Error **errp)      \
+ {                                                                       \
+@@ -126,7 +140,7 @@
+     .cipher_decrypt = NAME##_decrypt_ecb,                               \
+     .cipher_setiv = qcrypto_cipher_no_setiv,                            \
+     .cipher_getiv = qcrypto_cipher_no_getiv,                            \
+-    .cipher_free = qcrypto_cipher_ctx_free,                             \
++    .cipher_free = NAME##_free,                                         \
+ };
+ 
+ 
+@@ -156,7 +170,7 @@
+     .cipher_decrypt = NAME##_decrypt_cbc,                               \
+     .cipher_setiv = NAME##_setiv,                                       \
+     .cipher_getiv = NAME##_getiv,                                       \
+-    .cipher_free = qcrypto_cipher_ctx_free,                             \
++    .cipher_free = NAME##_free,                                         \
+ };
+ 
+ 
+@@ -176,7 +190,7 @@
+     .cipher_decrypt = NAME##_encrypt_ctr,                               \
+     .cipher_setiv = NAME##_setiv,                                       \
+     .cipher_getiv = NAME##_getiv,                                       \
+-    .cipher_free = qcrypto_cipher_ctx_free,                             \
++    .cipher_free = NAME##_free,                                         \
+ };
+ 
+ 
+@@ -250,7 +264,7 @@
+     .cipher_decrypt = NAME##_decrypt_xts,                       \
+     .cipher_setiv = NAME##_setiv,                               \
+     .cipher_getiv = NAME##_getiv,                               \
+-    .cipher_free = qcrypto_cipher_ctx_free,                     \
++    .cipher_free = NAME##_free,                                 \
+ };
+ 
+ 

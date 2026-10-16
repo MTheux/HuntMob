@@ -1,0 +1,15 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -1895,6 +1895,11 @@
+         /* ROM-proven families only. No selector, key, or register value is
+          * emitted; all unclassified commands remain semantically unknown. */
+         trace_apple_sep_key_control_category(
++            /* SEPD KEY RPC roles 4/5/6 select these paired banks. This
++             * reports selection requests, never successful key transport. */
++            data <= 1 ? "wrapping-select" :
++            data <= 3 ? "authentication-select" :
++            (data == 0x0a || data == 0x0b) ? "subkey-select" :
+             data == 4 ? "clear" :
+             ((data >= 0x20 && data <= 0x26) ||
+              data == 0x30 || data == 0x31) ? "seed" : "other");

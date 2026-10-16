@@ -1,0 +1,134 @@
+diff --git a/include/crypto/apple-ans-wrapped.h b/include/crypto/apple-ans-wrapped.h
+--- a/include/crypto/apple-ans-wrapped.h
++++ b/include/crypto/apple-ans-wrapped.h
+@@ -1,11 +1,16 @@
+ /* Current virtual SEP framing only; Apple hardware key equivalence unproven. */
+ #ifndef HUNTMOB_WRAPPED_REFERENCE_H
+ #define HUNTMOB_WRAPPED_REFERENCE_H
++#include <stdbool.h>
+ #include <stddef.h>
+ #include <stdint.h>
+ #include "qapi/error.h"
+ 
+ #define HUNTMOB_WRAPPED_REFERENCE_FLAGS UINT32_C(0x1b140)
++#define HUNTMOB_WRAPPED_REFERENCE_FLAGS_NATIVE UINT32_C(0x1b040)
++
++/* Exact authenticated envelopes only; DATA mode support is a separate gate. */
++bool huntmob_wrapped_reference_flags_supported(uint32_t flags);
+ #define HUNTMOB_WRAPPED_REFERENCE_RAW_BYTES 32u
+ #define HUNTMOB_WRAPPED_REFERENCE_BLOB_BYTES 64u
+ 
+diff --git a/crypto/apple-ans-wrapped.c b/crypto/apple-ans-wrapped.c
+--- a/crypto/apple-ans-wrapped.c
++++ b/crypto/apple-ans-wrapped.c
+@@ -13,6 +13,12 @@
+     while (length--) {
+         *bytes++ = 0;
+     }
++}
++
++bool huntmob_wrapped_reference_flags_supported(uint32_t flags)
++{
++    return flags == HUNTMOB_WRAPPED_REFERENCE_FLAGS ||
++           flags == HUNTMOB_WRAPPED_REFERENCE_FLAGS_NATIVE;
+ }
+ 
+ static uint32_t read_le32(const uint8_t *bytes)
+@@ -78,7 +84,7 @@
+     uint8_t candidate[64] = { 0 };
+     int result = -1;
+     if (!wrap_key || !auth_key || !raw || !output ||
+-        flags != HUNTMOB_WRAPPED_REFERENCE_FLAGS) {
++        !huntmob_wrapped_reference_flags_supported(flags)) {
+         error_setg(errp, "Unsupported virtual SEP envelope parameters");
+         return -1;
+     }
+@@ -104,7 +110,7 @@
+     volatile unsigned difference = 0;
+     int result = -1;
+     if (!wrap_key || !auth_key || !blob || !output || blob_length != 64 ||
+-        read_le32(blob) != HUNTMOB_WRAPPED_REFERENCE_FLAGS) {
++        !huntmob_wrapped_reference_flags_supported(read_le32(blob))) {
+         error_setg(errp, "Unsupported virtual SEP envelope parameters");
+         return -1;
+     }
+diff --git a/hw/nvme/nvme.h b/hw/nvme/nvme.h
+--- a/hw/nvme/nvme.h
++++ b/hw/nvme/nvme.h
+@@ -436,6 +436,7 @@
+     bool                    apple_ans_lab_key_valid;
+     uint8_t                 apple_ans_lab_key[32];
+     uint64_t                apple_ans_lab_generation;
++    uint32_t                apple_ans_lab_wrapped_format;
+     uint64_t                virtual_sep_generation;
+     QTAILQ_ENTRY(NvmeRequest)entry;
+ } NvmeRequest;
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -783,6 +783,7 @@
+                           sizeof(req->apple_ans_lab_key));
+     req->apple_ans_lab_key_valid = false;
+     req->apple_ans_lab_generation = 0;
++    req->apple_ans_lab_wrapped_format = 0;
+     req->virtual_sep_generation = 0;
+ }
+ 
+@@ -5041,6 +5042,9 @@
+                       req->cmd.opcode == NVME_CMD_WRITE) &&
+                      req->sq->entry_count == 7 &&
+                      nvme_apple_ans_lab_current(req) &&
++                     (req->cmd.flags != 0x04 ||
++                      req->apple_ans_lab_wrapped_format ==
++                          HUNTMOB_WRAPPED_REFERENCE_FLAGS) &&
+                      ns->csi == NVME_CSI_NVM && ns->lbasz == 4096 &&
+                      !ns->lbaf.ms && !nvme_ns_ext(ns) &&
+                      !NVME_ID_NS_DPS_TYPE(ns->id_ns.dps) &&
+@@ -5066,6 +5070,12 @@
+                 result = "context-unavailable";
+             } else if (!nvme_apple_ans_lab_current(req)) {
+                 result = "context-stale";
++            } else if (req->cmd.flags == 0x04 &&
++                       req->apple_ans_lab_wrapped_format !=
++                           HUNTMOB_WRAPPED_REFERENCE_FLAGS) {
++                /* Envelope authentication does not prove DATA-mode semantics.
++                 * Reject before namespace transfer mapping or backend I/O. */
++                result = "data-format-unsupported";
+             } else if (ns->csi != NVME_CSI_NVM || ns->lbasz != 4096 ||
+                        ns->lbaf.ms || nvme_ns_ext(ns) ||
+                        NVME_ID_NS_DPS_TYPE(ns->id_ns.dps)) {
+@@ -8198,8 +8208,9 @@
+                 if (cmd.flags == 0x04) {
+                     bool ready_before = !n->virtual_sep ||
+                         huntmob_virtual_sep_is_ready(n->virtual_sep);
+-                    bool frame_supported = ldl_le_p(extension) ==
+-                        HUNTMOB_WRAPPED_REFERENCE_FLAGS;
++                    bool frame_supported =
++                        huntmob_wrapped_reference_flags_supported(
++                            ldl_le_p(extension));
+                     uint8_t reserved = 0;
+                     /* Shape classification does not change the decoder call
+                      * or expose metadata values. The codec remains opaque. */
+@@ -8211,6 +8222,10 @@
+                         n, extension, req->apple_ans_lab_key,
+                         &req->virtual_sep_generation);
+                     if (req->apple_ans_lab_key_valid) {
++                        /* Store FORMAT only after full MAC authentication.
++                         * Never normalize the word used by the authenticator. */
++                        req->apple_ans_lab_wrapped_format =
++                            ldl_le_p(extension);
+                         decode_result = "accepted";
+                     } else if (!ready_before ||
+                                (n->virtual_sep &&
+@@ -8226,8 +8241,9 @@
+                                 sq->sqid, nvme_cid(req), ldl_le_p(extension),
+                                 !reserved);
+                         }
+-                        decode_result = ldl_le_p(extension) !=
+-                            HUNTMOB_WRAPPED_REFERENCE_FLAGS ?
++                        decode_result =
++                            !huntmob_wrapped_reference_flags_supported(
++                                ldl_le_p(extension)) ?
+                             "frame-flags-unsupported" : "frame-reserved-unsupported";
+                     } else {
+                         decode_result = "context-unavailable";

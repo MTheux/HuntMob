@@ -1,0 +1,384 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -21,6 +21,7 @@
+ #include "qemu/osdep.h"
+ #include "block/aio.h"
+ #include "crypto/cipher.h"
++#include "crypto/huntmob-virtual-sep.h"
+ #include "exec/cputlb.h"
+ #include "exec/tb-flush.h"
+ #include "hw/arm/apple-silicon/a13.h"
+@@ -1880,6 +1881,22 @@
+ };
+ 
+ 
++/* Experimental own virtual identity, never an Apple hardware KDF claim. */
++void apple_sep_set_virtual_provider(AppleSEPState *s,
++                                    HuntMobVirtualSEP *provider)
++{
++    assert(!qdev_is_realized(DEVICE(s)) && !s->virtual_sep && provider);
++    s->virtual_sep = provider;
++}
++
++static void sep_virtual_erase(void *buffer, size_t length)
++{
++    volatile uint8_t *p = buffer;
++    while (length--) {
++        *p++ = 0;
++    }
++}
++
+ static void key_base_reg_write(void *opaque, hwaddr addr, uint64_t data,
+                                unsigned size)
+ {
+@@ -1918,6 +1935,27 @@
+                                        (data & SEP_KEY_BASE_SEND_KEY_ACTIVE) != 0);
+     }
+ 
++    if (s->virtual_sep && addr == 0x8 &&
++        (data <= 3 || data == 0x0a || data == 0x0b)) {
++        Error *local_err = NULL;
++        unsigned role = data <= 1 ? 4 : data <= 3 ? 5 : 6;
++        bool ok = size == 4 && huntmob_virtual_sep_latch(
++            s->virtual_sep, role, data & 1, &local_err);
++        if (!ok) {
++            huntmob_virtual_sep_revoke(s->virtual_sep);
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "virtual SEP: key handoff rejected\n");
++        }
++        error_free(local_err);
++        trace_apple_sep_derivation_readiness(
++            ok ? "virtual-latch" : "virtual-latch-rejected",
++            role == 4 ? "wrapping" : role == 5 ? "authentication" : "subkey",
++            ok && huntmob_virtual_sep_is_ready(s->virtual_sep));
++        /* No invented KEY error/status bits or success acknowledgement.
++         * Invalid transitions retire the provider; NVMe stays closed. */
++        return;
++    }
++
+     /* Transfers are not implemented here. Observe endpoint and access width
+      * without exposing key material, slot selectors or register contents. */
+     if (addr == SEP_KEY_BASE_SEND_KEY_PKA_OFFSET ||
+@@ -1927,8 +1965,19 @@
+     }
+ 
+ #ifdef ENABLE_CPU_DUMP_STATE
+-    cpu_dump_state(CPU(s->cpu), stderr, CPU_DUMP_CODE);
+-#endif
++    if (!s->virtual_sep) {
++        cpu_dump_state(CPU(s->cpu), stderr, CPU_DUMP_CODE);
++    }
++#endif
++    if (s->virtual_sep) {
++        /* Only the proven role controls above publish a private binding.
++         * Other KEY writes retain modeled register state, without payload logs. */
++        if (addr == SEP_KEY_BASE_LOAD_KEY_OFFSET) {
++            data &= ~SEP_KEY_BASE_LOAD_KEY_ACTIVE;
++        }
++        memcpy(&s->key_base_regs[addr], &data, size);
++        return;
++    }
+     switch (addr) {
+     case SEP_KEY_BASE_LOAD_KEY_OFFSET: // load_key
+         DPRINTF("SEP KEY_BASE: Offset 0x" HWADDR_FMT_plx
+@@ -1980,7 +2029,9 @@
+     uint64_t ret = 0;
+ 
+ #ifdef ENABLE_CPU_DUMP_STATE
+-    cpu_dump_state(CPU(s->cpu), stderr, CPU_DUMP_CODE);
++    if (!s->virtual_sep) {
++        cpu_dump_state(CPU(s->cpu), stderr, CPU_DUMP_CODE);
++    }
+ #endif
+     switch (addr) {
+     case SEP_KEY_BASE_LOAD_KEY_OFFSET:
+@@ -2693,6 +2744,148 @@
+     }
+ }
+ 
++/* This entire path is opt-in. No virtual private operation falls through to
++ * globally known UID constants, the XOR approximation or legacy key dumps. */
++static bool aess_virtual_command(AppleAESSState *s)
++{
++    HuntMobVirtualSEP *p = s->sep->virtual_sep;
++    uint32_t cmd = s->command;
++    uint32_t op = SEP_AESS_CMD_WITHOUT_FLAGS(cmd);
++    bool custom = cmd & SEP_AESS_CMD_FLAG_KEYSELECT_CUSTOM;
++    bool gid1 = cmd & SEP_AESS_CMD_FLAG_KEYSELECT_GID1;
++    Error *local_err = NULL;
++    QCryptoCipher *cipher = NULL;
++    uint8_t iv[16] = { 0 }, output[32] = { 0 };
++    bool ok = false;
++    unsigned slot;
++
++    sep_virtual_erase(s->out_full, sizeof(s->out_full));
++    if ((cmd & 0x300) == 0x300 ||
++        check_register_0x18_KEYDISABLE_BIT_INVALID(cmd, s->reg_0x18_keydisable)) {
++        goto out;
++    }
++    switch (cmd) {
++    case 0x201: slot = 0; goto program;
++    case 0x241: slot = 1; goto program;
++    case 0x281: slot = 2; goto program;
++    case 0x2c1: slot = 3; goto program;
++program:
++        ok = huntmob_virtual_sep_program(p, slot, s->in_full, &local_err);
++        break;
++    case 0x205: case 0x245: case 0x204: case 0x244:
++        ok = huntmob_virtual_sep_derive(p, cmd, &local_err);
++        break;
++    default:
++        if (op == 0 || op == 0x10) {
++            /* Preserve the model's seed-sync conditions, without copying any
++             * public UID into the virtual private key state. */
++            if (gid1) {
++                if (op == 0) {
++                    s->keywrap_uid0_enabled = true;
++                } else {
++                    s->keywrap_uid1_enabled = true;
++                }
++            }
++            ok = true;
++        } else if (!gid1 && !custom && op == SEP_AESS_COMMAND_0xB) {
++            sep_virtual_erase(s->key_256_in, sizeof(s->key_256_in));
++            memcpy(s->key_256_in, s->in_full, sizeof(s->key_256_in));
++            s->virtual_custom_key_loaded = true;
++            ok = true;
++        } else if (!gid1 && !custom && (op == 2 || op == 0x12)) {
++            bool seeded = op == 2 ? s->keywrap_uid0_enabled : s->keywrap_uid1_enabled;
++            /* Own v1 policy: prior sync is mandatory; UID1 bit3 denies use.
++             * GID-domain bits0/1/4 do not disable UID as a side effect. */
++            if (seeded && !(s->reg_0x18_keydisable & ~0x1bU) &&
++                (op == 2 || !(s->reg_0x18_keydisable & 8))) {
++                ok = huntmob_virtual_sep_uid_transform(
++                    p, op == 2 ? 0 : 1, s->seed_bits,
++                    s->reg_0x14_keywrap_iterations_counter,
++                    s->in_full, output, &local_err);
++            }
++            s->reg_0x14_keywrap_iterations_counter = 0;
++            if (ok) {
++                memcpy(s->out_full, output, sizeof(output));
++            }
++        } else if (op == SEP_AESS_COMMAND_ENCRYPT_CBC_ONLY_NONCUSTOM_FORCE_CUSTOM_AES256 ||
++                   op == SEP_AESS_COMMAND_ENCRYPT_CBC_FORCE_CUSTOM_AES256) {
++            if (op == SEP_AESS_COMMAND_ENCRYPT_CBC_ONLY_NONCUSTOM_FORCE_CUSTOM_AES256 && custom) {
++                goto out;
++            }
++            slot = op == SEP_AESS_COMMAND_ENCRYPT_CBC_ONLY_NONCUSTOM_FORCE_CUSTOM_AES256 ?
++                   (gid1 ? 1 : 0) : (gid1 ? 3 : 2);
++            if (!custom) {
++                ok = huntmob_virtual_sep_slot_crypt(
++                    p, slot, true, iv, s->in_full, output, 32, &local_err);
++                if (ok) {
++                    memcpy(s->out_full, output, 32);
++                }
++            } else {
++                memcpy(iv, s->iv, sizeof(iv));
++                ok = huntmob_virtual_sep_slot_crypt(
++                    p, slot, true, iv, s->in, output, 16, &local_err);
++                if (ok) {
++                    memcpy(s->tag_out, iv, 16);
++                    memcpy(s->out, output, 16);
++                }
++            }
++        } else if (op == SEP_AESS_COMMAND_ENCRYPT_CBC ||
++                   op == SEP_AESS_COMMAND_DECRYPT_CBC) {
++            /* Explicit caller keys (POST) and shared legacy GID keys remain
++             * separate from the private UID/inline domains. No UID fallback. */
++            const uint8_t *key = custom ? s->key_256_in :
++                                 (const uint8_t *)(gid1 ? AESS_GID1 : AESS_GID0);
++            QCryptoCipherAlgo alg = get_aes_cipher_alg(cmd);
++            bool encrypt = op == SEP_AESS_COMMAND_ENCRYPT_CBC;
++            if (custom && !s->virtual_custom_key_loaded) {
++                goto out;
++            }
++            cipher = qcrypto_cipher_new(alg, QCRYPTO_CIPHER_MODE_CBC, key,
++                                         qcrypto_cipher_get_key_len(alg), &local_err);
++            if (!cipher) {
++                goto out;
++            }
++            memcpy(iv, encrypt ? s->iv : s->iv_dec, 16);
++            ok = qcrypto_cipher_setiv(cipher, iv, 16, &local_err) == 0;
++            if (ok && encrypt) {
++                ok = qcrypto_cipher_encrypt(cipher, s->in, output, 16, &local_err) == 0;
++            } else if (ok) {
++                ok = qcrypto_cipher_decrypt(cipher, s->in_dec, output, 16, &local_err) == 0;
++            }
++            if (ok) {
++                memcpy(s->out, output, 16);
++                if (encrypt) {
++                    memcpy(s->tag_out, iv, 16);
++                } else {
++                    /* Legacy register layout also exposes the ECB intermediate. */
++                    memset(iv, 0, sizeof(iv));
++                    ok = qcrypto_cipher_setiv(cipher, iv, 16, &local_err) == 0 &&
++                         qcrypto_cipher_decrypt(cipher, s->in_dec, output, 16, &local_err) == 0;
++                    if (ok) {
++                        memcpy(s->tag_out, output, 16);
++                    }
++                }
++            }
++        }
++    }
++out:
++    if (cipher) {
++        qcrypto_cipher_free(cipher);
++    }
++    error_free(local_err);
++    sep_virtual_erase(iv, sizeof(iv));
++    sep_virtual_erase(output, sizeof(output));
++    if (!ok) {
++        huntmob_virtual_sep_revoke(p);
++        sep_virtual_erase(s->out_full, sizeof(s->out_full));
++        sep_virtual_erase(s->in_full, sizeof(s->in_full));
++    }
++    trace_apple_sep_derivation_readiness(
++        ok ? "virtual-operation" : "virtual-operation-rejected", "provider",
++        ok && huntmob_virtual_sep_is_ready(p));
++    return ok;
++}
++
+ static void aess_handle_cmd(AppleAESSState *s)
+ {
+     uint32_t cmd = s->command;
+@@ -2702,8 +2895,8 @@
+     bool keyselect_gid1 = (cmd & SEP_AESS_CMD_FLAG_KEYSELECT_GID1) != 0;
+     bool keyselect_custom = (cmd & SEP_AESS_CMD_FLAG_KEYSELECT_CUSTOM) != 0;
+     uint32_t normalized_cmd = SEP_AESS_CMD_WITHOUT_FLAGS(cmd);
+-    QCryptoCipherAlgo cipher_alg = get_aes_cipher_alg(cmd);
+-    size_t key_len = qcrypto_cipher_get_key_len(cipher_alg);
++    QCryptoCipherAlgo cipher_alg;
++    size_t key_len;
+     bool zero_iv_two_blocks_encryption = false;
+     bool register_0x18_KEYDISABLE_BIT_INVALID =
+         check_register_0x18_KEYDISABLE_BIT_INVALID(cmd, reg_0x18_keydisable);
+@@ -2711,6 +2904,12 @@
+     bool invalid_parameters = register_0x18_KEYDISABLE_BIT_INVALID;
+ 
+     trace_apple_sep_aess_operation(aess_diagnostic_operation(normalized_cmd));
++    if (s->sep->virtual_sep) {
++        invalid_parameters |= !aess_virtual_command(s);
++        goto jump_return;
++    }
++    cipher_alg = get_aes_cipher_alg(cmd);
++    key_len = qcrypto_cipher_get_key_len(cipher_alg);
+     aess_trace_derivation_readiness(cmd);
+ #if 1
+     // not correct behavior, but SEPFW likes to complain if it doesn't expect
+@@ -2936,10 +3135,14 @@
+             // always keep this flag
+             s->interrupt_status |=
+                 SEP_AESS_REGISTER_INTERRUPT_STATUS_UNRECOVERABLE_ERROR_INTERRUPT;
+-            qemu_log_mask(LOG_GUEST_ERROR,
+-                          "%s: unrecoverable_error just got raised, SEP will "
+-                          "panic soon.: cmd 0x%03x\n",
+-                          __func__, cmd);
++            if (s->sep->virtual_sep) {
++                qemu_log_mask(LOG_GUEST_ERROR, "virtual SEP: AESS operation rejected\n");
++            } else {
++                qemu_log_mask(LOG_GUEST_ERROR,
++                              "%s: unrecoverable_error just got raised, SEP will "
++                              "panic soon.: cmd 0x%03x\n",
++                              __func__, cmd);
++            }
+         }
+         s->status &= ~SEP_AESS_REGISTER_STATUS_ACTIVE;
+         // call raise_interrupt always instead of only on keywrap, because it's
+@@ -2965,7 +3168,9 @@
+ 
+ #ifdef ENABLE_CPU_DUMP_STATE
+     DPRINTF("\n");
+-    cpu_dump_state(CPU(sep->cpu), stderr, CPU_DUMP_CODE);
++    if (!sep->virtual_sep) {
++        cpu_dump_state(CPU(sep->cpu), stderr, CPU_DUMP_CODE);
++    }
+ #endif
+     switch (addr) {
+     case SEP_AESS_REGISTER_STATUS: // Status
+@@ -3037,9 +3242,11 @@
+     jump_default:
+         memcpy(&sep->aess_base_regs[addr], &data, size);
+     jump_log:
++        if (!sep->virtual_sep) {
+         DPRINTF("SEP AESS_BASE: Unknown write at 0x" HWADDR_FMT_plx
+                 " with value 0x%" PRIX64 "\n",
+                 addr, orig_data);
++        }
+         break;
+     }
+ }
+@@ -3054,7 +3261,9 @@
+ 
+ #ifdef ENABLE_CPU_DUMP_STATE
+     DPRINTF("\n");
+-    cpu_dump_state(CPU(sep->cpu), stderr, CPU_DUMP_CODE);
++    if (!sep->virtual_sep) {
++        cpu_dump_state(CPU(sep->cpu), stderr, CPU_DUMP_CODE);
++    }
+ #endif
+     switch (addr) {
+     case SEP_AESS_REGISTER_STATUS: // Status
+@@ -3112,9 +3321,11 @@
+     jump_default:
+         memcpy(&ret, &sep->aess_base_regs[addr], size);
+     jump_log:
++        if (!sep->virtual_sep) {
+         DPRINTF("SEP AESS_BASE: Unknown read at 0x" HWADDR_FMT_plx
+                 " with value 0x%" PRIX64 "\n",
+                 addr, ret);
++        }
+         break;
+     }
+ 
+@@ -4539,6 +4750,13 @@
+ static void aess_reset(AppleAESSState *s)
+ {
+     trace_apple_sep_aess_reset();
++    if (s->sep->virtual_sep) {
++        huntmob_virtual_sep_revoke(s->sep->virtual_sep);
++        sep_virtual_erase(s->in_full, sizeof(s->in_full));
++        sep_virtual_erase(s->out_full, sizeof(s->out_full));
++        sep_virtual_erase(s->key_256_in, sizeof(s->key_256_in));
++        s->virtual_custom_key_loaded = false;
++    }
+     s->status = 0;
+     s->command = 0;
+     s->interrupt_status = 0;
+diff --git a/include/hw/arm/apple-silicon/sep.h b/include/hw/arm/apple-silicon/sep.h
+--- a/include/hw/arm/apple-silicon/sep.h
++++ b/include/hw/arm/apple-silicon/sep.h
+@@ -126,6 +126,7 @@
+     // misalignment.
+     bool keywrap_uid0_enabled;
+     bool keywrap_uid1_enabled;
++    bool virtual_custom_key_loaded;
+ } AppleAESSState;
+ 
+ typedef struct {
+@@ -300,11 +301,15 @@
+     ResettablePhases parent_phases;
+ };
+ 
++typedef struct HuntMobVirtualSEP HuntMobVirtualSEP;
++
+ struct AppleSEPState {
+     /*< private >*/
+     AppleA7IOP parent_obj;
+ 
+     /*< public >*/
++    /* Machine-owned, borrowed; NULL preserves the legacy model. */
++    HuntMobVirtualSEP *virtual_sep;
+     vaddr base;
+     ARMCPU *cpu;
+     bool modern;
+@@ -375,6 +380,9 @@
+     AppleA7IOPMailbox *mailbox;
+ };
+ 
++/* Install once before realize; machine retains provider through teardown. */
++void apple_sep_set_virtual_provider(AppleSEPState *s,
++                                    HuntMobVirtualSEP *provider);
+ void ck_sep_seprom_patches(CKPatcherRange *range);
+ AppleSEPState *apple_sep_from_node(AppleDTNode *node, MemoryRegion *ool_mr,
+                                    vaddr base, uint32_t cpu_id, bool modern,

@@ -1,0 +1,35 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -327,6 +327,7 @@
+ 
+ static void nvme_process_sq(void *opaque);
+ static void nvme_ctrl_reset(NvmeCtrl *n, NvmeResetType rst);
++static void nvme_enqueue_req_completion(NvmeCQueue *cq, NvmeRequest *req);
+ static inline uint64_t nvme_get_timestamp(const NvmeCtrl *n);
+ 
+ static uint16_t nvme_sqid(NvmeRequest *req)
+@@ -1545,6 +1546,13 @@
+     qemu_iovec_destroy(&io->iov);
+     g_free(io);
+     req->aiocb = NULL;
++    if (req->status != NVME_SUCCESS) {
++        /* The normal negative-ret callback overwrites abort status with a
++         * data error. Preserve the already-issued abort and do not DMA. */
++        block_acct_failed(blk_get_stats(req->ns->blkconf.blk), &req->acct);
++        nvme_enqueue_req_completion(nvme_cq(req), req);
++        return;
++    }
+     complete(req, ret);
+ }
+ 
+@@ -4878,7 +4886,8 @@
+                      ns->csi == NVME_CSI_NVM && ns->lbasz == 4096 &&
+                      !ns->lbaf.ms && !nvme_ns_ext(ns) &&
+                      !NVME_ID_NS_DPS_TYPE(ns->id_ns.dps) &&
+-                     !ns->params.zoned && !ns->endgrp &&
++                     !ns->params.zoned &&
++                     (!ns->endgrp || !ns->endgrp->fdp.enabled) &&
+                      !req->cmd.mptr && !le16_to_cpu(rw->control) &&
+                      blocks <= 256 && blocks - 1 <= UINT64_MAX - unit;
+         for (size_t index = 0; index < 16; index++) {

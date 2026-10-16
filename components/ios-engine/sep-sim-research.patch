@@ -1,0 +1,15 @@
+diff --git a/include/hw/arm/apple-silicon/boot.h b/include/hw/arm/apple-silicon/boot.h
+index e80c3d0..7e305df 100644
+--- a/include/hw/arm/apple-silicon/boot.h
++++ b/include/hw/arm/apple-silicon/boot.h
+@@ -21,7 +21,9 @@
+ #define HW_ARM_APPLE_SILICON_BOOT_H
+ 
+ // #define ENABLE_BASEBAND
+-#define ENABLE_DATA_ENCRYPTION
++/* HuntMob isolated empty-disk recovery experiment: use upstream SEP simulator.
++ * Not suitable for assessing real-device data protection or Keychain. */
++/* #define ENABLE_DATA_ENCRYPTION */
+ 
+ #include "qemu/osdep.h"
+ #include "exec/hwaddr.h"

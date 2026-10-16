@@ -8,6 +8,7 @@ class RuntimeRoutingTests(unittest.TestCase):
     def test_ios_on_windows_routes_to_remote_mac(self):
         plan = select_runtime(Platform.IOS, controller_os="windows")
         self.assertEqual(plan.provider, "apple-simulator-worker")
+        self.assertEqual(plan.confidence, "theoretical")
 
     def test_android_routes_to_owned_huntmob_runtime(self):
         plan = select_runtime(Platform.ANDROID, controller_os="linux")

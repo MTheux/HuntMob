@@ -1,0 +1,18 @@
+diff --git a/crypto/hmac-nettle.c b/crypto/hmac-nettle.c
+--- a/crypto/hmac-nettle.c
++++ b/crypto/hmac-nettle.c
+@@ -137,6 +137,14 @@
+     QCryptoHmacNettle *ctx;
+ 
+     ctx = hmac->opaque;
++    /* Erase complete keyed inner/outer hash states before allocator release. */
++    if (ctx) {
++        volatile uint8_t *bytes = (volatile uint8_t *)ctx;
++        size_t length = sizeof(*ctx);
++        while (length--) {
++            *bytes++ = 0;
++        }
++    }
+     g_free(ctx);
+ }
+ 

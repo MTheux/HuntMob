@@ -1,0 +1,339 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -210,6 +210,8 @@
+ #include "migration/vmstate.h"
+ 
+ #include "crypto/cipher.h"
++#include "crypto/apple-ans-wrapped.h"
++#include "crypto/secret.h"
+ #include "nvme.h"
+ #include "dif.h"
+ #include "trace.h"
+@@ -724,6 +726,43 @@
+     }
+ }
+ 
++/* AUTHORIZED TESTING ONLY: explicit public/synthetic context provider.
++ * No t8030 machine sets these properties. This is NOT a guest SEP key bridge.
++ * The secret object contains Kwrap32 || Kauth32; never trace its identifier,
++ * value, decoded frame, authentication result detail or unwrapped key. */
++static bool nvme_apple_ans_lab_unwrap(NvmeCtrl *n,
++                                      const uint8_t extension[64],
++                                      uint8_t raw_key[32])
++{
++    uint8_t *context = NULL;
++    size_t context_bytes = 0;
++    Error *error = NULL;
++    bool valid = false;
++
++    if (!n->params.apple_ans_lab_wrapped_xts ||
++        !n->params.apple_ans_lab_wrapped_xts_secret) {
++        return false;
++    }
++    if (qcrypto_secret_lookup(n->params.apple_ans_lab_wrapped_xts_secret,
++                             &context, &context_bytes, &error) < 0 ||
++        context_bytes != 64) {
++        goto cleanup;
++    }
++    /* The codec leaves raw_key untouched on every failure and checks the MAC
++     * in constant work before decrypting. The flags and reserved prefix are
++     * exact; context authentication does not independently bind Kwrap. */
++    valid = huntmob_wrapped_reference_unwrap(context, context + 32,
++                                             extension, 64, raw_key,
++                                             &error) == 0;
++cleanup:
++    if (context) {
++        nvme_apple_ans_lab_wipe(context, context_bytes);
++        g_free(context);
++    }
++    error_free(error);
++    return valid;
++}
++
+ static void nvme_apple_ans_lab_clear_key(NvmeRequest *req)
+ {
+     nvme_apple_ans_lab_wipe(req->apple_ans_lab_key,
+@@ -1480,9 +1519,10 @@
+     return nvme_tx(n, &req->sg, ptr, len, dir);
+ }
+ 
+-/* Experimental standard-XTS path for PUBLIC/SYNTHETIC raw keys only.
++/* Experimental standard-XTS path for PUBLIC/SYNTHETIC fixtures only.
++ * Raw and authenticated-envelope inputs have independent opt-in properties.
+  * K1=first16, K2=second16 and LE64 IV are standard conventions; the Apple
+- * hardware ABI is NOT validated. Wrapped requests remain unsupported. */
++ * hardware ABI and guest SEP key bridge are NOT validated or provided. */
+ typedef struct NvmeAppleANSLabIO {
+     NvmeRequest *req;
+     BlockCompletionFunc *complete;
+@@ -4870,15 +4910,18 @@
+ 
+     req->ns = ns;
+ 
+-    /* Default is reject. The ONLY experimental exception is the bounded
+-     * synthetic raw-key path; no missing context may fall through in clear. */
++    /* Default is reject. The only exceptions are explicitly enabled public
++     * synthetic fixtures; no missing context may fall through in clear. */
+     if (n->params.is_apple_ans && (req->cmd.flags & 0x0c)) {
+         NvmeRwCmd *rw = (NvmeRwCmd *)&req->cmd;
+         uint32_t blocks = (uint32_t)le16_to_cpu(rw->nlb) + 1;
+         uint64_t unit = ldq_le_p((uint8_t *)&req->cmd + 0x38);
+         uint8_t different = 0;
+-        bool valid = n->params.apple_ans_lab_unwrapped_xts &&
+-                     req->cmd.flags == 0x08 &&
++        bool enabled = (n->params.apple_ans_lab_unwrapped_xts &&
++                        req->cmd.flags == 0x08) ||
++                       (n->params.apple_ans_lab_wrapped_xts &&
++                        req->cmd.flags == 0x04);
++        bool valid = enabled &&
+                      (req->cmd.opcode == NVME_CMD_READ ||
+                       req->cmd.opcode == NVME_CMD_WRITE) &&
+                      req->sq->entry_count == 7 &&
+@@ -7897,22 +7940,29 @@
+         memcpy(&req->cmd, &cmd, sizeof(NvmeCmd));
+ 
+         if (sq->sqid && n->params.is_apple_ans &&
+-            n->params.apple_ans_lab_unwrapped_xts && cmd.flags == 0x08 &&
++            ((n->params.apple_ans_lab_unwrapped_xts && cmd.flags == 0x08) ||
++             (n->params.apple_ans_lab_wrapped_xts && cmd.flags == 0x04)) &&
+             (cmd.opcode == NVME_CMD_READ || cmd.opcode == NVME_CMD_WRITE) &&
+             sq->entry_count == 7) {
+             uint8_t extension[64] = { 0 };
+             uint8_t unknown = 0;
+-            /* Only the complete confirmed 128-byte IOSQE is accepted.
+-             * Unspecified prefix fields must be zero in synthetic fixtures. */
++            /* Only a complete 128-byte IOSQE is accepted. Raw fixtures use
++             * a zero32 prefix. Wrapped fixtures carry the exact codec64 frame
++             * and require an explicit synthetic host context; never guess one. */
+             if (addr <= UINT64_MAX - sizeof(cmd) - sizeof(extension) &&
+                 !nvme_addr_read(n, addr + sizeof(cmd), extension,
+                                 sizeof(extension))) {
+-                for (size_t index = 0; index < 32; index++) {
+-                    unknown |= extension[index];
+-                }
+-                if (!unknown) {
+-                    memcpy(req->apple_ans_lab_key, extension + 0x20, 32);
+-                    req->apple_ans_lab_key_valid = true;
++                if (cmd.flags == 0x04) {
++                    req->apple_ans_lab_key_valid = nvme_apple_ans_lab_unwrap(
++                        n, extension, req->apple_ans_lab_key);
++                } else {
++                    for (size_t index = 0; index < 32; index++) {
++                        unknown |= extension[index];
++                    }
++                    if (!unknown) {
++                        memcpy(req->apple_ans_lab_key, extension + 0x20, 32);
++                        req->apple_ans_lab_key_valid = true;
++                    }
+                 }
+             }
+             nvme_apple_ans_lab_wipe(extension, sizeof(extension));
+@@ -9460,6 +9510,10 @@
+     DEFINE_PROP_BOOL("is-apple-ans", NvmeCtrl, params.is_apple_ans, false),
+     DEFINE_PROP_BOOL("apple-ans-lab-unwrapped-xts", NvmeCtrl,
+                       params.apple_ans_lab_unwrapped_xts, false),
++    DEFINE_PROP_BOOL("apple-ans-lab-wrapped-xts", NvmeCtrl,
++                      params.apple_ans_lab_wrapped_xts, false),
++    DEFINE_PROP_STRING("apple-ans-lab-wrapped-xts-secret", NvmeCtrl,
++                        params.apple_ans_lab_wrapped_xts_secret),
+     DEFINE_PROP_BOOL("legacy-cmb", NvmeCtrl, params.legacy_cmb, false),
+     DEFINE_PROP_BOOL("ioeventfd", NvmeCtrl, params.ioeventfd, false),
+     DEFINE_PROP_BOOL("dbcs", NvmeCtrl, params.dbcs, true),
+diff --git a/hw/nvme/nvme.h b/hw/nvme/nvme.h
+--- a/hw/nvme/nvme.h
++++ b/hw/nvme/nvme.h
+@@ -551,6 +551,8 @@
+     bool     use_intel_id;
+     bool     is_apple_ans;
+     bool     apple_ans_lab_unwrapped_xts;
++    bool     apple_ans_lab_wrapped_xts;
++    char     *apple_ans_lab_wrapped_xts_secret;
+     uint8_t  zasl;
+     bool     auto_transition_zones;
+     bool     legacy_cmb;
+diff --git a/crypto/meson.build b/crypto/meson.build
+--- a/crypto/meson.build
++++ b/crypto/meson.build
+@@ -2,6 +2,7 @@
+ crypto_ss.add(files(
+   'afsplit.c',
+   'akcipher.c',
++  'apple-ans-wrapped.c',
+   'block-luks.c',
+   'block-qcow.c',
+   'block.c',
+diff --git a/crypto/apple-ans-wrapped.c b/crypto/apple-ans-wrapped.c
+new file mode 100644
+--- /dev/null
++++ b/crypto/apple-ans-wrapped.c
+@@ -0,0 +1,139 @@
++/*
++ * AUTHORIZED TESTING ONLY — ISOLATED LAB
++ * Pinned AESSEP firmware framing + the current virtual model's AES semantics.
++ * Does not implement Apple hardware key derivation or a SEP-to-ANS bridge.
++ */
++#include "qemu/osdep.h"
++#include "crypto/cipher.h"
++#include "crypto/apple-ans-wrapped.h"
++
++static void erase_temporary(void *buffer, size_t length)
++{
++    volatile uint8_t *bytes = buffer;
++    while (length--) {
++        *bytes++ = 0;
++    }
++}
++
++static uint32_t read_le32(const uint8_t *bytes)
++{
++    return (uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 |
++           (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24;
++}
++
++static void write_le32(uint8_t *bytes, uint32_t value)
++{
++    for (size_t i = 0; i < 4; i++) {
++        bytes[i] = (uint8_t)(value >> (8 * i));
++    }
++}
++
++static int aes256_cbc(const uint8_t key[32], const uint8_t *input,
++                      uint8_t *output, size_t length, bool encrypt, Error **errp)
++{
++    uint8_t iv[16] = { 0 };
++    QCryptoCipher *cipher = qcrypto_cipher_new(QCRYPTO_CIPHER_ALGO_AES_256,
++                                              QCRYPTO_CIPHER_MODE_CBC,
++                                              key, 32, errp);
++    int result;
++    if (!cipher) {
++        return -1;
++    }
++    result = qcrypto_cipher_setiv(cipher, iv, sizeof(iv), errp);
++    if (result == 0) {
++        result = encrypt ? qcrypto_cipher_encrypt(cipher, input, output,
++                                                  length, errp)
++                         : qcrypto_cipher_decrypt(cipher, input, output,
++                                                  length, errp);
++    }
++    /* Requires the tested QCrypto/Nettle expanded-context erasure patch. */
++    qcrypto_cipher_free(cipher);
++    erase_temporary(iv, sizeof(iv));
++    return result;
++}
++
++static int compute_auth(const uint8_t auth_key[32], const uint8_t encrypted[32],
++                        uint32_t flags, uint8_t tag[16], Error **errp)
++{
++    uint8_t message[48] = { 0 };
++    uint8_t encrypted_message[48] = { 0 };
++    int result;
++    memcpy(message, encrypted, 32);
++    write_le32(message + 44, flags);
++    result = aes256_cbc(auth_key, message, encrypted_message,
++                       sizeof(message), true, errp);
++    if (result == 0) {
++        memcpy(tag, encrypted_message + 32, 16);
++    }
++    erase_temporary(message, sizeof(message));
++    erase_temporary(encrypted_message, sizeof(encrypted_message));
++    return result;
++}
++
++int huntmob_wrapped_reference_wrap(const uint8_t wrap_key[32],
++                                  const uint8_t auth_key[32],
++                                  const uint8_t raw[32], uint32_t flags,
++                                  uint8_t output[64], Error **errp)
++{
++    uint8_t candidate[64] = { 0 };
++    int result = -1;
++    if (!wrap_key || !auth_key || !raw || !output ||
++        flags != HUNTMOB_WRAPPED_REFERENCE_FLAGS) {
++        error_setg(errp, "Unsupported virtual SEP envelope parameters");
++        return -1;
++    }
++    write_le32(candidate, flags);
++    if (aes256_cbc(wrap_key, raw, candidate + 32, 32, true, errp) < 0 ||
++        compute_auth(auth_key, candidate + 32, flags, candidate + 16, errp) < 0) {
++        goto cleanup;
++    }
++    memcpy(output, candidate, sizeof(candidate));
++    result = 0;
++cleanup:
++    erase_temporary(candidate, sizeof(candidate));
++    return result;
++}
++
++int huntmob_wrapped_reference_unwrap(const uint8_t wrap_key[32],
++                                    const uint8_t auth_key[32],
++                                    const uint8_t *blob, size_t blob_length,
++                                    uint8_t output[32], Error **errp)
++{
++    uint8_t plaintext[32] = { 0 };
++    uint8_t tag[16] = { 0 };
++    volatile unsigned difference = 0;
++    int result = -1;
++    if (!wrap_key || !auth_key || !blob || !output || blob_length != 64 ||
++        read_le32(blob) != HUNTMOB_WRAPPED_REFERENCE_FLAGS) {
++        error_setg(errp, "Unsupported virtual SEP envelope parameters");
++        return -1;
++    }
++    for (size_t i = 4; i < 16; i++) {
++        difference |= blob[i];
++    }
++    if (difference) {
++        error_setg(errp, "Unsupported virtual SEP envelope reserved metadata");
++        goto cleanup;
++    }
++    if (compute_auth(auth_key, blob + 32, read_le32(blob), tag, errp) < 0) {
++        goto cleanup;
++    }
++    /* Fixed-size constant-work comparison: no early exit on tag differences. */
++    for (size_t i = 0; i < sizeof(tag); i++) {
++        difference |= tag[i] ^ blob[i + 16];
++    }
++    if (difference) {
++        error_setg(errp, "Virtual SEP envelope authentication failed");
++        goto cleanup;
++    }
++    if (aes256_cbc(wrap_key, blob + 32, plaintext, sizeof(plaintext),
++                   false, errp) < 0) {
++        goto cleanup;
++    }
++    memcpy(output, plaintext, sizeof(plaintext));
++    result = 0;
++cleanup:
++    erase_temporary(tag, sizeof(tag));
++    erase_temporary(plaintext, sizeof(plaintext));
++    return result;
++}
+diff --git a/include/crypto/apple-ans-wrapped.h b/include/crypto/apple-ans-wrapped.h
+new file mode 100644
+--- /dev/null
++++ b/include/crypto/apple-ans-wrapped.h
+@@ -0,0 +1,25 @@
++/* Current virtual SEP framing only; Apple hardware key equivalence unproven. */
++#ifndef HUNTMOB_WRAPPED_REFERENCE_H
++#define HUNTMOB_WRAPPED_REFERENCE_H
++#include <stddef.h>
++#include <stdint.h>
++#include "qapi/error.h"
++
++#define HUNTMOB_WRAPPED_REFERENCE_FLAGS UINT32_C(0x1b140)
++#define HUNTMOB_WRAPPED_REFERENCE_RAW_BYTES 32u
++#define HUNTMOB_WRAPPED_REFERENCE_BLOB_BYTES 64u
++
++/* Public/synthetic context inputs only until a real SEP bridge is validated.
++ * Both functions leave output untouched on every failure. The unwrap function
++ * authenticates the framing before decrypting or exposing any raw key bytes.
++ * The caller owns and must erase input/output key material when no longer used.
++ */
++int huntmob_wrapped_reference_wrap(const uint8_t wrap_key[32],
++                                  const uint8_t auth_key[32],
++                                  const uint8_t raw[32], uint32_t flags,
++                                  uint8_t output[64], Error **errp);
++int huntmob_wrapped_reference_unwrap(const uint8_t wrap_key[32],
++                                    const uint8_t auth_key[32],
++                                    const uint8_t *blob, size_t blob_length,
++                                    uint8_t output[32], Error **errp);
++#endif

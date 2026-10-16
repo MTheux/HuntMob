@@ -63,38 +63,49 @@ class HuntMobRuntimeProvider:
 
 
 def huntmob_runtime() -> Dict[str, object]:
+    from .lab_sessions import current
     worker = AndroidWorker()
+    lab = current()
     prerequisites = worker.prerequisites()
     worker_status = worker.status()
     online = worker_status.get("state") == "device" and worker_status.get("properties", {}).get("sys.boot_completed") == "1"
     props = worker_status.get("properties", {})
+    connection_state = worker_status.get("state")
+    state = "online" if online else (
+        "booting" if connection_state == "device" else
+        "unauthorized" if connection_state == "unauthorized" else
+        "error" if connection_state == "error" else
+        "worker-ready" if prerequisites.get("ready") else "build-required"
+    )
     devices = []
     if online:
         devices.append({
             "uuid": worker.avd_name,
-            "name": "HuntMob API 35",
+            "name": lab.get("package_id") or f"HuntMob API {worker.android_api}",
             "state": "on",
             "adb_serial": worker.serial,
             "android_version": props.get("ro.build.version.release", "unknown"),
             "api": int(props.get("ro.build.version.sdk", "0") or 0),
             "architecture": props.get("ro.product.cpu.abi", "unknown"),
             "biometrics": {
-                "provider": "huntmob-runtime", "supported": True,
+                "provider": "huntmob-runtime", "supported": int(props.get("ro.build.version.sdk", "0") or 0) >= 23,
                 "transport": "android-emulator-console",
-                "reason": "Owned Android Emulator fixture channel",
+                "reason": "Sensor e pedido pendente são verificados ao abrir Biometria.",
             },
         })
     return {
         "provider": "huntmob-runtime",
-        "state": "online" if online else ("worker-ready" if prerequisites.get("ready") else "build-required"),
+        "state": state,
+        "lab": lab,
+        "connection": {"state": connection_state, "reason": worker_status.get("reason", "")},
         "ready": bool(prerequisites.get("ready")),
         "devices": devices,
         "components": {
             "hypervisor": "qemu with HVF/KVM/WHPX",
             "guest": "HuntMob AOSP image",
             "device_bridge": "ADB",
-            "display": "WebRTC worker stream",
-            "biometrics": "HuntMob virtual biometric HAL",
+            "display": "H264 + WebCodecs with immediate touch; MJPEG compatibility fallback",
+            "biometrics": "Android Emulator fingerprint console",
             "camera": "HuntMob virtual camera HAL",
         },
         "limitations": [] if prerequisites.get("ready") else [prerequisites.get("reason", "runtime dependencies incomplete")],

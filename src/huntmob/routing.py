@@ -78,6 +78,6 @@ def select_runtime(
         "apple-simulator-worker",
         "remote-mac",
         "tailscale-or-vpn+https+wss",
-        "confirmed",
-        "Windows and Linux act as controllers; the iOS runtime executes on an authorized Mac worker.",
+        "theoretical",
+        "Windows/Linux controller to Mac worker is a topology plan; native remote execution has not been validated.",
     )

@@ -1,0 +1,346 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -22,6 +22,7 @@
+ #include "block/aio.h"
+ #include "crypto/cipher.h"
+ #include "crypto/huntmob-virtual-sep.h"
++#include "hw/arm/apple-silicon/huntmob-virtual-mpe-memory.h"
+ #include "exec/cputlb.h"
+ #include "exec/tb-flush.h"
+ #include "hw/arm/apple-silicon/a13.h"
+@@ -2765,6 +2766,50 @@
+ 
+ /* This entire path is opt-in. No virtual private operation falls through to
+  * globally known UID constants, the XOR approximation or legacy key dumps. */
++/* Own VirtualMPE-v1 bridge, not Apple's memory cipher or attestation.
++ * The memory module owns the real ROMD/ciphertext consumer. No ACK is issued
++ * for a key load unless that consumer and its private caches exist. */
++static void sep_virtual_mpe_fault(AppleSEPState *s, hwaddr reg)
++{
++    assert(bql_locked());
++    if (!s->virtual_mpe_faulted && s->virtual_mpe_memory) {
++        huntmob_virtual_mpe_memory_reset(s->virtual_mpe_memory);
++    }
++    s->virtual_mpe_faulted = true;
++    s->virtual_mpe_configured = false;
++    trace_apple_sep_virtual_mpe_control("revoked", reg, 0, false);
++}
++
++static bool sep_virtual_mpe_stage(AppleSEPState *s, unsigned slot,
++                                   const uint8_t input[32])
++{
++    HuntMobVirtualMPE *core;
++    bool ok = false;
++
++    assert(bql_locked());
++    s->virtual_mpe_started = true;
++    if (!s->virtual_mpe_faulted && s->virtual_mpe_memory &&
++        huntmob_virtual_mpe_memory_consumer_ready(s->virtual_mpe_memory)) {
++        core = huntmob_virtual_mpe_memory_core(s->virtual_mpe_memory);
++        ok = core && huntmob_virtual_mpe_regions_bound(core) &&
++             huntmob_virtual_mpe_stage_key(core, slot, input);
++    }
++    trace_apple_sep_virtual_mpe_control("stage", 8,
++                                        slot ? 0x251 : 0x211, ok);
++    if (!ok) {
++        sep_virtual_mpe_fault(s, 8);
++    }
++    return ok;
++}
++
++void apple_sep_set_virtual_mpe(AppleSEPState *s,
++                                HuntMobVirtualMPEMemory *memory)
++{
++    assert(!qdev_is_realized(DEVICE(s)) && s->virtual_sep && memory &&
++           !s->virtual_mpe_memory);
++    s->virtual_mpe_memory = memory;
++}
++
+ static bool aess_virtual_command(AppleAESSState *s)
+ {
+     HuntMobVirtualSEP *p = s->sep->virtual_sep;
+@@ -2791,6 +2836,13 @@
+         goto out;
+     }
+     switch (cmd) {
++    case 0x211:
++    case 0x251:
++        /* ROM loads a complete input, then MISC1+80 consumes it. The two
++         * inputs form one MPE pair, not one key per private RAM aperture. */
++        ok = sep_virtual_mpe_stage(s->sep, cmd == 0x251, s->in_full);
++        sep_virtual_erase(s->in_full, sizeof(s->in_full));
++        break;
+     case 0x201: slot = 0; goto program;
+     case 0x241: slot = 1; goto program;
+     case 0x281: slot = 2; goto program;
+@@ -3891,10 +3943,189 @@
+     .valid.unaligned = false,
+ };
+ 
++/* Only the observed v1 ROM control ABI is accepted in this opt-in path.
++ * Values traced here are public selectors, bounds and control bits, never
++ * AESS input, key bytes, ciphertext or authentication tags. */
++static bool sep_virtual_mpe_write(AppleSEPState *s, hwaddr addr,
++                                   uint64_t value, unsigned size)
++{
++    HuntMobVirtualMPEMemory *memory = s->virtual_mpe_memory;
++    HuntMobVirtualMPE *core = NULL;
++    AppleSEPVirtualMPEInit *init;
++    Error *local_err = NULL;
++    uint64_t length;
++    uint32_t data = value;
++    unsigned region, offset;
++    bool ok = false;
++
++    assert(bql_locked());
++    s->virtual_mpe_started = true;
++    if (size != 4 || value > UINT32_MAX || s->virtual_mpe_faulted ||
++        !memory || !huntmob_virtual_mpe_memory_consumer_ready(memory)) {
++        goto done;
++    }
++    core = huntmob_virtual_mpe_memory_core(memory);
++    if (!core) {
++        goto done;
++    }
++    switch (addr) {
++    case 0x80:
++        if (data != 0 && data != 0x100) {
++            break;
++        }
++        ok = huntmob_virtual_mpe_latch_key(core, data == 0x100);
++        break;
++    case 0x300:
++        if (s->virtual_mpe_configured &&
++            data != s->virtual_mpe_primary_base_kib) {
++            break;
++        }
++        s->virtual_mpe_primary_base_kib = data;
++        s->virtual_mpe_primary_base_written = true;
++        ok = true;
++        break;
++    case 0x318:
++        if (s->virtual_mpe_configured &&
++            (!s->virtual_mpe_secondary_base_written ||
++             data != s->virtual_mpe_secondary_base_kib)) {
++            break;
++        }
++        s->virtual_mpe_secondary_base_kib = data;
++        s->virtual_mpe_secondary_base_written = true;
++        ok = true;
++        break;
++    case 0x310:
++        if (s->virtual_mpe_configured) {
++            ok = data == s->virtual_mpe_primary_length_kib;
++            break;
++        }
++        if (!huntmob_virtual_mpe_both_latched(core) ||
++            (data && !s->virtual_mpe_primary_base_written)) {
++            break;
++        }
++        ok = huntmob_virtual_mpe_memory_configure(
++            memory, (uint64_t)s->virtual_mpe_primary_base_kib << 10,
++            (uint64_t)data << 10,
++            (uint64_t)s->virtual_mpe_secondary_base_kib << 10,
++            s->virtual_mpe_secondary_base_written, &local_err);
++        if (ok) {
++            s->virtual_mpe_primary_length_kib = data;
++            s->virtual_mpe_configured = true;
++        }
++        break;
++    case 0x200:
++    case 0x204:
++        /* Fresh initialization clears the memory-integrity replay words.
++         * Nonzero restore state has no proven v1 consumer contract yet. */
++        ok = s->virtual_mpe_configured && data == 0;
++        break;
++    case 0x400: case 0x408: case 0x410: case 0x414:
++    case 0x420: case 0x428: case 0x430: case 0x434:
++        region = addr >= 0x420;
++        offset = addr - (region ? 0x420 : 0x400);
++        init = &s->virtual_mpe_init[region];
++        length = huntmob_virtual_mpe_memory_region_length(memory, region);
++        if (!s->virtual_mpe_configured || !length || length % 512) {
++            break;
++        }
++        if (offset == 0 || offset == 8) {
++            if (init->control & 1) {
++                break;
++            }
++            if (offset == 0) {
++                if (data != 0) {
++                    break;
++                }
++                init->first_sector = data;
++            } else {
++                if (data != 0 && data != (length >> 9) - 1) {
++                    break;
++                }
++                init->last_sector = data;
++            }
++            ok = true;
++        } else if (offset == 0x10) {
++            if (data & ~1U) {
++                break;
++            }
++            if (data & 1) {
++                if (init->first_sector ||
++                    init->last_sector != (length >> 9) - 1) {
++                    break;
++                }
++                init->started = true;
++                init->pending_finish = false;
++                init->finished = false;
++            } else if (init->control & 1) {
++                init->pending_finish = true;
++            }
++            init->control = data;
++            ok = true;
++        } else if (offset == 0x14 && data == 1) {
++            if (init->finished && !init->control &&
++                huntmob_virtual_mpe_is_active(core, region)) {
++                ok = true;
++            } else if (init->started && init->pending_finish &&
++                       !init->control && !init->first_sector &&
++                       !init->last_sector) {
++                ok = huntmob_virtual_mpe_memory_initialize_region(
++                    memory, region, &local_err);
++                if (ok) {
++                    init->pending_finish = false;
++                    init->finished = true;
++                }
++            }
++        }
++        break;
++    default:
++        /* No new success-only emulation of unknown MPE control registers. */
++        break;
++    }
++    if (ok) {
++        stl_le_p(&s->misc1_regs[addr], data);
++    }
++done:
++    error_free(local_err);
++    trace_apple_sep_virtual_mpe_control("control", addr,
++        (addr == 0x80 || addr == 0x300 || addr == 0x310 || addr == 0x318 ||
++         addr == 0x400 || addr == 0x408 || addr == 0x410 || addr == 0x414 ||
++         addr == 0x420 || addr == 0x428 || addr == 0x430 || addr == 0x434) &&
++        size == 4 && value <= UINT32_MAX ? value : 0, ok);
++    if (!ok) {
++        sep_virtual_mpe_fault(s, addr);
++    }
++    return ok;
++}
++
++static void sep_virtual_mpe_bridge_reset(AppleSEPState *s)
++{
++    assert(bql_locked());
++    /* The initial device reset occurs after construction, before ROM loading.
++     * A later full reset renews the consumer's core and private boot salt. */
++    if (s->virtual_mpe_started && s->virtual_mpe_memory) {
++        huntmob_virtual_mpe_memory_reset(s->virtual_mpe_memory);
++    }
++    s->virtual_mpe_primary_base_kib = 0;
++    s->virtual_mpe_primary_length_kib = 0;
++    s->virtual_mpe_secondary_base_kib = 0;
++    s->virtual_mpe_primary_base_written = false;
++    s->virtual_mpe_secondary_base_written = false;
++    s->virtual_mpe_configured = false;
++    s->virtual_mpe_started = false;
++    s->virtual_mpe_faulted = false;
++    memset(s->virtual_mpe_init, 0, sizeof(s->virtual_mpe_init));
++    trace_apple_sep_virtual_mpe_control("reset", 0, 0, true);
++}
++
+ static void misc1_reg_write(void *opaque, hwaddr addr, uint64_t data,
+                             unsigned size)
+ {
+     AppleSEPState *s = opaque;
++
++    if (s->virtual_sep && s->virtual_mpe_memory) {
++        sep_virtual_mpe_write(s, addr, data, size);
++        return;
++    }
+ 
+ #ifdef ENABLE_CPU_DUMP_STATE
+     cpu_dump_state(CPU(s->cpu), stderr, CPU_DUMP_CODE);
+@@ -3927,7 +4158,9 @@
+     default:
+     jump_default:
+         memcpy(&ret, &s->misc1_regs[addr], size);
+-        DPRINTF("SEP MISC1: Unknown read at 0x" HWADDR_FMT_plx "\n", addr);
++        if (!s->virtual_sep) {
++            DPRINTF("SEP MISC1: Unknown read at 0x" HWADDR_FMT_plx "\n", addr);
++        }
+         break;
+     }
+ 
+@@ -4905,6 +5138,9 @@
+     memset(s->debug_trace_regs, 0, sizeof(s->debug_trace_regs));
+ #endif
+ 
++    if (s->virtual_mpe_memory) {
++        sep_virtual_mpe_bridge_reset(s);
++    }
+     aess_reset(&s->aess_state);
+     aesh_reset(&s->aesh_state);
+     pka_reset(&s->pka_state);
+diff --git a/include/hw/arm/apple-silicon/sep.h b/include/hw/arm/apple-silicon/sep.h
+--- a/include/hw/arm/apple-silicon/sep.h
++++ b/include/hw/arm/apple-silicon/sep.h
+@@ -302,6 +302,16 @@
+ };
+ 
+ typedef struct HuntMobVirtualSEP HuntMobVirtualSEP;
++typedef struct HuntMobVirtualMPEMemory HuntMobVirtualMPEMemory;
++
++typedef struct AppleSEPVirtualMPEInit {
++    uint32_t first_sector;
++    uint32_t last_sector;
++    uint32_t control;
++    bool started;
++    bool pending_finish;
++    bool finished;
++} AppleSEPVirtualMPEInit;
+ 
+ struct AppleSEPState {
+     /*< private >*/
+@@ -310,6 +320,17 @@
+     /*< public >*/
+     /* Machine-owned, borrowed; NULL preserves the legacy model. */
+     HuntMobVirtualSEP *virtual_sep;
++    /* Machine-owned memory consumer. Its core pointer changes on full reset. */
++    HuntMobVirtualMPEMemory *virtual_mpe_memory;
++    uint32_t virtual_mpe_primary_base_kib;
++    uint32_t virtual_mpe_primary_length_kib;
++    uint32_t virtual_mpe_secondary_base_kib;
++    bool virtual_mpe_primary_base_written;
++    bool virtual_mpe_secondary_base_written;
++    bool virtual_mpe_configured;
++    bool virtual_mpe_started;
++    bool virtual_mpe_faulted;
++    AppleSEPVirtualMPEInit virtual_mpe_init[2];
+     vaddr base;
+     ARMCPU *cpu;
+     bool modern;
+@@ -388,6 +409,10 @@
+                                    vaddr base, uint32_t cpu_id, bool modern,
+                                    uint32_t chip_id);
+ 
++/* Internal borrowed consumer; install after virtual provider, before realize. */
++void apple_sep_set_virtual_mpe(AppleSEPState *s,
++                                HuntMobVirtualMPEMemory *memory);
++
+ AppleSSCState *apple_ssc_create(MachineState *machine, uint8_t addr);
+ 
+ #endif /* HW_ARM_APPLE_SILICON_SEP_H */
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -29,3 +29,6 @@
+ 
+ # Virtual model controls only: no payloads, seeds, keys, or buffer values.
+ apple_sep_virtual_operation(uint32_t command, uint32_t keydisable, uint32_t iterations, bool accepted) "command=0x%x keydisable=0x%x iterations=%u accepted=%d"
++
++# Own VirtualMPE-v1 public control metadata; never keys or data payloads.
++apple_sep_virtual_mpe_control(const char *action, uint64_t reg, uint64_t value, bool accepted) "action=%s reg=0x%" PRIx64 " value=0x%" PRIx64 " accepted=%d"

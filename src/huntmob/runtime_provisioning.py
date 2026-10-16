@@ -45,7 +45,7 @@ def provision_plan(recipe: DeviceRecipe, host_os: str | None = None) -> Dict[str
     host = (host_os or platform.system()).lower()
     if errors:
         return {"ok": False, "blocked": True, "errors": list(errors)}
-    dockerized = host == "linux"
+    docker_supported = host == "linux"
     accelerator = {"linux": "kvm", "darwin": "hvf", "windows": "whpx"}.get(host)
     if accelerator is None:
         return {"ok": False, "blocked": True, "errors": ["unsupported worker OS"]}
@@ -53,7 +53,7 @@ def provision_plan(recipe: DeviceRecipe, host_os: str | None = None) -> Dict[str
         "ok": True,
         "blocked": False,
         "recipe": asdict(recipe),
-        "execution": "docker-worker" if dockerized else "native-worker",
+        "execution": "native-worker",
         "accelerator": accelerator,
         "lifecycle": [
             "validate-recipe",
@@ -72,12 +72,13 @@ def provision_plan(recipe: DeviceRecipe, host_os: str | None = None) -> Dict[str
             "snapshots": "per-engagement immutable lineage",
         },
         "docker": {
-            "supported": dockerized,
-            "required_devices": ["/dev/kvm"] if dockerized else [],
+            "supported": docker_supported,
+            "optional": True,
+            "required_devices": ["/dev/kvm"] if docker_supported else [],
             "published_services": ["worker-api", "webrtc", "adb-loopback"],
             "note": (
                 "Docker packages the Linux worker; KVM still performs virtualization"
-                if dockerized
+                if docker_supported
                 else "Use a native worker so HVF/WHPX remains hardware accelerated"
             ),
         },

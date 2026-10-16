@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "name": "Inferno",
+  "repository": "https://github.com/ChefKissInc/Inferno",
+  "revision": "cc4302a99167abec69b714cfd00c38caece7e7de",
+  "license_notice": "GPL-3.0 and AGPL-3.0; per-file exceptions and branding restrictions",
+  "status": "build-validated-boot-pending",
+  "bundled": false,
+  "firmware_included": false,
+  "firmware_boot_validated": false,
+  "ipa_execution_validated": false
+}

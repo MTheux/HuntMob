@@ -1,0 +1,76 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -1892,6 +1892,14 @@
+                                        (data & SEP_KEY_BASE_LOAD_KEY_ACTIVE) != 0);
+     } else if (addr == 0x8) {
+         trace_apple_sep_keyline_request("control", false);
++        /* These are role selection requests only. The source has no
++         * validated KEY -> AESS derivation/handoff implementation. */
++        if (data <= 3 || data == 0x0a || data == 0x0b) {
++            trace_apple_sep_derivation_readiness(
++                "latch-request",
++                data <= 1 ? "wrapping" :
++                data <= 3 ? "authentication" : "subkey", false);
++        }
+         /* ROM-proven families only. No selector, key, or register value is
+          * emitted; all unclassified commands remain semantically unknown. */
+         trace_apple_sep_key_control_category(
+@@ -2653,6 +2661,38 @@
+     }
+ }
+ 
++/* Exact MMIO words from the pinned AESSEP initializer, not service IDs.
++ * Program requests currently copy input registers with an upstream placeholder;
++ * commands 4/5 have no implementation. Neither proves a derived context valid.
++ * Never emit key bytes, register words, bank selectors or input provenance. */
++static void aess_trace_derivation_readiness(uint32_t cmd)
++{
++    switch (cmd) {
++    case 0x201:
++    case 0x241:
++        trace_apple_sep_derivation_readiness("program-request", "wrapping",
++                                             false);
++        break;
++    case 0x281:
++    case 0x2c1:
++        trace_apple_sep_derivation_readiness("program-request", "authentication",
++                                             false);
++        break;
++    case 0x205:
++    case 0x245:
++        trace_apple_sep_derivation_readiness("unsupported-derive", "wrapping",
++                                             false);
++        break;
++    case 0x204:
++    case 0x244:
++        trace_apple_sep_derivation_readiness("unsupported-derive",
++                                             "authentication", false);
++        break;
++    default:
++        break;
++    }
++}
++
+ static void aess_handle_cmd(AppleAESSState *s)
+ {
+     uint32_t cmd = s->command;
+@@ -2671,6 +2711,7 @@
+     bool invalid_parameters = register_0x18_KEYDISABLE_BIT_INVALID;
+ 
+     trace_apple_sep_aess_operation(aess_diagnostic_operation(normalized_cmd));
++    aess_trace_derivation_readiness(cmd);
+ #if 1
+     // not correct behavior, but SEPFW likes to complain if it doesn't expect
+     // the output to be zero, so keep it.
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -22,3 +22,7 @@
+ 
+ # ROM-proven coarse control family; not a key setup/handoff completion.
+ apple_sep_key_control_category(const char *category) "category=%s"
++
++# Pinned init requests only. validated=false is not placeholder-slot availability.
++# Repeated records may be counted; never include bank/input/key/nonce/digest data.
++apple_sep_derivation_readiness(const char *phase, const char *role, bool validated) "phase=%s role=%s validated=%d"

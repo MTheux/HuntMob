@@ -1,0 +1,2 @@
+import {packager} from '@electron/packager';const target=process.argv[2]??'darwin';if(!['darwin','win32','linux'].includes(target))throw Error('Unsupported target');
+console.log(JSON.stringify(await packager({dir:'.',out:'../../build/viewer',name:'HuntMob Viewer',platform:target,arch:target==='darwin'?'arm64':'x64',electronVersion:'44.7.2',overwrite:true,asar:true,prune:true,ignore:[/^\/node_modules/,/^\/test-policy.cjs/,/^\/package.mjs/],appBundleId:'com.huntmob.viewer',protocols:[{name:'HuntMob Viewer',schemes:['huntmob-viewer']}],osxSign:false})));

@@ -22,16 +22,18 @@ def runtime_status() -> Dict[str, object]:
     )
     tools = {
         name: shutil.which(name) or ""
-        for name in ("adb", "xcrun", "frida-ps", "jadx", "apktool")
+        for name in ("adb", "xcrun", "frida-ps", "apktool")
     }
+    from .android_worker import AndroidWorker
+    android=AndroidWorker().prerequisites()
     return {
-        "ok": bool(genymotion and tools["adb"]),
+        "ok": bool(android.get('ready')),
         "mode": "read-only-discovery",
-        "android": {"genymotion": genymotion, "adb": tools["adb"]},
+        "android": {"genymotion": genymotion, "adb": tools["adb"],"worker":android},
         "ios": {"simulator": simulator, "xcrun": tools["xcrun"]},
         "analysis": {
             "frida": tools["frida-ps"],
-            "jadx": tools["jadx"],
+            "embedded_analysis": __import__("huntmob.analysis_core", fromlist=["EmbeddedAnalysis"]).EmbeddedAnalysis().status(),
             "apktool": tools["apktool"],
         },
         "network_requests": 0,

@@ -1,0 +1,1 @@
+document.querySelector('#connect').addEventListener('submit',async event=>{event.preventDefault();const result=await window.huntmobConnect.connect(document.querySelector('#url').value);if(!result.ok)document.querySelector('#status').textContent=result.reason;});

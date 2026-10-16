@@ -1,0 +1,36 @@
+diff --git a/target/arm/ptw.c b/target/arm/ptw.c
+--- a/target/arm/ptw.c
++++ b/target/arm/ptw.c
+@@ -10,10 +10,12 @@
+ #include "qemu/log.h"
+ #include "qemu/range.h"
+ #include "qemu/main-loop.h"
++#include "qemu/rcu.h"
+ #include "exec/page-protection.h"
+ #include "exec/target_page.h"
+ #include "exec/tlb-flags.h"
+ #include "accel/tcg/probe.h"
++#include "system/memory.h"
+ #include "cpu.h"
+ #include "internals.h"
+ #include "cpu-features.h"
+@@ -766,6 +768,19 @@
+ #if defined(CONFIG_ATOMIC64) && defined(CONFIG_TCG)
+     uint64_t cur_val;
+     void *host = ptw->out_host;
++
++    if (host) {
++        RCU_READ_LOCK_GUARD();
++        ram_addr_t offset;
++        MemoryRegion *mr = memory_region_from_host(host, &offset);
++
++        /* A ROMD load can return a direct host pointer, while every store
++         * must still pass through the device. Hardware AF/dirty updates
++         * must not bypass that write callback with a host atomic store. */
++        if (mr && memory_region_is_romd(mr)) {
++            host = NULL;
++        }
++    }
+ 
+     if (unlikely(!host)) {
+         /* Page table in MMIO Memory Region */

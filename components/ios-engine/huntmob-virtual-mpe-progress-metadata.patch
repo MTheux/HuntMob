@@ -1,0 +1,82 @@
+diff --git a/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c b/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c
+--- a/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c
++++ b/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c
+@@ -13,6 +13,7 @@
+ #include "system/memory.h"
+ #include "system/runstate.h"
+ #include "system/tcg.h"
++#include "trace.h"
+ 
+ #define MPE_PRIMARY_CAPACITY (32 * MiB)
+ #define MPE_SECONDARY_CAPACITY (128 * MiB)
+@@ -31,6 +32,7 @@
+     HuntMobVirtualMPE *core;
+     uint8_t vm_id[16];
+     uint64_t epoch;
++    uint64_t written_bytes[2];
+     bool machine_owned, infra_ready, sep_attached, tz_ready, configured, faulted;
+     MemoryRegion *sep_cpu_memory;
+     MemoryRegion cache[2], cache_view[2], private_container[2], private_denied[2];
+@@ -96,6 +98,7 @@
+ {
+     assert(bql_locked());
+     m->faulted = true;
++    trace_apple_sep_virtual_mpe_memory_event("fault", 2, 0);
+     if (m->core) {
+         huntmob_virtual_mpe_reset(m->core);
+     }
+@@ -169,6 +172,12 @@
+     if (!ok) {
+         fault_memory(m);
+         return MEMTX_ACCESS_ERROR;
++    }
++    uint64_t before = m->written_bytes[w->region];
++    m->written_bytes[w->region] = before > UINT64_MAX - size ? UINT64_MAX : before + size;
++    if ((before >> 20) != (m->written_bytes[w->region] >> 20)) {
++        trace_apple_sep_virtual_mpe_memory_event("written", w->region,
++                                                 m->written_bytes[w->region]);
+     }
+     /* In preactive MMIO mode no translated executable mapping exists yet. */
+     if (memory_region_is_romd(&m->cache[w->region])) {
+@@ -364,6 +373,7 @@
+             return unavailable(errp);
+         }
+         memory_region_rom_device_set_romd(&m->cache[region], true);
++        trace_apple_sep_virtual_mpe_memory_event("initialized", region, m->length[region]);
+     }
+     return true;
+ }
+@@ -388,6 +398,7 @@
+         memory_region_set_size(&m->cache_view[i], capacities[i]);
+         memory_region_set_enabled(&m->cache_view[i], true);
+         m->length[i] = m->offset[i] = 0;
++        m->written_bytes[i] = 0;
+     }
+     /* The SEP reset owner must have stopped old CPU execution first. */
+     m->faulted = !renew_core(m, &local_err);
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -4644,6 +4644,12 @@
+         return;
+     }
+ 
++    if (sep->virtual_mpe_memory) {
++        unsigned region = load_addr >= 0x340000000ULL && load_addr < 0x342000000ULL ? 0 :
++                          load_addr >= 0x300000000ULL && load_addr < 0x308000000ULL ? 1 : 2;
++        trace_apple_sep_virtual_mpe_memory_event("boot-jump-request", region, 0);
++    }
++
+     // some specific, non currently used(?), cpu_ functions will require bql
+     // BQL_LOCK_GUARD();
+ 
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -32,3 +32,6 @@
+ 
+ # Own VirtualMPE-v1 public control metadata; never keys or data payloads.
+ apple_sep_virtual_mpe_control(const char *action, uint64_t reg, uint64_t value, bool accepted) "action=%s reg=0x%" PRIx64 " value=0x%" PRIx64 " accepted=%d"
++
++# Counts/control phases only; no addresses, buffers, keys or tags.
++apple_sep_virtual_mpe_memory_event(const char *action, unsigned region, uint64_t bytes) "action=%s region=%u bytes=%" PRIu64 ""

@@ -1,0 +1,23 @@
+{
+  "schema": "huntmob.virtual-sep-kdf.v1",
+  "profile": "experimental-own-virtual-identity",
+  "apple_hardware_equivalence": false,
+  "root_bytes": 32,
+  "root_source": "explicit protected per-VM root via QCryptoSecret; no generated fallback",
+  "vm_id_bytes": 16,
+  "primitive": "SP800-108 counter-mode HMAC-SHA256, r=32, L=256, one block",
+  "framing": "BE32(1) || ASCII(Label) || 00 || Context || BE32(256)",
+  "uid_labels": ["HuntMob.VirtualSEP.v1/UID0", "HuntMob.VirtualSEP.v1/UID1"],
+  "uid_context": "VMID16 || BE32(seed_bits)",
+  "uid_transform": "AES256-CBC initial zero IV; re-encrypt same32 while carrying CBC IV across calls",
+  "uid_count": "0 normalizes to1; maximum65536, larger counts rejected",
+  "inline_labels": ["HuntMob.VirtualSEP.v1/inline-wrap", "HuntMob.VirtualSEP.v1/inline-auth"],
+  "inline_context": "VMID16 || bank_u8 || public_context28",
+  "program_labels_le32": {"wrapping": "7772616b", "authentication": "6175746b"},
+  "slots": {"0": "wrap bank0", "1": "wrap bank1", "2": "auth bank0", "3": "auth bank1"},
+  "commit_words": {"205": 0, "245": 1, "204": 2, "244": 3},
+  "publication": "same-context derived pair plus KEY roles4 and5; role6 validates only",
+  "envelope": "bank0 only; LE32(1b140)||zero12||CBC-MAC16||ciphertext32",
+  "reset": "erase both staged and derived banks and retire epoch; preserve protected VM root for re-derivation",
+  "migration": "must remain blocked by owning virtual profile until an encrypted migration contract exists"
+}

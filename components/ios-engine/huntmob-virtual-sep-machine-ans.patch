@@ -1,0 +1,329 @@
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -19,6 +19,10 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/uuid.h"
++#include "crypto/huntmob-virtual-sep.h"
++#include "migration/blocker.h"
++
+ #include "hw/arm/apple-silicon/a13.h"
+ #include "hw/arm/apple-silicon/boot.h"
+ #include "hw/arm/apple-silicon/dart.h"
+@@ -1320,6 +1324,9 @@
+         object_property_get_link(OBJECT(t8030), "pcie.host", &error_fatal));
+     ans = apple_ans_from_node(child, APPLE_A7IOP_V4, sec_bus);
+     assert_nonnull(ans);
++    if (t8030->virtual_sep) {
++        apple_ans_set_virtual_provider(ans, t8030->virtual_sep);
++    }
+     object_property_add_const_link(OBJECT(ans), "dma-mr",
+                                    OBJECT(sysbus_mmio_get_region(sart, 1)));
+ 
+@@ -2241,6 +2248,9 @@
+         SEPROM_BASE, A13_MAX_CPU, true, chip_id);
+     assert_nonnull(sep);
+ 
++    if (t8030->virtual_sep) {
++        apple_sep_set_virtual_provider(sep, t8030->virtual_sep);
++    }
+     object_property_add_child(OBJECT(t8030), "sep", OBJECT(sep));
+ 
+     prop = apple_dt_get_prop(child, "reg");
+@@ -2733,6 +2743,29 @@
+     hwaddr *ranges;
+ 
+     t8030 = APPLE_T8030(machine);
++
++    if (t8030->virtual_sep_root_secret || t8030->virtual_sep_vm_id) {
++        QemuUUID vm_id;
++        if (!t8030->virtual_sep_root_secret || !*t8030->virtual_sep_root_secret ||
++            !t8030->virtual_sep_vm_id ||
++            qemu_uuid_parse(t8030->virtual_sep_vm_id, &vm_id) ||
++            qemu_uuid_is_null(&vm_id) || !t8030->sep_fw_filename ||
++            !t8030->sep_rom_filename) {
++            error_setg(&error_fatal, "Virtual SEP requires a root object, VM UUID and real SEP firmware");
++            return;
++        }
++        t8030->virtual_sep = huntmob_virtual_sep_new(
++            t8030->virtual_sep_root_secret, vm_id.data, &error_fatal);
++        if (!t8030->virtual_sep) {
++            return;
++        }
++        error_setg(&t8030->virtual_sep_migration_blocker,
++                   "Virtual SEP identity has no validated migration/snapshot contract");
++        if (migrate_add_blocker(&t8030->virtual_sep_migration_blocker,
++                                &error_fatal) < 0) {
++            return;
++        }
++    }
+ 
+     if ((t8030->sep_fw_filename == NULL) != (t8030->sep_rom_filename == NULL)) {
+         error_setg(&error_fatal,
+@@ -3076,11 +3109,59 @@
+ PROP_VISIT_GETTER_SETTER(uint32, disp_width);
+ PROP_VISIT_GETTER_SETTER(uint32, disp_height);
+ 
++static char *t8030_get_virtual_root(Object *obj, Error **errp)
++{
++    return g_strdup(APPLE_T8030(obj)->virtual_sep_root_secret);
++}
++
++static void t8030_set_virtual_root(Object *obj, const char *value, Error **errp)
++{
++    AppleT8030MachineState *s = APPLE_T8030(obj);
++    if (s->virtual_sep) {
++        error_setg(errp, "Virtual SEP identity is immutable after initialization");
++        return;
++    }
++    g_free(s->virtual_sep_root_secret);
++    s->virtual_sep_root_secret = g_strdup(value);
++}
++
++static char *t8030_get_virtual_id(Object *obj, Error **errp)
++{
++    return g_strdup(APPLE_T8030(obj)->virtual_sep_vm_id);
++}
++
++static void t8030_set_virtual_id(Object *obj, const char *value, Error **errp)
++{
++    AppleT8030MachineState *s = APPLE_T8030(obj);
++    if (s->virtual_sep) {
++        error_setg(errp, "Virtual SEP identity is immutable after initialization");
++        return;
++    }
++    g_free(s->virtual_sep_vm_id);
++    s->virtual_sep_vm_id = g_strdup(value);
++}
++
++static void t8030_virtual_finalize(Object *obj)
++{
++    AppleT8030MachineState *s = APPLE_T8030(obj);
++    /* Machine children and their users must be stopped before machine teardown. */
++    if (s->virtual_sep_migration_blocker) {
++        migrate_del_blocker(&s->virtual_sep_migration_blocker);
++    }
++    huntmob_virtual_sep_free(s->virtual_sep);
++    g_free(s->virtual_sep_root_secret);
++    g_free(s->virtual_sep_vm_id);
++}
++
+ static void t8030_class_init(ObjectClass *klass, const void *data)
+ {
+     MachineClass *mc = MACHINE_CLASS(klass);
+     ObjectProperty *oprop;
+ 
++    object_class_property_add_str(klass, "huntmob-virtual-sep-root-secret",
++                                  t8030_get_virtual_root, t8030_set_virtual_root);
++    object_class_property_add_str(klass, "huntmob-virtual-sep-vm-id",
++                                  t8030_get_virtual_id, t8030_set_virtual_id);
+     mc->desc = "Apple T8030 SoC (iPhone 11)";
+     mc->init = t8030_init;
+     mc->reset = t8030_reset;
+@@ -3188,6 +3269,7 @@
+     .instance_size = sizeof(AppleT8030MachineState),
+     .class_size = sizeof(AppleT8030MachineClass),
+     .class_init = t8030_class_init,
++    .instance_finalize = t8030_virtual_finalize,
+ };
+ 
+ static void t8030_types(void)
+diff --git a/hw/block/apple-silicon/ans.c b/hw/block/apple-silicon/ans.c
+--- a/hw/block/apple-silicon/ans.c
++++ b/hw/block/apple-silicon/ans.c
+@@ -290,6 +290,15 @@
+     return sbd;
+ }
+ 
++void apple_ans_set_virtual_provider(SysBusDevice *dev,
++                                    struct HuntMobVirtualSEP *provider)
++{
++    AppleANSState *s = APPLE_ANS(dev);
++    /* Called by the owning machine before realization/CPU startup only. */
++    assert(!qdev_is_realized(DEVICE(dev)) && provider && !s->nvme->virtual_sep);
++    s->nvme->virtual_sep = provider;
++}
++
+ static void apple_ans_realize(DeviceState *dev, Error **errp)
+ {
+     AppleANSState *s = APPLE_ANS(dev);
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -194,6 +194,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/main-loop.h"
+ #include "qemu/cutils.h"
+ #include "qemu/error-report.h"
+ #include "qemu/log.h"
+@@ -212,6 +213,7 @@
+ 
+ #include "crypto/cipher.h"
+ #include "crypto/apple-ans-wrapped.h"
++#include "crypto/huntmob-virtual-sep.h"
+ #include "crypto/secret.h"
+ #include "nvme.h"
+ #include "dif.h"
+@@ -733,13 +735,22 @@
+  * value, decoded frame, authentication result detail or unwrapped key. */
+ static bool nvme_apple_ans_lab_unwrap(NvmeCtrl *n,
+                                       const uint8_t extension[64],
+-                                      uint8_t raw_key[32])
++                                      uint8_t raw_key[32], uint64_t *epoch)
+ {
+     uint8_t *context = NULL;
+     size_t context_bytes = 0;
+     Error *error = NULL;
+     bool valid = false;
+ 
++    if (n->virtual_sep) {
++        assert(bql_locked());
++        /* The guest's real modeled AESS/KEY path must have published a pair.
++         * Never fall back to a host fixture context in virtual identity mode. */
++        valid = huntmob_virtual_sep_unwrap(n->virtual_sep, extension, raw_key,
++                                           epoch, &error);
++        error_free(error);
++        return valid;
++    }
+     if (n->apple_ans_lab_quiescing || n->apple_ans_lab_epoch_exhausted ||
+         n->apple_ans_lab_wrapped_revoked ||
+         !n->params.apple_ans_lab_wrapped_xts ||
+@@ -772,6 +783,7 @@
+                           sizeof(req->apple_ans_lab_key));
+     req->apple_ans_lab_key_valid = false;
+     req->apple_ans_lab_generation = 0;
++    req->virtual_sep_generation = 0;
+ }
+ 
+ /* SQ BHs use qemu_bh_new_guarded (main AioContext), and blk_aio_* completes
+@@ -782,10 +794,17 @@
+ static bool nvme_apple_ans_lab_current(NvmeRequest *req)
+ {
+     NvmeCtrl *n = nvme_ctrl(req);
++    if (n->virtual_sep) {
++        /* Production provider writers are MMIO handlers under the same BQL. */
++        assert(bql_locked());
++    }
+     return req->apple_ans_lab_key_valid && !n->apple_ans_lab_quiescing &&
+            !n->apple_ans_lab_epoch_exhausted &&
+            req->apple_ans_lab_generation == n->apple_ans_lab_generation &&
+-           (req->cmd.flags != 0x04 || !n->apple_ans_lab_wrapped_revoked);
++           (req->cmd.flags != 0x04 ||
++            (n->virtual_sep ? huntmob_virtual_sep_epoch_current(
++                n->virtual_sep, req->virtual_sep_generation)
++                : !n->apple_ans_lab_wrapped_revoked));
+ }
+ 
+ static void nvme_req_clear(NvmeRequest *req)
+@@ -5015,7 +5034,7 @@
+         uint8_t different = 0;
+         bool enabled = (n->params.apple_ans_lab_unwrapped_xts &&
+                         req->cmd.flags == 0x08) ||
+-                       (n->params.apple_ans_lab_wrapped_xts &&
++                       ((n->params.apple_ans_lab_wrapped_xts || n->virtual_sep) &&
+                         req->cmd.flags == 0x04);
+         bool valid = enabled &&
+                      (req->cmd.opcode == NVME_CMD_READ ||
+@@ -8037,7 +8056,8 @@
+ 
+         if (sq->sqid && n->params.is_apple_ans &&
+             ((n->params.apple_ans_lab_unwrapped_xts && cmd.flags == 0x08) ||
+-             (n->params.apple_ans_lab_wrapped_xts && cmd.flags == 0x04)) &&
++             ((n->params.apple_ans_lab_wrapped_xts || n->virtual_sep) &&
++              cmd.flags == 0x04)) &&
+             (cmd.opcode == NVME_CMD_READ || cmd.opcode == NVME_CMD_WRITE) &&
+             sq->entry_count == 7) {
+             uint8_t extension[64] = { 0 };
+@@ -8050,7 +8070,8 @@
+                                 sizeof(extension))) {
+                 if (cmd.flags == 0x04) {
+                     req->apple_ans_lab_key_valid = nvme_apple_ans_lab_unwrap(
+-                        n, extension, req->apple_ans_lab_key);
++                        n, extension, req->apple_ans_lab_key,
++                        &req->virtual_sep_generation);
+                 } else {
+                     for (size_t index = 0; index < 32; index++) {
+                         unknown |= extension[index];
+@@ -8143,8 +8164,13 @@
+      * Once an active synthetic wrapped session resets, only a new device
+      * instance/process can authorize its host fixture context again.
+      */
+-    if (n->params.is_apple_ans && (n->params.apple_ans_lab_unwrapped_xts ||
++    if (n->params.is_apple_ans && (n->virtual_sep ||
++                                 n->params.apple_ans_lab_unwrapped_xts ||
+                                  n->params.apple_ans_lab_wrapped_xts)) {
++        if (n->virtual_sep && n->apple_ans_lab_ever_started) {
++            assert(bql_locked());
++            huntmob_virtual_sep_revoke(n->virtual_sep);
++        }
+         n->apple_ans_lab_quiescing = true;
+         if (n->apple_ans_lab_generation == UINT64_MAX) {
+             n->apple_ans_lab_epoch_exhausted = true;
+@@ -8834,6 +8860,14 @@
+ 
+ static bool nvme_check_params(NvmeCtrl *n, Error **errp)
+ {
++
++    if (n->virtual_sep && (!n->params.is_apple_ans ||
++        n->params.apple_ans_lab_unwrapped_xts ||
++        n->params.apple_ans_lab_wrapped_xts ||
++        n->params.apple_ans_lab_wrapped_xts_secret || n->params.sriov_max_vfs)) {
++        error_setg(errp, "Virtual SEP requires Apple ANS without fixture contexts or SR-IOV");
++        return false;
++    }
+     NvmeParams *params = &n->params;
+ 
+     if (params->num_queues) {
+diff --git a/hw/nvme/nvme.h b/hw/nvme/nvme.h
+--- a/hw/nvme/nvme.h
++++ b/hw/nvme/nvme.h
+@@ -436,6 +436,7 @@
+     bool                    apple_ans_lab_key_valid;
+     uint8_t                 apple_ans_lab_key[32];
+     uint64_t                apple_ans_lab_generation;
++    uint64_t                virtual_sep_generation;
+     QTAILQ_ENTRY(NvmeRequest)entry;
+ } NvmeRequest;
+ 
+@@ -584,6 +585,9 @@
+     NvmeParams   params;
+     NvmeBus      bus;
+ 
++    /* Own virtual identity; borrowed for machine lifetime, no guest key getter. */
++    struct HuntMobVirtualSEP *virtual_sep;
++
+     /* Main-loop-owned synthetic state; no SEP provider or migration state. */
+     uint64_t    apple_ans_lab_generation;
+     bool        apple_ans_lab_epoch_exhausted;
+diff --git a/include/hw/arm/apple-silicon/t8030.h b/include/hw/arm/apple-silicon/t8030.h
+--- a/include/hw/arm/apple-silicon/t8030.h
++++ b/include/hw/arm/apple-silicon/t8030.h
+@@ -84,6 +84,10 @@
+     char *regulatory_model;
+     uint32_t disp_width;
+     uint32_t disp_height;
++    struct HuntMobVirtualSEP *virtual_sep;
++    char *virtual_sep_root_secret;
++    char *virtual_sep_vm_id;
++    Error *virtual_sep_migration_blocker;
+ } AppleT8030MachineState;
+ 
+ #endif /* HW_ARM_APPLE_SILICON_T8030_H */
+diff --git a/include/hw/block/apple-silicon/ans.h b/include/hw/block/apple-silicon/ans.h
+--- a/include/hw/block/apple-silicon/ans.h
++++ b/include/hw/block/apple-silicon/ans.h
+@@ -6,6 +6,10 @@
+ #include "hw/pci/pci.h"
+ #include "hw/sysbus.h"
+ 
++struct HuntMobVirtualSEP;
++void apple_ans_set_virtual_provider(SysBusDevice *dev,
++                                    struct HuntMobVirtualSEP *provider);
++
+ SysBusDevice *apple_ans_from_node(AppleDTNode *node, AppleA7IOPVersion version,
+                                   PCIBus *pci_bus);
+ 

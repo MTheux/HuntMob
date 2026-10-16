@@ -1,0 +1,25 @@
+services:
+  huntmob:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: huntmob:local
+    platform: linux/amd64
+    init: true
+    devices:
+      - /dev/kvm:/dev/kvm
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - huntmob-sdk:/opt/android-sdk
+      - huntmob-android:/root/.android
+      - huntmob-workspaces:/root/.huntmob
+    shm_size: 2gb
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  huntmob-sdk:
+  huntmob-android:
+  huntmob-workspaces:

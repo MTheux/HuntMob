@@ -1,0 +1,21 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -2856,9 +2856,14 @@
+     default:
+         if (op == 0 || op == 0x10) {
+             if (cmd == 0x200 || cmd == 0x80) {
+-                /* Virtual engine initialization retires old bindings before
+-                 * the guest replays its cached contexts. No success-only lease. */
+-                huntmob_virtual_sep_revoke(p);
++                /* 0x200 is our full engine-init boundary. Native SEPOS uses
++                 * 0x80 repeatedly between UID derivations without replaying its
++                 * published inline pair, so it must preserve those banks and
++                 * their epoch. Clearing the explicit caller key remains an
++                 * own-model conservative policy for both controls. */
++                if (cmd == 0x200) {
++                    huntmob_virtual_sep_revoke(p);
++                }
+                 sep_virtual_erase(s->key_256_in, sizeof(s->key_256_in));
+                 s->virtual_custom_key_loaded = false;
+             }

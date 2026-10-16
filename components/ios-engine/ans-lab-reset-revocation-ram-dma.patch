@@ -1,0 +1,266 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -199,6 +199,7 @@
+ #include "qemu/log.h"
+ #include "qemu/units.h"
+ #include "qemu/range.h"
++#include "qemu/rcu.h"
+ #include "qapi/error.h"
+ #include "qapi/visitor.h"
+ #include "system/system.h"
+@@ -739,7 +740,9 @@
+     Error *error = NULL;
+     bool valid = false;
+ 
+-    if (!n->params.apple_ans_lab_wrapped_xts ||
++    if (n->apple_ans_lab_quiescing || n->apple_ans_lab_epoch_exhausted ||
++        n->apple_ans_lab_wrapped_revoked ||
++        !n->params.apple_ans_lab_wrapped_xts ||
+         !n->params.apple_ans_lab_wrapped_xts_secret) {
+         return false;
+     }
+@@ -768,6 +771,21 @@
+     nvme_apple_ans_lab_wipe(req->apple_ans_lab_key,
+                           sizeof(req->apple_ans_lab_key));
+     req->apple_ans_lab_key_valid = false;
++    req->apple_ans_lab_generation = 0;
++}
++
++/* SQ BHs use qemu_bh_new_guarded (main AioContext), and blk_aio_* completes
++ * in its submitting AioContext. Reset and these existing NVMe paths are owned
++ * by the main loop/BQL; no context mutex may be held across guest DMA/MMIO.
++ * A future IOThread or SEP-thread provider needs an explicit handoff protocol.
++ */
++static bool nvme_apple_ans_lab_current(NvmeRequest *req)
++{
++    NvmeCtrl *n = nvme_ctrl(req);
++    return req->apple_ans_lab_key_valid && !n->apple_ans_lab_quiescing &&
++           !n->apple_ans_lab_epoch_exhausted &&
++           req->apple_ans_lab_generation == n->apple_ans_lab_generation &&
++           (req->cmd.flags != 0x04 || !n->apple_ans_lab_wrapped_revoked);
+ }
+ 
+ static void nvme_req_clear(NvmeRequest *req)
+@@ -1532,6 +1550,66 @@
+     bool write;
+ } NvmeAppleANSLabIO;
+ 
++/* Check EVERY data segment before any backend operation or guest data copy.
++ * Only ordinary guest RAM is accepted in this experimental path; CMB/PMR,
++ * MMIO, RAM devices and ROM have no validated protected-DMA contract here.
++ * address_space_access_valid alone does not enforce attrs.memory.
++ */
++static bool nvme_apple_ans_lab_preflight(NvmeRequest *req, size_t bytes,
++                                        bool guest_write)
++{
++    NvmeSg *sg = &req->sg;
++    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
++    attrs.memory = true;
++    if (!(sg->flags & NVME_SG_ALLOC) || !(sg->flags & NVME_SG_DMA) ||
++        !bytes || bytes > 1024 * 1024 || sg->qsg.size != bytes ||
++        sg->qsg.nsg < 1 || sg->qsg.nsg > 257) {
++        return false;
++    }
++    RCU_READ_LOCK_GUARD();
++    for (int index = 0; index < sg->qsg.nsg; index++) {
++        hwaddr address = sg->qsg.sg[index].base;
++        hwaddr left = sg->qsg.sg[index].len;
++        if (!left || left - 1 > UINT64_MAX - address) {
++            return false;
++        }
++        while (left) {
++            hwaddr translated, length = left;
++            MemoryRegion *mr = address_space_translate(sg->qsg.as, address,
++                &translated, &length, guest_write, attrs);
++            if (!length || length > left || !memory_region_is_ram(mr) ||
++                memory_region_is_ram_device(mr) || memory_region_is_rom(mr) ||
++                !memory_access_is_direct(mr, guest_write, attrs)) {
++                return false;
++            }
++            left -= length;
++            if (left) {
++                if (length > UINT64_MAX - address) {
++                    return false;
++                }
++                address += length;
++            }
++        }
++    }
++    return true;
++}
++
++static int nvme_apple_ans_lab_tx(NvmeRequest *req, uint8_t *data, size_t bytes,
++                                 bool guest_write)
++{
++    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
++    dma_addr_t residual = bytes;
++    MemTxResult result;
++    attrs.memory = true;
++    if (!nvme_apple_ans_lab_current(req) ||
++        !nvme_apple_ans_lab_preflight(req, bytes, guest_write)) {
++        return -EFAULT;
++    }
++    result = guest_write ? dma_buf_read(data, bytes, &residual, &req->sg.qsg, attrs)
++                         : dma_buf_write(data, bytes, &residual, &req->sg.qsg, attrs);
++    return result == MEMTX_OK && !residual ? 0 : -EFAULT;
++}
++
+ static int nvme_apple_ans_lab_transform(NvmeRequest *req, uint8_t *data,
+                                        size_t bytes, bool encrypt)
+ {
+@@ -1570,15 +1648,24 @@
+     NvmeAppleANSLabIO *io = opaque;
+     NvmeRequest *req = io->req;
+     BlockCompletionFunc *complete = io->complete;
++    if (!nvme_apple_ans_lab_current(req)) {
++        if (req->status == NVME_SUCCESS) {
++            req->status = NVME_CMD_ABORT_REQ;
++        }
++        ret = -ECANCELED;
++    }
+     if (!ret && req->status != NVME_SUCCESS) {
+         ret = -ECANCELED;
+     }
+     if (!ret && !io->write) {
+         ret = nvme_apple_ans_lab_transform(req, io->bounce, io->bytes, false);
+-        if (!ret && nvme_tx(nvme_ctrl(req), &req->sg, io->bounce, io->bytes,
+-                           NVME_TX_DIRECTION_FROM_DEVICE)) {
+-            ret = -EFAULT;
+-        }
++        if (!ret) {
++            ret = nvme_apple_ans_lab_tx(req, io->bounce, io->bytes, true);
++        }
++    }
++    if (ret == -EFAULT && req->status == NVME_SUCCESS) {
++        /* Invalid guest data memory is a transfer error, not media failure. */
++        req->status = NVME_DATA_TRAS_ERROR;
+     }
+     nvme_apple_ans_lab_clear_key(req);
+     nvme_apple_ans_lab_wipe(io->bounce, io->bytes);
+@@ -1610,14 +1697,23 @@
+     io->bounce = g_malloc0(bytes);
+     qemu_iovec_init(&io->iov, 1);
+     qemu_iovec_add(&io->iov, io->bounce, bytes);
++    /* Read preflight must precede backend submission as well as final DMA. */
++    if (!nvme_apple_ans_lab_current(req) ||
++        !nvme_apple_ans_lab_preflight(req, bytes, !write)) {
++        nvme_apple_ans_lab_io_done(io, -EFAULT);
++        return;
++    }
+     if (write) {
+-        if (nvme_tx(nvme_ctrl(req), &req->sg, io->bounce, bytes,
+-                    NVME_TX_DIRECTION_TO_DEVICE)) {
++        if (nvme_apple_ans_lab_tx(req, io->bounce, bytes, false)) {
+             nvme_apple_ans_lab_io_done(io, -EFAULT);
+             return;
+         }
+         if (nvme_apple_ans_lab_transform(req, io->bounce, bytes, true)) {
+             nvme_apple_ans_lab_io_done(io, -EIO);
++            return;
++        }
++        if (!nvme_apple_ans_lab_current(req)) {
++            nvme_apple_ans_lab_io_done(io, -ECANCELED);
+             return;
+         }
+         req->aiocb = blk_aio_pwritev(blk, offset, &io->iov, 0,
+@@ -4925,7 +5021,7 @@
+                      (req->cmd.opcode == NVME_CMD_READ ||
+                       req->cmd.opcode == NVME_CMD_WRITE) &&
+                      req->sq->entry_count == 7 &&
+-                     req->apple_ans_lab_key_valid &&
++                     nvme_apple_ans_lab_current(req) &&
+                      ns->csi == NVME_CSI_NVM && ns->lbasz == 4096 &&
+                      !ns->lbaf.ms && !nvme_ns_ext(ns) &&
+                      !NVME_ID_NS_DPS_TYPE(ns->id_ns.dps) &&
+@@ -7965,6 +8061,9 @@
+                     }
+                 }
+             }
++            if (req->apple_ans_lab_key_valid) {
++                req->apple_ans_lab_generation = n->apple_ans_lab_generation;
++            }
+             nvme_apple_ans_lab_wipe(extension, sizeof(extension));
+         }
+ 
+@@ -8038,6 +8137,25 @@
+     NvmeNamespace *ns;
+     int i;
+ 
++    /* Invalidate BEFORE drain: a successful old read callback can run while
++     * blk_drain pumps events. It must not decrypt or deliver plaintext DMA.
++     * A power-on PCI reset before the first successful EN is not revocation.
++     * Once an active synthetic wrapped session resets, only a new device
++     * instance/process can authorize its host fixture context again.
++     */
++    if (n->params.is_apple_ans && (n->params.apple_ans_lab_unwrapped_xts ||
++                                 n->params.apple_ans_lab_wrapped_xts)) {
++        n->apple_ans_lab_quiescing = true;
++        if (n->apple_ans_lab_generation == UINT64_MAX) {
++            n->apple_ans_lab_epoch_exhausted = true;
++        } else {
++            n->apple_ans_lab_generation++;
++        }
++        if (n->apple_ans_lab_ever_started) {
++            n->apple_ans_lab_wrapped_revoked = true;
++        }
++    }
++
+     for (i = 1; i <= NVME_MAX_NAMESPACES; i++) {
+         ns = nvme_ns(n, i);
+         if (!ns) {
+@@ -8101,6 +8219,7 @@
+     n->dbbuf_dbs = 0;
+     n->dbbuf_eis = 0;
+     n->dbbuf_enabled = false;
++    n->apple_ans_lab_quiescing = false;
+ }
+ 
+ static void nvme_ctrl_shutdown(NvmeCtrl *n)
+@@ -8204,6 +8323,8 @@
+     }
+ 
+     nvme_update_dsm_limits(n, NULL);
++
++    n->apple_ans_lab_ever_started = true;
+ 
+     return 0;
+ }
+@@ -8865,6 +8986,12 @@
+     NvmeIdCtrl *id = &n->id_ctrl;
+     uint8_t max_vfs;
+     int i;
++
++    n->apple_ans_lab_generation = 1;
++    n->apple_ans_lab_epoch_exhausted = false;
++    n->apple_ans_lab_quiescing = false;
++    n->apple_ans_lab_ever_started = false;
++    n->apple_ans_lab_wrapped_revoked = false;
+ 
+     if (pci_is_vf(pci)) {
+         sctrl = nvme_sctrl(n);
+diff --git a/hw/nvme/nvme.h b/hw/nvme/nvme.h
+--- a/hw/nvme/nvme.h
++++ b/hw/nvme/nvme.h
+@@ -435,6 +435,7 @@
+     /* Synthetic opt-in ANS prototype; never a SEP-backed context. */
+     bool                    apple_ans_lab_key_valid;
+     uint8_t                 apple_ans_lab_key[32];
++    uint64_t                apple_ans_lab_generation;
+     QTAILQ_ENTRY(NvmeRequest)entry;
+ } NvmeRequest;
+ 
+@@ -583,6 +584,13 @@
+     NvmeParams   params;
+     NvmeBus      bus;
+ 
++    /* Main-loop-owned synthetic state; no SEP provider or migration state. */
++    uint64_t    apple_ans_lab_generation;
++    bool        apple_ans_lab_epoch_exhausted;
++    bool        apple_ans_lab_quiescing;
++    bool        apple_ans_lab_ever_started;
++    bool        apple_ans_lab_wrapped_revoked;
++
+     uint16_t    cntlid;
+     bool        qs_created;
+     uint32_t    page_size;

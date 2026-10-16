@@ -1,0 +1,54 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -37,6 +37,7 @@
+ #include "qemu/cutils.h"
+ #include "qemu/guest-random.h"
+ #include "qemu/log.h"
++#include "qemu/main-loop.h"
+ #include "qemu/units.h"
+ #include "system/address-spaces.h"
+ #include "system/block-backend-global-state.h"
+@@ -1902,6 +1903,12 @@
+ {
+     AppleSEPState *s = opaque;
+ 
++    /* Serialize provider mutations with NVMe's epoch check and DMA/backend
++     * operation. A provider mutex alone cannot close that cross-device gap. */
++    if (s->virtual_sep) {
++        assert(bql_locked());
++    }
++
+     /* Observe requests, not key state or selector values. Control writes
+      * have no documented active bit, so report false for that category. */
+     if (addr == SEP_KEY_BASE_LOAD_KEY_OFFSET) {
+@@ -2770,6 +2777,10 @@
+     uint8_t iv[16] = { 0 }, output[32] = { 0 };
+     bool ok = false;
+     unsigned slot;
++
++    /* All production provider writers are virtual MMIO under BQL. Keep
++     * that contract executable; do not silently accept a lockless caller. */
++    assert(p && bql_locked());
+ 
+     sep_virtual_erase(s->out_full, sizeof(s->out_full));
+     if ((cmd & 0x300) == 0x300 ||
+@@ -3183,6 +3194,10 @@
+     AppleSEPState *sep = s->sep;
+     uint64_t orig_data = data;
+ 
++    if (sep->virtual_sep) {
++        assert(bql_locked());
++    }
++
+     // QEMU_LOCK_GUARD(&s->lock);
+ 
+ #ifdef ENABLE_CPU_DUMP_STATE
+@@ -4770,6 +4785,7 @@
+ {
+     trace_apple_sep_aess_reset();
+     if (s->sep->virtual_sep) {
++        assert(bql_locked());
+         huntmob_virtual_sep_revoke(s->sep->virtual_sep);
+         sep_virtual_erase(s->in_full, sizeof(s->in_full));
+         sep_virtual_erase(s->out_full, sizeof(s->out_full));

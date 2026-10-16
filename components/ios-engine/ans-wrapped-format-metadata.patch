@@ -1,0 +1,29 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -8217,6 +8217,15 @@
+                                 !huntmob_virtual_sep_is_ready(n->virtual_sep))) {
+                         decode_result = "provider-unavailable";
+                     } else if (!frame_supported) {
++                        /* The pinned producer identifies word0 as authenticated
++                         * FORMAT metadata. Only this word and a padding boolean
++                         * may enter this own-profile diagnostic, never MAC,
++                         * ciphertext, IVs, key bytes or the remaining frame. */
++                        if (n->virtual_sep) {
++                            trace_pci_nvme_apple_ans_frame_format(
++                                sq->sqid, nvme_cid(req), ldl_le_p(extension),
++                                !reserved);
++                        }
+                         decode_result = ldl_le_p(extension) !=
+                             HUNTMOB_WRAPPED_REFERENCE_FLAGS ?
+                             "frame-flags-unsupported" : "frame-reserved-unsupported";
+diff --git a/hw/nvme/trace-events b/hw/nvme/trace-events
+--- a/hw/nvme/trace-events
++++ b/hw/nvme/trace-events
+@@ -229,3 +229,6 @@
+ 
+ # Fixed diagnostic categories only; no command dwords, addresses or payloads.
+ pci_nvme_apple_ans_protected_gate(uint16_t sqid, uint16_t cid, const char *stage, const char *result) "sqid=%u cid=%u stage=%s result=%s"
++
++# Own-profile wrapped FORMAT metadata only, never the rest of the key frame.
++pci_nvme_apple_ans_frame_format(uint16_t sqid, uint16_t cid, uint32_t format, bool reserved_zero) "sqid=%u cid=%u format=0x%08x reserved_zero=%d"

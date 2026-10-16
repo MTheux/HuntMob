@@ -1,0 +1,107 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+index 489a963..af05406 100644
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -7488,6 +7488,91 @@ done:
+     qemu_aio_unref(iocb);
+ }
+ 
++/* Own-profile mode 1 is validation of an existing inventory, NOT hardware
++ * provisioning. There is no namespace creation, formatting, resizing, backend
++ * I/O or protected-context mutation in this path. Unknown modes fail closed.
++ */
++static uint16_t nvme_virtual_validate_ns(NvmeCtrl *n, NvmeRequest *req)
++{
++    NvmeCmd *cmd = &req->cmd;
++    uint8_t buffer[4096];
++    uint32_t count, attached = 0;
++    uint16_t status;
++    dma_addr_t residual = sizeof(buffer);
++    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
++
++    if (le32_to_cpu(cmd->cdw10) != 1 || cmd->flags || cmd->nsid ||
++        cmd->res1 || cmd->mptr || cmd->cdw11 || cmd->cdw12 ||
++        cmd->cdw13 || cmd->cdw14 || cmd->cdw15) {
++        return NVME_INVALID_FIELD | NVME_DNR;
++    }
++
++    /* A 4096-byte PRP transfer uses no indirect PRP list. Map first, then check
++     * every segment for ordinary RAM before performing any guest data access.
++     */
++    status = nvme_map_dptr(n, &req->sg, sizeof(buffer), cmd);
++    if (status) {
++        return status;
++    }
++    if (!nvme_apple_ans_lab_preflight(req, sizeof(buffer), false)) {
++        return NVME_DATA_TRAS_ERROR;
++    }
++    attrs.memory = true;
++    if (dma_buf_write(buffer, sizeof(buffer), &residual, &req->sg.qsg,
++                      attrs) != MEMTX_OK || residual) {
++        return NVME_DATA_TRAS_ERROR;
++    }
++
++    count = ldl_le_p(buffer);
++    if (!count || count > (sizeof(buffer) - 4) / 12) {
++        return NVME_INVALID_FIELD | NVME_DNR;
++    }
++    for (uint32_t id = 1; id <= NVME_MAX_NAMESPACES; id++) {
++        if (nvme_ns(n, id)) {
++            attached++;
++            if (id > count) {
++                return NVME_INVALID_FIELD | NVME_DNR;
++            }
++        }
++    }
++    if (attached != count) {
++        return NVME_INVALID_FIELD | NVME_DNR;
++    }
++    for (uint32_t index = 0; index < count; index++) {
++        const uint8_t *entry = buffer + 4 + index * 12;
++        uint32_t id = ldl_le_p(entry);
++        uint32_t type = ldl_le_p(entry + 4);
++        uint32_t requested = ldl_le_p(entry + 8);
++        NvmeNamespace *ns = nvme_ns(n, index + 1);
++        uint64_t blocks;
++        int64_t backend_length;
++
++        if (!ns || !ns->blkconf.blk || id != index + 1 ||
++            type != ns->params.nstype ||
++            ns->lbaf.ds != 12 || ns->lbaf.ms || nvme_ns_ext(ns) ||
++            NVME_ID_NS_DPS_TYPE(ns->id_ns.dps) || ns->status) {
++            return NVME_INVALID_FIELD | NVME_DNR;
++        }
++        backend_length = blk_getlength(ns->blkconf.blk);
++        if (backend_length <= 0 || (uint64_t)backend_length != ns->size ||
++            ns->size % sizeof(buffer)) {
++            return NVME_INVALID_FIELD | NVME_DNR;
++        }
++        blocks = ns->size / sizeof(buffer);
++        if (blocks != le64_to_cpu(ns->id_ns.ncap) ||
++            blocks != le64_to_cpu(ns->id_ns.nsze) ||
++            (!(id == 1 && requested == 0) && requested != blocks)) {
++            return NVME_INVALID_FIELD | NVME_DNR;
++        }
++    }
++    for (size_t offset = 4 + count * 12; offset < sizeof(buffer); offset++) {
++        if (buffer[offset]) {
++            return NVME_INVALID_FIELD | NVME_DNR;
++        }
++    }
++    return NVME_SUCCESS;
++}
++
+ static uint16_t nvme_create_ns(NvmeCtrl *n, NvmeRequest *req)
+ {
+     NvmeFormatAIOCB *iocb;
+@@ -7501,8 +7586,8 @@ static uint16_t nvme_create_ns(NvmeCtrl *n, NvmeRequest *req)
+      * cohort must never erase that backing through this unimplemented path.
+      * Reject before DMA/backend access; stock namespace READ/WRITE is intact.
+      */
+-    if (n->virtual_sep && format) {
+-        return NVME_INVALID_FIELD | NVME_DNR;
++    if (n->virtual_sep) {
++        return nvme_virtual_validate_ns(n, req);
+     }
+ 
+     nvme_h2c(n, buffer, sizeof(buffer), req);

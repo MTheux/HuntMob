@@ -1,0 +1,129 @@
+diff --git a/hw/block/apple-silicon/ans.c b/hw/block/apple-silicon/ans.c
+--- a/hw/block/apple-silicon/ans.c
++++ b/hw/block/apple-silicon/ans.c
+@@ -26,6 +26,7 @@
+ #include "hw/pci/msi.h"
+ #include "migration/vmstate.h"
+ #include "qemu/log.h"
++#include "hw/block/trace.h"
+ 
+ #if 0
+ #define DPRINTF(fmt, ...)                             \
+@@ -124,6 +125,9 @@
+ {
+     AppleANSState *s = opaque;
+     uint32_t *mmio = &s->vendor_reg[addr >> 2];
++
++    /* Diagnostic metadata only: never record register contents. */
++    trace_apple_ans_vendor_access(addr, size, true);
+     DPRINTF("ANS2: vendor reg WRITE @ 0x" HWADDR_FMT_plx
+             " value: 0x" HWADDR_FMT_plx "\n",
+             addr, data);
+@@ -137,6 +141,7 @@
+     uint32_t *mmio = &s->vendor_reg[addr >> 2];
+     uint32_t val = *mmio;
+ 
++    trace_apple_ans_vendor_access(addr, size, false);
+     DPRINTF("ANS2: vendor reg READ @ 0x" HWADDR_FMT_plx "\n", addr);
+     switch (addr) {
+     case NVME_APPLE_MAX_PEND_CMDS:
+diff --git a/hw/block/trace-events b/hw/block/trace-events
+--- a/hw/block/trace-events
++++ b/hw/block/trace-events
+@@ -101,3 +101,6 @@
+ swim_iwmctrl_write(int reg, const char *name, unsigned size, uint64_t value) "reg=%d [%s] size=%u value=0x%"PRIx64
+ swim_switch_to_ism(void) "switch from IWM to ISM mode"
+ swim_switch_to_iwm(void) "switch from ISM to IWM mode"
++
++# apple-silicon/ans.c: no register values, DMA pointers or payloads.
++apple_ans_vendor_access(uint64_t offset, unsigned size, bool write) "offset=0x%"PRIx64" size=%u write=%d"
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -1885,6 +1885,14 @@
+ {
+     AppleSEPState *s = opaque;
+ 
++    /* Transfers are not implemented here. Observe endpoint and access width
++     * without exposing key material, slot selectors or register contents. */
++    if (addr == SEP_KEY_BASE_SEND_KEY_PKA_OFFSET ||
++        addr == SEP_KEY_BASE_SEND_KEY_AESH_OFFSET ||
++        addr == SEP_KEY_BASE_SEND_KEY_AES2_OFFSET) {
++        trace_apple_sep_key_transfer_unimplemented(addr, size);
++    }
++
+ #ifdef ENABLE_CPU_DUMP_STATE
+     cpu_dump_state(CPU(s->cpu), stderr, CPU_DUMP_CODE);
+ #endif
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -2,3 +2,6 @@
+ 
+ apple_sep_iop_start(const char *role) "%s"
+ apple_sep_iop_wakeup(const char *role) "%s"
++
++# No key values, selectors, wrapping buffers or command register contents.
++apple_sep_key_transfer_unimplemented(uint64_t endpoint, unsigned size) "endpoint=0x%"PRIx64" size=%u"
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -1561,6 +1561,10 @@
+ static void nvme_enqueue_req_completion(NvmeCQueue *cq, NvmeRequest *req)
+ {
+     assert(cq->cqid == req->sq->cqid);
++    if (cq->ctrl->params.is_apple_ans) {
++        trace_pci_nvme_apple_ans_complete(req->sq->sqid, nvme_cid(req),
++                                         req->cmd.opcode, req->status);
++    }
+     trace_pci_nvme_enqueue_req_completion(nvme_cid(req), cq->cqid,
+                                           le32_to_cpu(req->cqe.result),
+                                           le32_to_cpu(req->cqe.dw1),
+@@ -7199,11 +7203,21 @@
+ 
+ static uint16_t nvme_tunnel(NvmeCtrl *n, NvmeRequest *req)
+ {
++    if (n->params.is_apple_ans) {
++        trace_pci_nvme_apple_ans_admin_unimplemented(req->sq->sqid,
++                                                    nvme_cid(req),
++                                                    req->cmd.opcode);
++    }
+     return NVME_SUCCESS;
+ }
+ 
+ static uint16_t nvme_maybe_bfh_ofw(NvmeCtrl *n, NvmeRequest *req)
+ {
++    if (n->params.is_apple_ans) {
++        trace_pci_nvme_apple_ans_admin_unimplemented(req->sq->sqid,
++                                                    nvme_cid(req),
++                                                    req->cmd.opcode);
++    }
+     return NVME_SUCCESS;
+ }
+ 
+@@ -7710,6 +7724,13 @@
+             req->atomic_write = cmd_is_atomic;
+         }
+ 
++        if (n->params.is_apple_ans) {
++            /* Only command identity: do not inspect command dwords, DMA
++             * addresses, PRPs, metadata buffers, LBAs or key payloads. */
++            trace_pci_nvme_apple_ans_submit(sq->sqid, nvme_cid(req),
++                                           cmd.opcode, le32_to_cpu(cmd.nsid));
++        }
++
+         status = sq->sqid ? nvme_io_cmd(n, req) :
+             nvme_admin_cmd(n, req);
+         if (status != NVME_NO_COMPLETE) {
+diff --git a/hw/nvme/trace-events b/hw/nvme/trace-events
+--- a/hw/nvme/trace-events
++++ b/hw/nvme/trace-events
+@@ -217,3 +217,8 @@
+ pci_nvme_ub_db_wr_invalid_sqtail(uint32_t qid, uint16_t new_tail) "submission queue doorbell write value beyond queue size, sqid=%"PRIu32", new_head=%"PRIu16", ignoring"
+ pci_nvme_ub_unknown_css_value(void) "unknown value in cc.css field"
+ pci_nvme_ub_too_many_mappings(void) "too many prp/sgl mappings"
++
++# Apple ANS protocol diagnostics: safe identity only, no command data.
++pci_nvme_apple_ans_submit(uint16_t sqid, uint16_t cid, uint8_t opcode, uint32_t nsid) "sqid=%u cid=%u opcode=0x%02x nsid=%u"
++pci_nvme_apple_ans_complete(uint16_t sqid, uint16_t cid, uint8_t opcode, uint16_t status) "sqid=%u cid=%u opcode=0x%02x status=0x%04x"
++pci_nvme_apple_ans_admin_unimplemented(uint16_t sqid, uint16_t cid, uint8_t opcode) "sqid=%u cid=%u opcode=0x%02x"

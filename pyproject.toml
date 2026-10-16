@@ -4,9 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "huntmob"
-version = "0.1.0"
+version = "0.2.0"
 description = "Governed Android and iOS analysis runtime for HuntBox/Draxen"
 requires-python = ">=3.9"
+dependencies = ["frida==17.23.3", "frida-tools==14.11.0"]
+
+[project.optional-dependencies]
+dynamic = ["frida==17.23.3", "frida-tools==14.11.0"]
 
 [project.scripts]
 huntmob = "huntmob.cli:main"
@@ -14,3 +18,6 @@ huntmob = "huntmob.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+
+[tool.setuptools.package-data]
+huntmob = ["_analysis/**/*", "_video/*", "_web/*", "agents/*.js"]

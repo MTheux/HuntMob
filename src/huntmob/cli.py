@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 
 from .discovery import runtime_status
 from .providers import provider_catalog
@@ -27,6 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--controller-os", choices=("darwin", "windows", "linux"))
     plan.add_argument("--privileged-ios", action="store_true")
     plan.add_argument("--physical-hardware", action="store_true")
+    remote = commands.add_parser("remote", help="private HTTPS access through Tailscale to the existing worker")
+    remote.add_argument("--worker-port", default=8090, type=int)
+    remote.add_argument("--gateway-port", default=8091, type=int)
+    remote.add_argument("--https-port", default=8443, type=int)
     ui = commands.add_parser("ui", help="serve the HuntMob workbench")
     ui.add_argument("--bind", default="127.0.0.1")
     ui.add_argument("--port", default=8090, type=int)
@@ -67,6 +72,12 @@ def main() -> int:
             physical_hardware=args.physical_hardware,
         )
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "remote":
+        from .remote_access import serve_remote
+        try: serve_remote(args.worker_port,args.gateway_port,args.https_port)
+        except (ValueError,OSError,subprocess.TimeoutExpired) as error:
+            print(str(error)); return 2
         return 0
     if args.command == "ui":
         serve(args.bind, args.port, authorized_remote=args.authorized_remote)

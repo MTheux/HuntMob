@@ -1,0 +1,182 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -2480,6 +2480,9 @@
+     uint32_t normalized_cmd = SEP_AESS_CMD_WITHOUT_FLAGS(cmd);
+     size_t key_len = qcrypto_cipher_get_key_len(cipher_alg);
+     size_t data_len = 0x20;
++
++    /* Upstream approximation, not validated UID wrapping. */
++    trace_apple_sep_aess_uid_wrap_approximation();
+     assert_cmpuint(data_len, ==, 0x20);
+     uint8_t used_key[0x20] = { 0 };
+     if (normalized_cmd == 0x02 && s->keywrap_uid0_enabled) {
+@@ -2600,6 +2603,31 @@
+     return false;
+ }
+ 
++/* Only coarse operation classes, never key or slot selectors. */
++static const char *aess_diagnostic_operation(uint32_t operation)
++{
++    switch (operation) {
++    case 0x00:
++    case 0x10:
++        return "seed-sync";
++    case 0x01:
++        return "key-setup";
++    case 0x02:
++    case 0x12:
++        return "uid-wrap";
++    case SEP_AESS_COMMAND_ENCRYPT_CBC_ONLY_NONCUSTOM_FORCE_CUSTOM_AES256:
++    case SEP_AESS_COMMAND_ENCRYPT_CBC_FORCE_CUSTOM_AES256:
++    case SEP_AESS_COMMAND_ENCRYPT_CBC:
++        return "cbc-encrypt";
++    case SEP_AESS_COMMAND_DECRYPT_CBC:
++        return "cbc-decrypt";
++    case SEP_AESS_COMMAND_0xB:
++        return "key-load";
++    default:
++        return "other";
++    }
++}
++
+ static void aess_handle_cmd(AppleAESSState *s)
+ {
+     uint32_t cmd = s->command;
+@@ -2616,6 +2644,8 @@
+         check_register_0x18_KEYDISABLE_BIT_INVALID(cmd, reg_0x18_keydisable);
+     bool valid_command = true;
+     bool invalid_parameters = register_0x18_KEYDISABLE_BIT_INVALID;
++
++    trace_apple_sep_aess_operation(aess_diagnostic_operation(normalized_cmd));
+ #if 1
+     // not correct behavior, but SEPFW likes to complain if it doesn't expect
+     // the output to be zero, so keep it.
+@@ -2835,6 +2865,7 @@
+     WITH_QEMU_LOCK_GUARD(&s->lock)
+     {
+         invalid_parameters |= !valid_command;
++        trace_apple_sep_aess_complete(invalid_parameters);
+         if (invalid_parameters) {
+             // always keep this flag
+             s->interrupt_status |=
+@@ -4441,6 +4472,7 @@
+ 
+ static void aess_reset(AppleAESSState *s)
+ {
++    trace_apple_sep_aess_reset();
+     s->status = 0;
+     s->command = 0;
+     s->interrupt_status = 0;
+@@ -5257,11 +5289,14 @@
+     // req_dec_out, 0); // Is it really necessary to write the mac_key or any
+     // metadata to blk_offset?
+     uint8_t zeroes_0x40[CMD_METADATA_DATA_PAYLOAD_LENGTH] = { 0 };
+-    blk_pwrite(ssc_state->blk, blk_offset, CMD_METADATA_DATA_PAYLOAD_LENGTH,
+-               zeroes_0x40, 0); // clear it on metadata write, all 0x40 bytes at
+-                                // blk_offset. is this correct?
+-    blk_pwrite(ssc_state->blk, key_offset, CMD_METADATA_PAYLOAD_LENGTH,
+-               req_dec_out, 0);
++    int data_io = blk_pwrite(ssc_state->blk, blk_offset,
++                             CMD_METADATA_DATA_PAYLOAD_LENGTH, zeroes_0x40, 0);
++    trace_apple_sep_ssc_backing_io(0x03, true,
++                                   CMD_METADATA_DATA_PAYLOAD_LENGTH, data_io);
++    int key_io = blk_pwrite(ssc_state->blk, key_offset,
++                            CMD_METADATA_PAYLOAD_LENGTH, req_dec_out, 0);
++    trace_apple_sep_ssc_backing_io(0x03, true, CMD_METADATA_PAYLOAD_LENGTH,
++                                   key_io);
+ 
+     uint8_t resp_nop_out[1] = { 0x00 };
+     HEXDUMP("cmd_0x03_resp: resp_nop_out", resp_nop_out, 1);
+@@ -5313,8 +5348,10 @@
+     HEXDUMP("cmd_0x04_req: req_nop_out", req_nop_out, 1);
+ 
+     uint8_t resp_dec_out[CMD_METADATA_DATA_PAYLOAD_LENGTH] = { 0 };
+-    blk_pread(ssc_state->blk, blk_offset, CMD_METADATA_DATA_PAYLOAD_LENGTH,
+-              resp_dec_out, 0);
++    int data_io = blk_pread(ssc_state->blk, blk_offset,
++                            CMD_METADATA_DATA_PAYLOAD_LENGTH, resp_dec_out, 0);
++    trace_apple_sep_ssc_backing_io(0x04, false,
++                                   CMD_METADATA_DATA_PAYLOAD_LENGTH, data_io);
+ 
+     HEXDUMP("cmd_0x04_resp: resp_dec_out", resp_dec_out,
+             CMD_METADATA_DATA_PAYLOAD_LENGTH);
+@@ -5367,8 +5404,10 @@
+     HEXDUMP("cmd_0x05_req: req_dec_out", req_dec_out,
+             CMD_METADATA_DATA_PAYLOAD_LENGTH);
+ 
+-    blk_pwrite(ssc_state->blk, blk_offset, CMD_METADATA_DATA_PAYLOAD_LENGTH,
+-               req_dec_out, 0);
++    int data_io = blk_pwrite(ssc_state->blk, blk_offset,
++                             CMD_METADATA_DATA_PAYLOAD_LENGTH, req_dec_out, 0);
++    trace_apple_sep_ssc_backing_io(0x05, true,
++                                   CMD_METADATA_DATA_PAYLOAD_LENGTH, data_io);
+ 
+     uint8_t resp_nop_out[1] = { 0x00 };
+     HEXDUMP("cmd_0x05_resp: resp_nop_out", resp_nop_out, 1);
+@@ -5434,10 +5473,15 @@
+     HEXDUMP("cmd_0x06_req: req_nop_out", req_nop_out, 1);
+ 
+     uint8_t resp_dec_out[CMD_METADATA_PAYLOAD_LENGTH] = { 0 };
+-    blk_pread(ssc_state->blk, blk_offset, CMD_METADATA_PAYLOAD_LENGTH,
+-              resp_dec_out, 0);
+-    blk_pread(ssc_state->blk, key_offset, CMD_METADATA_PAYLOAD_LENGTH,
+-              ssc_state->slot_hmac_key[kbkdf_index_dataslot], 0);
++    int data_io = blk_pread(ssc_state->blk, blk_offset,
++                            CMD_METADATA_PAYLOAD_LENGTH, resp_dec_out, 0);
++    trace_apple_sep_ssc_backing_io(0x06, false, CMD_METADATA_PAYLOAD_LENGTH,
++                                   data_io);
++    int key_io = blk_pread(ssc_state->blk, key_offset,
++                           CMD_METADATA_PAYLOAD_LENGTH,
++                           ssc_state->slot_hmac_key[kbkdf_index_dataslot], 0);
++    trace_apple_sep_ssc_backing_io(0x06, false, CMD_METADATA_PAYLOAD_LENGTH,
++                                   key_io);
+ 
+     HEXDUMP("cmd_0x06_resp: resp_dec_out", resp_dec_out,
+             CMD_METADATA_PAYLOAD_LENGTH);
+@@ -5527,6 +5571,9 @@
+     // This tries to prevent a spurious call during a dummy read.
+     if (ssc->resp_cur == 1) {
+         uint8_t cmd = ssc->req_cmd[0];
++
++        /* Never echo unknown request bytes as operation identifiers. */
++        trace_apple_sep_ssc_command(cmd <= 0x09 ? cmd : 0xff);
+         if (cmd > 0x09) {
+             qemu_log_mask(LOG_GUEST_ERROR, "%s: cmd %u: invalid command > 0x09",
+                           __func__, cmd);
+@@ -5561,6 +5608,8 @@
+         } else if (cmd == 0x09) { // req 0x04 bytes, resp 0x2F bytes
+             answer_cmd_0x9_panic(ssc, ssc->req_cmd, ssc->resp_cmd);
+         }
++        trace_apple_sep_ssc_complete(cmd <= 0x09 ? cmd : 0xff,
++                                     ssc->resp_cmd[3]);
+         ssc->req_cur = 0;
+         memset(ssc->req_cmd, 0, sizeof(ssc->req_cmd));
+         HEXDUMP("apple_ssc_rx: before resp_cmd invalid check", ssc->resp_cmd,
+@@ -5607,6 +5656,9 @@
+ static void apple_ssc_reset(DeviceState *state)
+ {
+     AppleSSCState *ssc = APPLE_SSC(state);
++
++    /* Session reset does not reset the persistent backing. */
++    trace_apple_sep_ssc_reset();
+     DPRINTF("%s: called\n", __func__);
+ 
+     ssc->req_cur = 0;
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -5,3 +5,13 @@
+ 
+ # No key values, selectors, wrapping buffers or command register contents.
+ apple_sep_key_transfer_unimplemented(uint64_t endpoint, unsigned size) "endpoint=0x%"PRIx64" size=%u"
++
++# SEP path metadata: no keys, slot selectors, counters, nonces or buffers.
++apple_sep_aess_operation(const char *operation) "operation=%s"
++apple_sep_aess_complete(bool invalid_parameters) "invalid_parameters=%d"
++apple_sep_aess_uid_wrap_approximation(void) "upstream CBC UID-wrap approximation called"
++apple_sep_aess_reset(void) "volatile AESS state reset"
++apple_sep_ssc_command(uint8_t operation) "operation=0x%02x"
++apple_sep_ssc_complete(uint8_t operation, uint8_t response_flags) "operation=0x%02x response_flags=0x%02x"
++apple_sep_ssc_backing_io(uint8_t operation, bool write, size_t bytes, int result) "operation=0x%02x write=%d bytes=%zu result=%d"
++apple_sep_ssc_reset(void) "volatile SSC session state reset; backing unchanged"

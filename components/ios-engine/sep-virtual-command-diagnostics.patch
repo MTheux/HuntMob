@@ -1,0 +1,32 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -2769,6 +2769,9 @@
+ {
+     HuntMobVirtualSEP *p = s->sep->virtual_sep;
+     uint32_t cmd = s->command;
++    /* Capture non-secret control metadata before UID resets its counter. */
++    uint32_t initial_keydisable = s->reg_0x18_keydisable;
++    uint32_t initial_iterations = s->reg_0x14_keywrap_iterations_counter;
+     uint32_t op = SEP_AESS_CMD_WITHOUT_FLAGS(cmd);
+     bool custom = cmd & SEP_AESS_CMD_FLAG_KEYSELECT_CUSTOM;
+     bool gid1 = cmd & SEP_AESS_CMD_FLAG_KEYSELECT_GID1;
+@@ -2910,6 +2913,8 @@
+         sep_virtual_erase(s->out_full, sizeof(s->out_full));
+         sep_virtual_erase(s->in_full, sizeof(s->in_full));
+     }
++    trace_apple_sep_virtual_operation(cmd, initial_keydisable,
++                                       initial_iterations, ok);
+     trace_apple_sep_derivation_readiness(
+         ok ? "virtual-operation" : "virtual-operation-rejected", "provider",
+         false);
+diff --git a/hw/arm/apple-silicon/trace-events b/hw/arm/apple-silicon/trace-events
+--- a/hw/arm/apple-silicon/trace-events
++++ b/hw/arm/apple-silicon/trace-events
+@@ -26,3 +26,6 @@
+ # Pinned init requests only. validated=false is not placeholder-slot availability.
+ # Repeated records may be counted; never include bank/input/key/nonce/digest data.
+ apple_sep_derivation_readiness(const char *phase, const char *role, bool validated) "phase=%s role=%s validated=%d"
++
++# Virtual model controls only: no payloads, seeds, keys, or buffer values.
++apple_sep_virtual_operation(uint32_t command, uint32_t keydisable, uint32_t iterations, bool accepted) "command=0x%x keydisable=0x%x iterations=%u accepted=%d"

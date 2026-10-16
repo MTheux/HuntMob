@@ -6,4 +6,19 @@ __pycache__/
 artifacts/
 receipts/
 runtime-data/
+.runtime/
+components/rea-reconstruction-companion/
 
+
+# Verified binaries are assembled into platform release wheels by the builder.
+src/huntmob/_analysis/
+build/
+dist/
+src/*.egg-info/
+components/ios-device-lab/*.app/
+components/ios-device-lab/*.ipa
+components/desktop-viewer/node_modules/
+components/ios-controls/node_modules/
+components/ios-lab/*.app/
+docs/measurements/
+components/*/receipt.json

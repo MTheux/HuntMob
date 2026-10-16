@@ -1,0 +1,181 @@
+diff --git a/target/arm/ptw.c b/target/arm/ptw.c
+--- a/target/arm/ptw.c
++++ b/target/arm/ptw.c
+@@ -769,89 +769,11 @@
+     uint64_t cur_val;
+     void *host = ptw->out_host;
+ 
+-    if (host) {
+-        RCU_READ_LOCK_GUARD();
+-        ram_addr_t offset;
+-        MemoryRegion *mr = memory_region_from_host(host, &offset);
+-
+-        /* A ROMD load can return a direct host pointer, while every store
+-         * must still pass through the device. Hardware AF/dirty updates
+-         * must not bypass that write callback with a host atomic store. */
+-        if (mr && memory_region_is_romd(mr)) {
+-            host = NULL;
+-        }
+-    }
+-
+-    if (unlikely(!host)) {
+-        /* Page table in MMIO Memory Region */
+-        CPUState *cs = env_cpu(env);
+-        MemTxAttrs attrs = {
+-            .space = ptw->out_space,
+-            .secure = arm_space_is_secure(ptw->out_space),
+-        };
+-        AddressSpace *as = arm_addressspace(cs, attrs);
+-        MemTxResult result = MEMTX_OK;
+-        bool need_lock = !bql_locked();
+-
+-        if (need_lock) {
+-            bql_lock();
+-        }
+-        if (ptw->out_be) {
+-            cur_val = address_space_ldq_be(as, ptw->out_phys, attrs, &result);
+-            if (unlikely(result != MEMTX_OK)) {
+-                fi->type = ARMFault_SyncExternalOnWalk;
+-                fi->ea = arm_extabort_type(result);
+-                if (need_lock) {
+-                    bql_unlock();
+-                }
+-                return old_val;
+-            }
+-            if (cur_val == old_val) {
+-                address_space_stq_be(as, ptw->out_phys, new_val, attrs, &result);
+-                if (unlikely(result != MEMTX_OK)) {
+-                    fi->type = ARMFault_SyncExternalOnWalk;
+-                    fi->ea = arm_extabort_type(result);
+-                    if (need_lock) {
+-                        bql_unlock();
+-                    }
+-                    return old_val;
+-                }
+-                cur_val = new_val;
+-            }
+-        } else {
+-            cur_val = address_space_ldq_le(as, ptw->out_phys, attrs, &result);
+-            if (unlikely(result != MEMTX_OK)) {
+-                fi->type = ARMFault_SyncExternalOnWalk;
+-                fi->ea = arm_extabort_type(result);
+-                if (need_lock) {
+-                    bql_unlock();
+-                }
+-                return old_val;
+-            }
+-            if (cur_val == old_val) {
+-                address_space_stq_le(as, ptw->out_phys, new_val, attrs, &result);
+-                if (unlikely(result != MEMTX_OK)) {
+-                    fi->type = ARMFault_SyncExternalOnWalk;
+-                    fi->ea = arm_extabort_type(result);
+-                    if (need_lock) {
+-                        bql_unlock();
+-                    }
+-                    return old_val;
+-                }
+-                cur_val = new_val;
+-            }
+-        }
+-        if (need_lock) {
+-            bql_unlock();
+-        }
+-        return cur_val;
+-    }
+-
+     /*
+      * Raising a stage2 Protection fault for an atomic update to a read-only
+      * page is delayed until it is certain that there is a change to make.
+      */
+-    if (unlikely(!ptw->out_rw)) {
++    if (host && unlikely(!ptw->out_rw)) {
+         int flags;
+ 
+         env->tlb_fi = fi;
+@@ -879,6 +801,86 @@
+         /* In case CAS mismatches and we loop, remember writability. */
+         ptw->out_rw = true;
+     }
++
++
++    if (host) {
++        RCU_READ_LOCK_GUARD();
++        ram_addr_t offset;
++        MemoryRegion *mr = memory_region_from_host(host, &offset);
++
++        /* A ROMD load can return a direct host pointer, while every store
++         * must still pass through the device. Hardware AF/dirty updates
++         * must not bypass that write callback with a host atomic store. */
++        if (mr && memory_region_is_romd(mr)) {
++            host = NULL;
++        }
++    }
++
++    if (unlikely(!host)) {
++        /* Page table in MMIO Memory Region */
++        CPUState *cs = env_cpu(env);
++        MemTxAttrs attrs = {
++            .space = ptw->out_space,
++            .secure = arm_space_is_secure(ptw->out_space),
++        };
++        AddressSpace *as = arm_addressspace(cs, attrs);
++        MemTxResult result = MEMTX_OK;
++        bool need_lock = !bql_locked();
++
++        if (need_lock) {
++            bql_lock();
++        }
++        if (ptw->out_be) {
++            cur_val = address_space_ldq_be(as, ptw->out_phys, attrs, &result);
++            if (unlikely(result != MEMTX_OK)) {
++                fi->type = ARMFault_SyncExternalOnWalk;
++                fi->ea = arm_extabort_type(result);
++                if (need_lock) {
++                    bql_unlock();
++                }
++                return old_val;
++            }
++            if (cur_val == old_val) {
++                address_space_stq_be(as, ptw->out_phys, new_val, attrs, &result);
++                if (unlikely(result != MEMTX_OK)) {
++                    fi->type = ARMFault_SyncExternalOnWalk;
++                    fi->ea = arm_extabort_type(result);
++                    if (need_lock) {
++                        bql_unlock();
++                    }
++                    return old_val;
++                }
++                cur_val = new_val;
++            }
++        } else {
++            cur_val = address_space_ldq_le(as, ptw->out_phys, attrs, &result);
++            if (unlikely(result != MEMTX_OK)) {
++                fi->type = ARMFault_SyncExternalOnWalk;
++                fi->ea = arm_extabort_type(result);
++                if (need_lock) {
++                    bql_unlock();
++                }
++                return old_val;
++            }
++            if (cur_val == old_val) {
++                address_space_stq_le(as, ptw->out_phys, new_val, attrs, &result);
++                if (unlikely(result != MEMTX_OK)) {
++                    fi->type = ARMFault_SyncExternalOnWalk;
++                    fi->ea = arm_extabort_type(result);
++                    if (need_lock) {
++                        bql_unlock();
++                    }
++                    return old_val;
++                }
++                cur_val = new_val;
++            }
++        }
++        if (need_lock) {
++            bql_unlock();
++        }
++        return cur_val;
++    }
++
+ 
+     if (ptw->out_be) {
+         old_val = cpu_to_be64(old_val);

@@ -1,0 +1,21 @@
+diff --git a/hw/arm/apple-silicon/sep.c b/hw/arm/apple-silicon/sep.c
+--- a/hw/arm/apple-silicon/sep.c
++++ b/hw/arm/apple-silicon/sep.c
+@@ -1957,7 +1957,7 @@
+         trace_apple_sep_derivation_readiness(
+             ok ? "virtual-latch" : "virtual-latch-rejected",
+             role == 4 ? "wrapping" : role == 5 ? "authentication" : "subkey",
+-            ok && huntmob_virtual_sep_is_ready(s->virtual_sep));
++            false);
+         /* No invented KEY error/status bits or success acknowledgement.
+          * Invalid transitions retire the provider; NVMe stays closed. */
+         return;
+@@ -2912,7 +2912,7 @@
+     }
+     trace_apple_sep_derivation_readiness(
+         ok ? "virtual-operation" : "virtual-operation-rejected", "provider",
+-        ok && huntmob_virtual_sep_is_ready(p));
++        false);
+     return ok;
+ }
+ 

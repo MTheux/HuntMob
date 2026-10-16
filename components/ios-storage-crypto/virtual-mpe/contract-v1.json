@@ -1,0 +1,99 @@
+{
+  "schema": "huntmob.own-mpe-contract.v1",
+  "model": "HuntMob.OwnMPE.v1",
+  "date": "2026-10-15",
+  "experimental": true,
+  "native_ready": false,
+  "apple_cipher_validated": false,
+  "scope": "Authenticated volatile DRAM views for an explicitly opted-in owned virtual machine; host process is trusted",
+  "key_input": {
+    "root": "input_slot_0[32] || input_slot_1[32]",
+    "sequence": "stage0, latch0, stage1, latch1; both required before configure",
+    "one_shot_latches": true,
+    "input_entropy_claim": "None beyond actual supplied entropy; duplicated halves are accepted without claiming extra entropy",
+    "hardware_UID_equivalence": false
+  },
+  "kdf": {
+    "construction": "SP800-108 counter mode HMAC-SHA256, r=32, one block",
+    "message": "BE32(1) || ASCII(HuntMob.OwnMPE.v1/region) || 00 || context || BE32(256)",
+    "context": "VMID16 || boot_random_salt32 || BE64(epoch) || BE32(region_id) || BE64(physical_base) || BE64(active_length)",
+    "context_bytes": 76,
+    "output": "AES256 GCM key, kept only in private expanded backend context",
+    "boot_salt_requirement": "Fresh cryptographic random32 for every new core object; no fixed fallback; caller owns entropy generation",
+    "epoch_requirement": "Nonzero immutable epoch supplied by owner; full reset creates a new object with new salt/epoch"
+  },
+  "aead": {
+    "algorithm": "AES-256-GCM",
+    "unit_bytes": 64,
+    "tag_bits": 128,
+    "nonce_bits": 96,
+    "nonce": "BE32(line_index) || BE64(device_global_write_generation)",
+    "aad": "ASCII(HuntMob.OwnMPE.v1/line) || 00 || context || BE32(line_index) || BE64(generation) || BE32(64)",
+    "generation": "Trusted device state; increments for every initial encryption and every updated touched line; no re-use within an object",
+    "max_generation": 4294967295,
+    "limit_behavior": "Further active writes fault and wipe cache/expanded key; no wrap or auto-rekey",
+    "max_regions": 2,
+    "max_region_bytes": 134217728,
+    "max_active_transfer_bytes": 1048576,
+    "zero_or_unaligned_region": "Rejected",
+    "region_overlap": "Rejected",
+    "counter_budget_initialization": "Complete initialization must fit remaining generation budget before any publication",
+    "security_bound": "At most 2^32-1 invocations across object, 64-byte plaintext per invocation, full128-bit tags; this invocation limit is not a claim of negligible aggregate forgery risk under arbitrary hostile query budgets"
+  },
+  "memory_contract": {
+    "private_cache": "Borrowed SEP-only ROMD memory. Owner must eliminate all AP/unprotected aliases, intercept every store, limit direct read/fetch mappings to active prefix, and cover every DMA path",
+    "before_initialize": "Private reads/writes may access isolated cache; external reads always deny; no crypto-ready claim",
+    "initialize": "Encrypt all active64-byte lines before atomic publication; zero cache tail beyond active length",
+    "private_active_write": "Authenticate every touched old line before RMW; stage all replacements before publication; copy plaintext only after successful authenticated ciphertext commit",
+    "private_active_read": "Authenticate all touched lines before copying any output",
+    "external_read": "Only authenticated ciphertext bytes; tags and expected-generation map remain in trusted device state",
+    "external_write": "Always denied without mutation; no guest import/commit protocol is implemented",
+    "failure": "Authentication failure, malformed active access, counter exhaustion or allocation failure permanently faults region and wipes its entire borrowed cache plus expanded GCM state before returning false",
+    "owner_failure_action": "On false active bus access, fault/revoke mapping and flush ENTIRE borrowed capacity and translated code/TLB before SEP resumes; a zero-filled cache is not a page fault",
+    "owner_success_action": "Flush ROMD/code translations for changed bytes before instruction execution",
+    "cache_lifetime": "Reset/free core before freeing or reusing borrowed cache pointers"
+  },
+  "replay_reset": {
+    "expected_generation": "Separate trusted map must match record generation before decryption",
+    "bindings": [
+      "VMID",
+      "boot_salt",
+      "epoch",
+      "region_id",
+      "physical_base",
+      "active_length",
+      "line_index",
+      "generation",
+      "line_size"
+    ],
+    "reset": "Permanently revoke old object; erase staged/latched inputs, expanded cipher state, records, tags, generations and full cache capacities",
+    "rom_control_200": "Preserves MPE latches; not a full destructive reset",
+    "persistent_antirollback": false,
+    "snapshot_migration": "Live migration is unsupported and separately blocked by the owning integration. This core adds no generic QMP, debugger or complete dump guard. The SEP-only ROMD cache is outside the ordinary AP/system-memory view; host-admin/debug access including SEP CPU registers remains trusted and may reveal private data.",
+    "host_memory_protection": false,
+    "host_TCB": [
+      "emulator process",
+      "memory mapper and alias topology",
+      "randomness provider",
+      "ROMD/TB invalidation",
+      "host kernel and administrator",
+      "QMP/debug access to private memory",
+      "host inspection of SEP CPU registers"
+    ],
+    "host_pointer_tamper": "Outside guest threat model; no claim against host administrator or arbitrary emulator memory corruption",
+    "host_dump_protection": false
+  },
+  "validation_boundary": {
+    "public_core_and_oracle_tests": true,
+    "synthetic_test_record_injection": "Compiled only with HUNTMOB_VIRTUAL_MPE_TESTING, absent from normal engine builds",
+    "guest_MMIO_to_memory_validated": false,
+    "code_fetch_integration_validated": false,
+    "native_data_protection_validated": false,
+    "springboard_or_IPA_validated": false,
+    "apple_MPE_bit_exact": false
+  },
+  "references": [
+    "https://csrc.nist.gov/pubs/sp/800/38/d/final",
+    "https://csrc.nist.gov/pubs/sp/800/108/r1/upd1/final"
+  ]
+}

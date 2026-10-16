@@ -1,0 +1,298 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -209,6 +209,7 @@
+ #include "system/spdm-socket.h"
+ #include "migration/vmstate.h"
+ 
++#include "crypto/cipher.h"
+ #include "nvme.h"
+ #include "dif.h"
+ #include "trace.h"
+@@ -713,8 +714,25 @@
+     }
+ }
+ 
++/* These bytes must never enter tracing, errors, migration or snapshots. */
++static void nvme_apple_ans_lab_wipe(void *buffer, size_t bytes)
++{
++    volatile uint8_t *p = buffer;
++    while (bytes--) {
++        *p++ = 0;
++    }
++}
++
++static void nvme_apple_ans_lab_clear_key(NvmeRequest *req)
++{
++    nvme_apple_ans_lab_wipe(req->apple_ans_lab_key,
++                          sizeof(req->apple_ans_lab_key));
++    req->apple_ans_lab_key_valid = false;
++}
++
+ static void nvme_req_clear(NvmeRequest *req)
+ {
++    nvme_apple_ans_lab_clear_key(req);
+     req->ns = NULL;
+     req->opaque = NULL;
+     req->aiocb = NULL;
+@@ -1461,12 +1479,117 @@
+     return nvme_tx(n, &req->sg, ptr, len, dir);
+ }
+ 
++/* Experimental standard-XTS path for PUBLIC/SYNTHETIC raw keys only.
++ * K1=first16, K2=second16 and LE64 IV are standard conventions; the Apple
++ * hardware ABI is NOT validated. Wrapped requests remain unsupported. */
++typedef struct NvmeAppleANSLabIO {
++    NvmeRequest *req;
++    BlockCompletionFunc *complete;
++    QEMUIOVector iov;
++    uint8_t *bounce;
++    size_t bytes;
++    bool write;
++} NvmeAppleANSLabIO;
++
++static int nvme_apple_ans_lab_transform(NvmeRequest *req, uint8_t *data,
++                                       size_t bytes, bool encrypt)
++{
++    uint64_t unit = ldq_le_p((uint8_t *)&req->cmd + 0x38);
++    QCryptoCipher *cipher;
++    Error *error = NULL;
++    int ret = 0;
++    cipher = qcrypto_cipher_new(QCRYPTO_CIPHER_ALGO_AES_128,
++                               QCRYPTO_CIPHER_MODE_XTS,
++                               req->apple_ans_lab_key, 32, &error);
++    if (!cipher) {
++        error_free(error);
++        return -EIO;
++    }
++    for (size_t offset = 0; offset < bytes; offset += 4096, unit++) {
++        uint8_t iv[16] = { 0 };
++        stq_le_p(iv, unit);
++        if (qcrypto_cipher_setiv(cipher, iv, sizeof(iv), &error) < 0 ||
++            (encrypt ? qcrypto_cipher_encrypt(cipher, data + offset,
++                         data + offset, 4096, &error)
++                     : qcrypto_cipher_decrypt(cipher, data + offset,
++                         data + offset, 4096, &error)) < 0) {
++            ret = -EIO;
++            break;
++        }
++    }
++    /* qcrypto's provider currently frees expanded contexts without a proven
++     * explicit wipe. This lab-only path does not claim that issue solved. */
++    qcrypto_cipher_free(cipher);
++    error_free(error);
++    return ret;
++}
++
++static void nvme_apple_ans_lab_io_done(void *opaque, int ret)
++{
++    NvmeAppleANSLabIO *io = opaque;
++    NvmeRequest *req = io->req;
++    BlockCompletionFunc *complete = io->complete;
++    if (!ret && req->status != NVME_SUCCESS) {
++        ret = -ECANCELED;
++    }
++    if (!ret && !io->write) {
++        ret = nvme_apple_ans_lab_transform(req, io->bounce, io->bytes, false);
++        if (!ret && nvme_tx(nvme_ctrl(req), &req->sg, io->bounce, io->bytes,
++                           NVME_TX_DIRECTION_FROM_DEVICE)) {
++            ret = -EFAULT;
++        }
++    }
++    nvme_apple_ans_lab_clear_key(req);
++    nvme_apple_ans_lab_wipe(io->bounce, io->bytes);
++    g_free(io->bounce);
++    qemu_iovec_destroy(&io->iov);
++    g_free(io);
++    req->aiocb = NULL;
++    complete(req, ret);
++}
++
++static void nvme_apple_ans_lab_start(BlockBackend *blk, int64_t offset,
++                                     BlockCompletionFunc *complete,
++                                     NvmeRequest *req, bool write)
++{
++    NvmeRwCmd *rw = (NvmeRwCmd *)&req->cmd;
++    size_t bytes = ((size_t)le16_to_cpu(rw->nlb) + 1) * 4096;
++    NvmeAppleANSLabIO *io = g_new0(NvmeAppleANSLabIO, 1);
++    io->req = req;
++    io->bytes = bytes;
++    io->write = write;
++    io->complete = complete;
++    io->bounce = g_malloc0(bytes);
++    qemu_iovec_init(&io->iov, 1);
++    qemu_iovec_add(&io->iov, io->bounce, bytes);
++    if (write) {
++        if (nvme_tx(nvme_ctrl(req), &req->sg, io->bounce, bytes,
++                    NVME_TX_DIRECTION_TO_DEVICE)) {
++            nvme_apple_ans_lab_io_done(io, -EFAULT);
++            return;
++        }
++        if (nvme_apple_ans_lab_transform(req, io->bounce, bytes, true)) {
++            nvme_apple_ans_lab_io_done(io, -EIO);
++            return;
++        }
++        req->aiocb = blk_aio_pwritev(blk, offset, &io->iov, 0,
++                                     nvme_apple_ans_lab_io_done, io);
++    } else {
++        req->aiocb = blk_aio_preadv(blk, offset, &io->iov, 0,
++                                    nvme_apple_ans_lab_io_done, io);
++    }
++}
++
+ static inline void nvme_blk_read(BlockBackend *blk, int64_t offset,
+                                  uint32_t align, BlockCompletionFunc *cb,
+                                  NvmeRequest *req)
+ {
+     assert(req->sg.flags & NVME_SG_ALLOC);
+ 
++    if (req->apple_ans_lab_key_valid) {
++        nvme_apple_ans_lab_start(blk, offset, cb, req, false);
++        return;
++    }
+     if (req->sg.flags & NVME_SG_DMA) {
+         req->aiocb = dma_blk_read(blk, &req->sg.qsg, offset, align, cb, req);
+     } else {
+@@ -1480,6 +1603,10 @@
+ {
+     assert(req->sg.flags & NVME_SG_ALLOC);
+ 
++    if (req->apple_ans_lab_key_valid) {
++        nvme_apple_ans_lab_start(blk, offset, cb, req, true);
++        return;
++    }
+     if (req->sg.flags & NVME_SG_DMA) {
+         req->aiocb = dma_blk_write(blk, &req->sg.qsg, offset, align, cb, req);
+     } else {
+@@ -1560,6 +1687,7 @@
+ 
+ static void nvme_enqueue_req_completion(NvmeCQueue *cq, NvmeRequest *req)
+ {
++    nvme_apple_ans_lab_clear_key(req);
+     assert(cq->cqid == req->sq->cqid);
+     if (cq->ctrl->params.is_apple_ans) {
+         trace_pci_nvme_apple_ans_complete(req->sq->sqid, nvme_cid(req),
+@@ -4680,6 +4808,14 @@
+     NvmeNamespace *ns;
+     uint32_t nsid = le32_to_cpu(req->cmd.nsid);
+ 
++    if (n->params.is_apple_ans && (req->cmd.flags & 0x0c) &&
++        req->cmd.opcode != NVME_CMD_READ && req->cmd.opcode != NVME_CMD_WRITE) {
++        trace_pci_nvme_apple_ans_protected_io_rejected(
++            nvme_sqid(req), nvme_cid(req), req->cmd.opcode,
++            (req->cmd.flags & 0x0c) >> 2);
++        return NVME_INVALID_FIELD | NVME_DNR;
++    }
++
+     trace_pci_nvme_io_cmd(nvme_cid(req), nsid, nvme_sqid(req),
+                           req->cmd.opcode, nvme_io_opc_str(req->cmd.opcode));
+ 
+@@ -4726,20 +4862,35 @@
+ 
+     req->ns = ns;
+ 
+-    /* iOS 14.0 18A5351d AppleNVMeRequest BuildCommandRead/WriteStruct
+-     * sets first-dword 0x400 (wrapped) or 0x800 (unwrapped). These are
+-     * flags-byte bits 2/3. The following 64-byte crypto extension and
+-     * SEP-backed transform are not implemented by this controller.
+-     * Reject before mapping or submitting data to the block backend.
+-     * Combined modes are invalid as well; never fall back to plaintext. */
+-    if (n->params.is_apple_ans &&
+-        (req->cmd.opcode == NVME_CMD_READ ||
+-         req->cmd.opcode == NVME_CMD_WRITE) &&
+-        (req->cmd.flags & 0x0c)) {
+-        trace_pci_nvme_apple_ans_protected_io_rejected(
+-            nvme_sqid(req), nvme_cid(req), req->cmd.opcode,
+-            (req->cmd.flags & 0x0c) >> 2);
+-        return NVME_INVALID_FIELD | NVME_DNR;
++    /* Default is reject. The ONLY experimental exception is the bounded
++     * synthetic raw-key path; no missing context may fall through in clear. */
++    if (n->params.is_apple_ans && (req->cmd.flags & 0x0c)) {
++        NvmeRwCmd *rw = (NvmeRwCmd *)&req->cmd;
++        uint32_t blocks = (uint32_t)le16_to_cpu(rw->nlb) + 1;
++        uint64_t unit = ldq_le_p((uint8_t *)&req->cmd + 0x38);
++        uint8_t different = 0;
++        bool valid = n->params.apple_ans_lab_unwrapped_xts &&
++                     req->cmd.flags == 0x08 &&
++                     (req->cmd.opcode == NVME_CMD_READ ||
++                      req->cmd.opcode == NVME_CMD_WRITE) &&
++                     req->sq->entry_count == 7 &&
++                     req->apple_ans_lab_key_valid &&
++                     ns->csi == NVME_CSI_NVM && ns->lbasz == 4096 &&
++                     !ns->lbaf.ms && !nvme_ns_ext(ns) &&
++                     !NVME_ID_NS_DPS_TYPE(ns->id_ns.dps) &&
++                     !ns->params.zoned && !ns->endgrp &&
++                     !req->cmd.mptr && !le16_to_cpu(rw->control) &&
++                     blocks <= 256 && blocks - 1 <= UINT64_MAX - unit;
++        for (size_t index = 0; index < 16; index++) {
++            different |= req->apple_ans_lab_key[index] ^
++                         req->apple_ans_lab_key[index + 16];
++        }
++        if (!valid || !different) {
++            trace_pci_nvme_apple_ans_protected_io_rejected(
++                nvme_sqid(req), nvme_cid(req), req->cmd.opcode,
++                (req->cmd.flags & 0x0c) >> 2);
++            return NVME_INVALID_FIELD | NVME_DNR;
++        }
+     }
+ 
+     switch (ns->csi) {
+@@ -7736,6 +7887,28 @@
+         req->cqe.cid = cmd.cid;
+         memcpy(&req->cmd, &cmd, sizeof(NvmeCmd));
+ 
++        if (sq->sqid && n->params.is_apple_ans &&
++            n->params.apple_ans_lab_unwrapped_xts && cmd.flags == 0x08 &&
++            (cmd.opcode == NVME_CMD_READ || cmd.opcode == NVME_CMD_WRITE) &&
++            sq->entry_count == 7) {
++            uint8_t extension[64] = { 0 };
++            uint8_t unknown = 0;
++            /* Only the complete confirmed 128-byte IOSQE is accepted.
++             * Unspecified prefix fields must be zero in synthetic fixtures. */
++            if (addr <= UINT64_MAX - sizeof(cmd) - sizeof(extension) &&
++                !nvme_addr_read(n, addr + sizeof(cmd), extension,
++                                sizeof(extension))) {
++                for (size_t index = 0; index < 32; index++) {
++                    unknown |= extension[index];
++                }
++                if (!unknown) {
++                    memcpy(req->apple_ans_lab_key, extension + 0x20, 32);
++                    req->apple_ans_lab_key_valid = true;
++                }
++            }
++            nvme_apple_ans_lab_wipe(extension, sizeof(extension));
++        }
++
+         if (sq->sqid && atomic) {
+             req->atomic_write = cmd_is_atomic;
+         }
+@@ -9276,6 +9449,8 @@
+     DEFINE_PROP_UINT8("vsl", NvmeCtrl, params.vsl, 7),
+     DEFINE_PROP_BOOL("use-intel-id", NvmeCtrl, params.use_intel_id, false),
+     DEFINE_PROP_BOOL("is-apple-ans", NvmeCtrl, params.is_apple_ans, false),
++    DEFINE_PROP_BOOL("apple-ans-lab-unwrapped-xts", NvmeCtrl,
++                      params.apple_ans_lab_unwrapped_xts, false),
+     DEFINE_PROP_BOOL("legacy-cmb", NvmeCtrl, params.legacy_cmb, false),
+     DEFINE_PROP_BOOL("ioeventfd", NvmeCtrl, params.ioeventfd, false),
+     DEFINE_PROP_BOOL("dbcs", NvmeCtrl, params.dbcs, true),
+diff --git a/hw/nvme/nvme.h b/hw/nvme/nvme.h
+--- a/hw/nvme/nvme.h
++++ b/hw/nvme/nvme.h
+@@ -432,6 +432,9 @@
+     BlockAcctCookie         acct;
+     NvmeSg                  sg;
+     bool                    atomic_write;
++    /* Synthetic opt-in ANS prototype; never a SEP-backed context. */
++    bool                    apple_ans_lab_key_valid;
++    uint8_t                 apple_ans_lab_key[32];
+     QTAILQ_ENTRY(NvmeRequest)entry;
+ } NvmeRequest;
+ 
+@@ -547,6 +550,7 @@
+     uint8_t  vsl;
+     bool     use_intel_id;
+     bool     is_apple_ans;
++    bool     apple_ans_lab_unwrapped_xts;
+     uint8_t  zasl;
+     bool     auto_transition_zones;
+     bool     legacy_cmb;

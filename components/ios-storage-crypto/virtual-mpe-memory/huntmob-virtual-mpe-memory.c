@@ -1,0 +1,501 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* Experimental own VirtualMPE-v1. No Apple cipher/KDF/attestation claim. */
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qemu/module.h"
+#include "qemu/units.h"
+#include "qemu/main-loop.h"
+#include "hw/qdev-core.h"
+#include "crypto/random.h"
+#include "crypto/huntmob-virtual-mpe.h"
+#include "hw/arm/apple-silicon/huntmob-virtual-mpe-memory.h"
+#include "system/address-spaces.h"
+#include "system/memory.h"
+#include "system/runstate.h"
+#include "system/tcg.h"
+
+#define MPE_PRIMARY_CAPACITY (32 * MiB)
+#define MPE_SECONDARY_CAPACITY (128 * MiB)
+#define MPE_TZ_MAX (512 * MiB)
+#define MPE_ALIGN (16 * KiB)
+#define HUNTMOB_VIRTUAL_MPE_MEMORY(obj) \
+    OBJECT_CHECK(HuntMobVirtualMPEMemory, (obj), TYPE_HUNTMOB_VIRTUAL_MPE_MEMORY)
+
+typedef struct MPEWindow {
+    HuntMobVirtualMPEMemory *memory;
+    unsigned region;
+} MPEWindow;
+
+struct HuntMobVirtualMPEMemory {
+    DeviceState parent_obj;
+    HuntMobVirtualMPE *core;
+    uint8_t vm_id[16];
+    uint64_t epoch;
+    bool machine_owned, infra_ready, sep_attached, tz_ready, configured, faulted;
+    MemoryRegion *sep_cpu_memory;
+    MemoryRegion cache[2], cache_view[2], private_container[2], private_denied[2];
+    MemoryRegion external_aperture[2], external_tz;
+    MPEWindow windows[3];
+    bool private_mapped[2], external_mapped[2], tz_mapped;
+    uint64_t dram_base, tz_offset, tz_size, offset[2], length[2];
+};
+
+static const uint64_t capacities[2] = { MPE_PRIMARY_CAPACITY, MPE_SECONDARY_CAPACITY };
+static const uint64_t apertures[2] = { 0x340000000ULL, 0x300000000ULL };
+
+static void erase(void *buffer, size_t length)
+{
+    volatile uint8_t *bytes = buffer;
+    while (length--) {
+        *bytes++ = 0;
+    }
+}
+
+static bool unavailable(Error **errp)
+{
+    error_setg(errp, "Virtual MPE memory contract unavailable or incoherent");
+    return false;
+}
+
+/* Called before CPUs execute, or by the full SEP reset with CPUs quiesced. */
+static bool renew_core(HuntMobVirtualMPEMemory *m, Error **errp)
+{
+    uint8_t salt[32] = { 0 };
+    bool ok = false;
+    assert(bql_locked());
+    if (m->core) {
+        huntmob_virtual_mpe_free(m->core);
+        m->core = NULL;
+    }
+    if (m->epoch == UINT64_MAX || qcrypto_random_bytes(salt, sizeof(salt), NULL) < 0) {
+        goto out;
+    }
+    m->epoch++;
+    m->core = huntmob_virtual_mpe_new(m->vm_id, salt, m->epoch);
+    if (!m->core) {
+        goto out;
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        if (!huntmob_virtual_mpe_bind_region(m->core, i, capacities[i],
+                                             memory_region_get_ram_ptr(&m->cache[i]))) {
+            huntmob_virtual_mpe_free(m->core);
+            m->core = NULL;
+            goto out;
+        }
+    }
+    ok = true;
+out:
+    erase(salt, sizeof(salt));
+    return ok || unavailable(errp);
+}
+
+/* No plaintext cache may remain directly readable after an authenticated-path
+ * failure. Topology changes flush CPU address-space TLBs; request a VM stop
+ * instead of pretending a partially failed memory operation succeeded. */
+static void fault_memory(HuntMobVirtualMPEMemory *m)
+{
+    assert(bql_locked());
+    m->faulted = true;
+    if (m->core) {
+        huntmob_virtual_mpe_reset(m->core);
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        if (memory_region_is_romd(&m->cache[i])) {
+            memory_region_flush_rom_device(&m->cache[i], 0, capacities[i]);
+        }
+        memory_region_rom_device_set_romd(&m->cache[i], false);
+    }
+    qemu_system_vmstop_request(RUN_STATE_INTERNAL_ERROR);
+}
+
+static MemTxResult denied_read(void *opaque, hwaddr address, uint64_t *data,
+                               unsigned size, MemTxAttrs attrs)
+{
+    *data = 0;
+    return MEMTX_ACCESS_ERROR;
+}
+
+static MemTxResult denied_write(void *opaque, hwaddr address, uint64_t data,
+                                unsigned size, MemTxAttrs attrs)
+{
+    return MEMTX_ACCESS_ERROR;
+}
+
+static const MemoryRegionOps denied_ops = {
+    .read_with_attrs = denied_read, .write_with_attrs = denied_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
+static MemTxResult private_read(void *opaque, hwaddr address, uint64_t *data,
+                                unsigned size, MemTxAttrs attrs)
+{
+    MPEWindow *w = opaque;
+    HuntMobVirtualMPEMemory *m = w->memory;
+    uint8_t bytes[8] = { 0 };
+    assert(bql_locked());
+    *data = 0;
+    if (!m->core || m->faulted || size > sizeof(bytes) ||
+        !huntmob_virtual_mpe_private_read(m->core, w->region, address, bytes, size)) {
+        if (m->core && !m->faulted) {
+            fault_memory(m);
+        }
+        return MEMTX_ACCESS_ERROR;
+    }
+    for (unsigned i = 0; i < size; i++) {
+        *data |= (uint64_t)bytes[i] << (i * 8);
+    }
+    erase(bytes, sizeof(bytes));
+    return MEMTX_OK;
+}
+
+static MemTxResult private_write(void *opaque, hwaddr address, uint64_t data,
+                                 unsigned size, MemTxAttrs attrs)
+{
+    MPEWindow *w = opaque;
+    HuntMobVirtualMPEMemory *m = w->memory;
+    uint8_t bytes[8] = { 0 };
+    bool ok;
+    assert(bql_locked());
+    if (!m->core || m->faulted || size > sizeof(bytes)) {
+        return MEMTX_ACCESS_ERROR;
+    }
+    for (unsigned i = 0; i < size; i++) {
+        bytes[i] = data >> (i * 8);
+    }
+    ok = huntmob_virtual_mpe_private_write(m->core, w->region, address, bytes, size);
+    erase(bytes, sizeof(bytes));
+    if (!ok) {
+        fault_memory(m);
+        return MEMTX_ACCESS_ERROR;
+    }
+    /* In preactive MMIO mode no translated executable mapping exists yet. */
+    if (memory_region_is_romd(&m->cache[w->region])) {
+        memory_region_flush_rom_device(&m->cache[w->region], address, size);
+    }
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps private_ops = {
+    .read_with_attrs = private_read, .write_with_attrs = private_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
+static MemTxResult external_read(void *opaque, hwaddr address, uint64_t *data,
+                                 unsigned size, MemTxAttrs attrs)
+{
+    MPEWindow *w = opaque;
+    HuntMobVirtualMPEMemory *m = w->memory;
+    uint8_t bytes[8] = { 0 };
+    unsigned region = w->region;
+    uint64_t offset = address;
+    assert(bql_locked());
+    *data = 0;
+    if (!m->core || m->faulted || !m->configured || size > sizeof(bytes)) {
+        return MEMTX_ACCESS_ERROR;
+    }
+    if (region == 2) {
+        bool found = false;
+        uint64_t dram_offset = m->tz_offset + address;
+        for (unsigned i = 0; i < 2; i++) {
+            if (dram_offset >= m->offset[i] && dram_offset - m->offset[i] < m->length[i]) {
+                region = i;
+                offset = dram_offset - m->offset[i];
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return MEMTX_ACCESS_ERROR;
+        }
+    }
+    if (region >= 2 || offset > m->length[region] ||
+        size > m->length[region] - offset ||
+        !huntmob_virtual_mpe_is_active(m->core, region)) {
+        return MEMTX_ACCESS_ERROR;
+    }
+    if (!huntmob_virtual_mpe_external_read(m->core, region, offset, bytes, size)) {
+        fault_memory(m);
+        return MEMTX_ACCESS_ERROR;
+    }
+    for (unsigned i = 0; i < size; i++) {
+        *data |= (uint64_t)bytes[i] << (i * 8);
+    }
+    erase(bytes, sizeof(bytes));
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps external_ops = {
+    .read_with_attrs = external_read, .write_with_attrs = denied_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
+HuntMobVirtualMPE *huntmob_virtual_mpe_memory_core(HuntMobVirtualMPEMemory *m)
+{
+    return m && !m->faulted ? m->core : NULL;
+}
+
+bool huntmob_virtual_mpe_memory_consumer_ready(HuntMobVirtualMPEMemory *m)
+{
+    return m && m->infra_ready && m->sep_attached && m->tz_ready &&
+           !m->faulted && m->core && huntmob_virtual_mpe_regions_bound(m->core);
+}
+
+bool huntmob_virtual_mpe_memory_attach_sep(HuntMobVirtualMPEMemory *m,
+                                           MemoryRegion *cpu_memory, Error **errp)
+{
+    assert(bql_locked());
+    if (!m || !m->infra_ready || !cpu_memory || m->sep_attached) {
+        return unavailable(errp);
+    }
+    m->sep_cpu_memory = cpu_memory;
+    memory_region_ref(cpu_memory);
+    for (unsigned i = 0; i < 2; i++) {
+        memory_region_add_subregion_overlap(cpu_memory, apertures[i], &m->private_container[i], 10);
+        m->private_mapped[i] = true;
+    }
+    m->sep_attached = true;
+    return true;
+}
+
+bool huntmob_virtual_mpe_memory_set_tz(HuntMobVirtualMPEMemory *m,
+                                       uint64_t dram_base, uint64_t offset,
+                                       uint64_t length, Error **errp)
+{
+    assert(bql_locked());
+    if (!m || !m->infra_ready || !m->sep_attached || !length || length > MPE_TZ_MAX ||
+        (offset | length) & (MPE_ALIGN - 1) || offset > UINT64_MAX - length ||
+        dram_base > UINT64_MAX - offset - length ||
+        (m->tz_ready && (m->dram_base != dram_base || m->tz_offset != offset || m->tz_size != length))) {
+        return unavailable(errp);
+    }
+    if (!m->tz_ready) {
+        m->dram_base = dram_base;
+        m->tz_offset = offset;
+        m->tz_size = length;
+        memory_region_set_size(&m->external_tz, length);
+        memory_region_add_subregion_overlap(get_system_memory(), dram_base + offset, &m->external_tz, 10);
+        m->tz_mapped = true;
+        m->tz_ready = true;
+    }
+    return true;
+}
+
+bool huntmob_virtual_mpe_memory_configure(HuntMobVirtualMPEMemory *m,
+                                          uint64_t primary_offset, uint64_t primary_length,
+                                          uint64_t secondary_offset, bool secondary_enabled,
+                                          Error **errp)
+{
+    uint64_t expected_secondary, secondary_length = 0, overhead, end;
+    assert(bql_locked());
+    if (!huntmob_virtual_mpe_memory_consumer_ready(m) || m->configured ||
+        !huntmob_virtual_mpe_both_latched(m->core) ||
+        primary_offset != m->tz_offset || primary_length > capacities[0] ||
+        (primary_length & (MPE_ALIGN - 1))) {
+        return unavailable(errp);
+    }
+    end = m->tz_offset + m->tz_size;
+    overhead = (primary_length >> 10) * 2320;
+    if (overhead > m->tz_size || primary_offset > UINT64_MAX - overhead - (MPE_ALIGN - 1)) {
+        return unavailable(errp);
+    }
+    expected_secondary = (primary_offset + overhead + MPE_ALIGN - 1) & ~(MPE_ALIGN - 1);
+    if (secondary_enabled) {
+        if (secondary_offset != expected_secondary || secondary_offset >= end) {
+            return unavailable(errp);
+        }
+        secondary_length = ((end - secondary_offset) / 2) & ~(MPE_ALIGN - 1);
+        if (!secondary_length || secondary_length > capacities[1]) {
+            return unavailable(errp);
+        }
+    }
+    if (!primary_length && !secondary_length) {
+        return unavailable(errp);
+    }
+    /* Core configuration has no publication until initialize_region succeeds. */
+    if ((primary_length && !huntmob_virtual_mpe_configure_region(m->core, 0,
+                 m->dram_base + primary_offset, primary_length)) ||
+        (secondary_length && !huntmob_virtual_mpe_configure_region(m->core, 1,
+                 m->dram_base + secondary_offset, secondary_length))) {
+        fault_memory(m);
+        return unavailable(errp);
+    }
+    m->offset[0] = primary_offset;
+    m->offset[1] = secondary_offset;
+    m->length[0] = primary_length;
+    m->length[1] = secondary_length;
+    memory_region_transaction_begin();
+    for (unsigned i = 0; i < 2; i++) {
+        memory_region_set_enabled(&m->cache_view[i], m->length[i] != 0);
+        if (m->length[i]) {
+            memory_region_set_size(&m->cache_view[i], m->length[i]);
+        }
+    }
+    memory_region_transaction_commit();
+    m->configured = true;
+    return true;
+}
+
+uint64_t huntmob_virtual_mpe_memory_region_length(HuntMobVirtualMPEMemory *m, unsigned region)
+{
+    return m && region < 2 && m->configured && !m->faulted ? m->length[region] : 0;
+}
+
+bool huntmob_virtual_mpe_memory_initialize_region(HuntMobVirtualMPEMemory *m,
+                                                  unsigned region, Error **errp)
+{
+    assert(bql_locked());
+    if (!huntmob_virtual_mpe_memory_consumer_ready(m) || !m->configured ||
+        region >= 2 || !m->length[region]) {
+        return unavailable(errp);
+    }
+    if (!huntmob_virtual_mpe_is_active(m->core, region)) {
+        if (!huntmob_virtual_mpe_initialize_region(m->core, region)) {
+            fault_memory(m);
+            return unavailable(errp);
+        }
+        memory_region_rom_device_set_romd(&m->cache[region], true);
+    }
+    return true;
+}
+
+void huntmob_virtual_mpe_memory_reset(HuntMobVirtualMPEMemory *m)
+{
+    Error *local_err = NULL;
+    assert(bql_locked());
+    if (!m || !m->infra_ready) {
+        return;
+    }
+    m->faulted = true;
+    m->configured = false;
+    if (m->core) {
+        huntmob_virtual_mpe_reset(m->core);
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        if (memory_region_is_romd(&m->cache[i])) {
+            memory_region_flush_rom_device(&m->cache[i], 0, capacities[i]);
+        }
+        memory_region_rom_device_set_romd(&m->cache[i], false);
+        memory_region_set_size(&m->cache_view[i], capacities[i]);
+        memory_region_set_enabled(&m->cache_view[i], true);
+        m->length[i] = m->offset[i] = 0;
+    }
+    /* The SEP reset owner must have stopped old CPU execution first. */
+    m->faulted = !renew_core(m, &local_err);
+    error_free(local_err);
+}
+
+static void mpe_memory_realize(DeviceState *dev, Error **errp)
+{
+    HuntMobVirtualMPEMemory *m = HUNTMOB_VIRTUAL_MPE_MEMORY(dev);
+    if (!m->machine_owned || !tcg_enabled() || qemu_tcg_mttcg_enabled()) {
+        error_setg(errp, "Virtual MPE requires its owning machine and single-thread TCG");
+        return;
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        m->windows[i] = (MPEWindow){ .memory = m, .region = i };
+        if (!memory_region_init_rom_device(&m->cache[i], OBJECT(m), &private_ops,
+                &m->windows[i], i ? "secondary-private-cache" : "primary-private-cache",
+                capacities[i], errp)) {
+            return;
+        }
+        memory_region_rom_device_set_romd(&m->cache[i], false);
+        memory_region_init(&m->private_container[i], OBJECT(m),
+                           i ? "secondary-private-window" : "primary-private-window", capacities[i]);
+        memory_region_init_io(&m->private_denied[i], OBJECT(m), &denied_ops, m,
+                              i ? "secondary-private-denied" : "primary-private-denied", capacities[i]);
+        memory_region_add_subregion(&m->private_container[i], 0, &m->private_denied[i]);
+        memory_region_init_alias(&m->cache_view[i], OBJECT(m),
+                                 i ? "secondary-private-view" : "primary-private-view",
+                                 &m->cache[i], 0, capacities[i]);
+        memory_region_add_subregion_overlap(&m->private_container[i], 0, &m->cache_view[i], 1);
+        memory_region_init_io(&m->external_aperture[i], OBJECT(m), &external_ops, &m->windows[i],
+                              i ? "secondary-external-ciphertext" : "primary-external-ciphertext", capacities[i]);
+        memory_region_add_subregion_overlap(get_system_memory(), apertures[i], &m->external_aperture[i], 10);
+        m->external_mapped[i] = true;
+    }
+    m->windows[2] = (MPEWindow){ .memory = m, .region = 2 };
+    memory_region_init_io(&m->external_tz, OBJECT(m), &external_ops, &m->windows[2], "physical-tz-ciphertext", 1);
+    if (!renew_core(m, errp)) {
+        return;
+    }
+    m->infra_ready = true;
+}
+
+static void mpe_memory_unrealize(DeviceState *dev)
+{
+    HuntMobVirtualMPEMemory *m = HUNTMOB_VIRTUAL_MPE_MEMORY(dev);
+    /* Device unparent invokes unrealize before its ROMD child RAM is freed. */
+    if (m->core) {
+        huntmob_virtual_mpe_free(m->core);
+        m->core = NULL;
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        if (m->private_mapped[i]) {
+            memory_region_del_subregion(m->sep_cpu_memory, &m->private_container[i]);
+            m->private_mapped[i] = false;
+        }
+        if (m->external_mapped[i]) {
+            memory_region_del_subregion(get_system_memory(), &m->external_aperture[i]);
+            m->external_mapped[i] = false;
+        }
+    }
+    if (m->tz_mapped) {
+        memory_region_del_subregion(get_system_memory(), &m->external_tz);
+        m->tz_mapped = false;
+    }
+    if (m->sep_cpu_memory) {
+        memory_region_unref(m->sep_cpu_memory);
+        m->sep_cpu_memory = NULL;
+    }
+    m->infra_ready = false;
+}
+
+static void mpe_memory_class_init(ObjectClass *klass, const void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    dc->realize = mpe_memory_realize;
+    dc->unrealize = mpe_memory_unrealize;
+    dc->user_creatable = false;
+}
+
+static const TypeInfo mpe_memory_info = {
+    .name = TYPE_HUNTMOB_VIRTUAL_MPE_MEMORY, .parent = TYPE_DEVICE,
+    .instance_size = sizeof(HuntMobVirtualMPEMemory),
+    .class_init = mpe_memory_class_init,
+};
+
+static void mpe_memory_register_types(void)
+{
+    type_register_static(&mpe_memory_info);
+}
+type_init(mpe_memory_register_types)
+
+HuntMobVirtualMPEMemory *huntmob_virtual_mpe_memory_new(Object *parent,
+                                                       const uint8_t vm_id[16], Error **errp)
+{
+    HuntMobVirtualMPEMemory *m;
+    DeviceState *dev;
+    if (!parent || !vm_id) {
+        unavailable(errp);
+        return NULL;
+    }
+    dev = qdev_new(TYPE_HUNTMOB_VIRTUAL_MPE_MEMORY);
+    m = HUNTMOB_VIRTUAL_MPE_MEMORY(dev);
+    memcpy(m->vm_id, vm_id, sizeof(m->vm_id));
+    m->machine_owned = true;
+    object_property_add_child(parent, "virtual-mpe-memory", OBJECT(m));
+    if (!qdev_realize(dev, NULL, errp)) {
+        mpe_memory_unrealize(dev);
+        object_unparent(OBJECT(m));
+        object_unref(OBJECT(m));
+        return NULL;
+    }
+    object_unref(OBJECT(m));
+    return m;
+}

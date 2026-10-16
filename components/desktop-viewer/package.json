@@ -1,0 +1,1 @@
+{"name":"huntmob-viewer","productName":"HuntMob Viewer","version":"0.1.0","description":"Isolated desktop viewer for an existing HuntMob worker","main":"main.cjs","license":"UNLICENSED","scripts":{"test":"node --test test-policy.cjs","package":"node package.mjs"},"devDependencies":{"@electron/packager":"20.3.0"}}

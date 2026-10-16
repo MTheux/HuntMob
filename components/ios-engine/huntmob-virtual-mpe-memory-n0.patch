@@ -1,0 +1,14 @@
+diff --git a/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c b/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c
+--- a/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c
++++ b/hw/arm/apple-silicon/huntmob-virtual-mpe-memory.c
+@@ -293,6 +293,10 @@
+ {
+     uint64_t expected_secondary, secondary_length = 0, overhead, end;
+     assert(bql_locked());
++    /* ROM's N=0 path omits register300; its base field is ignored. */
++    if (m && !primary_length) {
++        primary_offset = m->tz_offset;
++    }
+     if (!huntmob_virtual_mpe_memory_consumer_ready(m) || m->configured ||
+         !huntmob_virtual_mpe_both_latched(m->core) ||
+         primary_offset != m->tz_offset || primary_length > capacities[0] ||

@@ -403,7 +403,7 @@ class AndroidWorker:
                 save({**record, 'state': 'destroyed'})
         return {"ok": deleted, "state": "destroyed" if deleted else "error", "error": "" if deleted else result.stderr.strip()}
 
-    def install_and_launch(self, apk: Path, package_id: str, *, legacy_sdk: bool = False) -> Dict[str, object]:
+    def install_and_launch(self, apk: Path, package_id: str, *, legacy_sdk: bool = False, grant_permissions: bool = False) -> Dict[str, object]:
         if not PACKAGE_ID.fullmatch(package_id):
             return {"ok": False, "reason": "invalid package ID"}
         if not apk.is_file() or apk.suffix.lower() != ".apk":
@@ -411,7 +411,9 @@ class AndroidWorker:
         if self.status()["state"] != "device":
             return {"ok": False, "blocked": True, "reason": "device is not online"}
         api = int(self.status().get("properties", {}).get("ro.build.version.sdk", "0"))
-        flags = ("--bypass-low-target-sdk-block",) if legacy_sdk and api >= 34 else ()
+        # Explicit permission grant prevents Android from diverting the first
+        # launch to ReviewPermissionsActivity while `am start -W` still exits 0.
+        flags = (("-g",) if grant_permissions else ()) + (("--bypass-low-target-sdk-block",) if legacy_sdk and api >= 34 else ())
         install = _run((str(self.sdk.adb), "-s", self.serial, "install", "-r", *flags, str(apk)), timeout=180)
         if install.returncode != 0:
             details = (install.stderr + "\n" + install.stdout).strip()
@@ -428,21 +430,44 @@ class AndroidWorker:
         if not component:
             return {"ok": False, "installed": True, "launched": False, "package_id": package_id, "reason": "APK installed but no launcher activity was found"}
         launch = _run((str(self.sdk.adb), "-s", self.serial, "shell", "am", "start", "-W", "-n", component))
-        launched = launch.returncode == 0 and "Error:" not in launch.stdout + launch.stderr
-        return {"ok": launched, "package_id": package_id, "installed": True, "launched": launched, "reason": "" if launched else (launch.stderr + launch.stdout).strip()}
+        accepted = launch.returncode == 0 and "Error:" not in launch.stdout + launch.stderr
+        stable_pid = ""
+        if accepted:
+            previous = set()
+            for _ in range(10):
+                listing = _run((str(self.sdk.adb), "-s", self.serial, "shell", "ps", "-A", "-o", "PID,NAME"), timeout=5).stdout
+                observed = {
+                    (match[1], match[2]) for line in listing.splitlines()
+                    if (match := __import__('re').fullmatch(r'\s*(\d+)\s+([^\s]+)\s*', line))
+                    and (match[2] == package_id or match[2].startswith(package_id + ':'))
+                }
+                stable = previous & observed
+                if stable:
+                    stable_pid = ' '.join(sorted(pid for pid, _name in stable))
+                    break
+                previous = observed
+                time.sleep(0.25)
+        launched = bool(stable_pid)
+        if launched:
+            reason = ""
+        elif accepted:
+            reason = "APK installed, but its process did not remain alive after launch."
+        else:
+            reason = (launch.stderr + launch.stdout).strip()
+        return {"ok": launched, "package_id": package_id, "installed": True, "launched": launched, "pid": stable_pid, "reason": reason}
 
-    def install_apk_set(self, apks, package_id, *, legacy_sdk=False):
+    def install_apk_set(self, apks, package_id, *, legacy_sdk=False, grant_permissions=False):
         """Install an original base and split set without changing its signatures."""
         if not PACKAGE_ID.fullmatch(package_id) or not isinstance(apks, (list, tuple)) or not 1 <= len(apks) <= 128:
             return {'ok': False, 'reason': 'Conjunto de APKs inválido.'}
         if any(not isinstance(path, Path) or not path.is_file() or path.suffix != '.apk' for path in apks):
             return {'ok': False, 'reason': 'Conjunto de APKs incompleto.'}
         if len(apks) == 1:
-            return self.install_and_launch(apks[0], package_id, legacy_sdk=legacy_sdk)
+            return self.install_and_launch(apks[0], package_id, legacy_sdk=legacy_sdk, grant_permissions=grant_permissions)
         if not self.sdk or self.status().get('state') != 'device':
             return {'ok': False, 'reason': 'Android desconectado.'}
         api = int(self.status().get('properties', {}).get('ro.build.version.sdk', '0'))
-        flags = ('--bypass-low-target-sdk-block',) if legacy_sdk and api >= 34 else ()
+        flags = (('-g',) if grant_permissions else ()) + (('--bypass-low-target-sdk-block',) if legacy_sdk and api >= 34 else ())
         result = _run((str(self.sdk.adb), '-s', self.serial, 'install-multiple', '-r', *flags, *(str(path) for path in apks)), timeout=180)
         if result.returncode or 'Success' not in result.stdout:
             return {'ok': False, 'reason': 'Não foi possível instalar o conjunto original de APKs.', 'error': (result.stderr + result.stdout).strip()}
@@ -468,7 +493,7 @@ class AndroidWorker:
         if not started.get("ok"):
             return started
         target = AndroidWorker(self.sdk, avd_name=started['lab']['id']) if new_lab else self
-        result = target.install_and_launch(apk, match[1], legacy_sdk=legacy_sdk)
+        result = target.install_and_launch(apk, match[1], legacy_sdk=legacy_sdk, grant_permissions=legacy_sdk)
         if new_lab:
             result['lab'] = started['lab']
         elif result.get('installed') and current().get('id') == self.avd_name:

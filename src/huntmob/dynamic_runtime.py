@@ -22,6 +22,17 @@ MAX_EVENT_BYTES = 2 * 1024 * 1024
 MAX_SESSION_SECONDS = 30 * 60
 
 
+def frida_compatibility(android_api, android_abi, client_version):
+    """Fail closed for runtime tuples reproduced as incompatible in this lab."""
+    if android_api == 30 and android_abi == 'arm64-v8a' and client_version == '17.23.3':
+        return {
+            'ok': False,
+            'error_code': 'frida_android_sigchain_incompatible',
+            'reason': 'Frida 17.23.3 aborta no Android API 30 arm64 durante a validação de signal chain. Selecione outro runtime validado; downgrade automático é proibido.',
+        }
+    return {'ok': True}
+
+
 def frida_server_ready(command, frida_module):
     """Probe the Frida protocol; Android's pidof may hide long process names."""
     forwarded = _run(command + ('forward', f'tcp:{FORWARD_PORT}', 'tcp:27042'), timeout=5)
@@ -123,11 +134,15 @@ class DynamicRuntime:
         lab = scope(current().get('package_id'))
         if lab.get('root_mode', 'root') != 'root' or not worker.root_status().get('root_available'):
             return {'ok': False, 'reason': 'Sem root: use um build de teste do app com Frida Gadget integrado. Não alteramos o APK automaticamente.'}
-        abi = worker.status().get('properties', {}).get('ro.product.cpu.abi')
+        properties = worker.status().get('properties', {})
+        abi = properties.get('ro.product.cpu.abi')
         arch = {'arm64-v8a': 'arm64', 'armeabi-v7a': 'arm', 'x86': 'x86', 'x86_64': 'x86_64'}.get(abi)
         if not arch: return {'ok': False, 'reason': 'Arquitetura Frida não suportada.'}
         version = frida.__version__
         if not re.fullmatch(r'\d+\.\d+\.\d+', version): raise ValueError('Invalid Frida version')
+        compatibility = frida_compatibility(int(properties.get('ro.build.version.sdk', '0')), abi, version)
+        if not compatibility['ok']:
+            return {**compatibility, 'version': version, 'architecture': arch}
         folder = Path.home() / '.huntmob/runtime/frida' / version
         folder.mkdir(parents=True, exist_ok=True, mode=0o700)
         binary = folder / ('frida-server-' + arch)
@@ -182,7 +197,7 @@ class DynamicRuntime:
             if result.get('ok') and not self.ready.wait(8):
                 self.stop()
                 with self.lock:
-                    self.receipt['state'] = 'failed'; self.receipt['error_type'] = 'AgentNotReady'; self.persist()
+                    self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = 'agent_ready'; self.receipt['error_type'] = 'AgentNotReady'; self.persist()
                 return {'ok': False, 'reason': 'Agente Java não ficou pronto. Consulte os eventos da sessão.'}
             return result
         finally:
@@ -203,36 +218,48 @@ class DynamicRuntime:
             bridge_spec = __import__('importlib.util', fromlist=['find_spec']).find_spec('frida_tools')
             bridge = Path(bridge_spec.origin).parent / 'bridges/java.js' if bridge_spec else None
             if not bridge or not bridge.exists(): return {'ok': False, 'reason': 'Instale frida-tools para disponibilizar o Java bridge.'}
-            if lab.get('root_mode', 'root') == 'root':
-                result = self.prepare()
-                if not result.get('ok'): return result
             command = (str(worker.sdk.adb), '-s', worker.serial)
-            forwarded = _run(command + ('forward', f'tcp:{FORWARD_PORT}', 'tcp:27042'), timeout=10)
-            if forwarded.returncode: return {'ok': False, 'reason': 'Forward Frida indisponível.'}
-            self.receipt = {'id': 'dyn_' + uuid4().hex, 'lab_id': lab['id'], 'package_id': package, 'apk_sha256': lab['apk_sha256'], 'scripts': selected, 'root_mode': lab.get('root_mode', 'root'), 'frida_version': frida.__version__, 'started_at': datetime.now(timezone.utc).isoformat(), 'started_epoch': time.time(), 'state': 'starting', 'finding_status': 'not_assessed'}
+            properties = worker.status().get('properties', {})
+            root_mode = lab.get('root_mode', 'root')
+            self.receipt = {'id': 'dyn_' + uuid4().hex, 'lab_id': lab['id'], 'package_id': package, 'apk_sha256': lab['apk_sha256'], 'scripts': selected, 'root_mode': root_mode, 'frida_version': frida.__version__, 'frida_transport': 'server' if root_mode == 'root' else 'gadget', 'android_api': int(properties.get('ro.build.version.sdk', '0')), 'android_abi': properties.get('ro.product.cpu.abi', ''), 'started_at': datetime.now(timezone.utc).isoformat(), 'started_epoch': time.time(), 'state': 'starting', 'phase': 'preflight', 'finding_status': 'not_assessed'}
             self.events = []; self.event_bytes = 0; self.ready.clear(); self.persist()
+            if root_mode == 'root':
+                result = self.prepare()
+                if not result.get('ok'):
+                    self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = 'preflight'; self.receipt['error_type'] = result.get('error_code', 'FridaPrepareError'); self.persist()
+                    return result
+                self.receipt['frida_server_version'] = result['version']; self.persist()
+            forwarded = _run(command + ('forward', f'tcp:{FORWARD_PORT}', 'tcp:27042'), timeout=10)
+            if forwarded.returncode:
+                self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = 'forward'; self.receipt['error_type'] = 'AdbForwardError'; self.persist()
+                return {'ok': False, 'reason': 'Forward Frida indisponível.'}
             pid = None
             spawned = False
             try:
+                self.receipt['phase'] = 'connect'; self.persist()
                 self.device = frida.get_device_manager().add_remote_device(f'127.0.0.1:{FORWARD_PORT}')
                 if lab.get('root_mode', 'root') == 'stock' or payload.get('mode') == 'attach':
+                    self.receipt['phase'] = 'attach_lookup'; self.persist()
                     found = _run(command + ('shell', 'pidof', package), timeout=5).stdout.split()
                     if not found: raise ValueError('App não está aberto. Abra o build instrumentado antes de conectar.')
                     pid = int(found[0])
                 else:
+                    self.receipt['phase'] = 'spawn'; self.persist()
                     pid = self.device.spawn([package]); spawned = True
+                self.receipt['phase'] = 'attach'; self.persist()
                 self.session = self.device.attach(pid)
                 self.session.on('detached', lambda reason, crash: self.detached(reason))
                 source = (Path(__file__).with_name('agents') / 'observe.js').read_text().replace('__SCRIPTS__', json.dumps(selected))
                 self.agent = self.session.create_script(bridge.read_text() + '\nconst Java = bridge;\n' + source)
                 self.agent.on('message', self.message)
+                self.receipt['phase'] = 'agent_load'; self.persist()
                 self.agent.load()
                 if spawned: self.device.resume(pid)
                 elif lab.get('root_mode') == 'stock':
                     try: self.device.resume(pid)
                     except frida.InvalidOperationError: pass
                 self.receipt['pid'] = pid
-                self.receipt['state'] = 'running'; self.persist()
+                self.receipt['state'] = 'running'; self.receipt['phase'] = 'observe'; self.persist()
                 return {'ok': True, 'receipt': self.receipt}
             except Exception as error:
                 if spawned and pid:
@@ -241,7 +268,7 @@ class DynamicRuntime:
                 if self.session:
                     try: self.session.detach()
                     except Exception: pass
-                self.receipt['state'] = 'failed'; self.receipt['error_type'] = type(error).__name__; self.persist()
+                self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = self.receipt.get('phase', 'unknown'); self.receipt['error_type'] = type(error).__name__; self.persist()
                 return {'ok': False, 'reason': 'Frida não conectou ao app. Verifique root/servidor ou Gadget no perfil sem root.', 'error_type': type(error).__name__}
 
     def message(self, message, data):

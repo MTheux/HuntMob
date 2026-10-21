@@ -3,10 +3,18 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from huntmob.dynamic_runtime import DynamicRuntime, frida_server_ready, scope
+from huntmob.dynamic_runtime import DynamicRuntime, frida_compatibility, frida_server_ready, scope
 
 
 class DynamicTests(unittest.TestCase):
+    def test_known_api30_arm64_frida_crash_is_blocked(self):
+        result = frida_compatibility(30, 'arm64-v8a', '17.23.3')
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error_code'], 'frida_android_sigchain_incompatible')
+
+    def test_other_frida_runtime_tuple_is_not_blocked(self):
+        self.assertTrue(frida_compatibility(35, 'arm64-v8a', '17.23.3')['ok'])
+
     @patch('huntmob.dynamic_runtime._run')
     def test_frida_readiness_uses_protocol_instead_of_process_name(self, run):
         run.return_value.returncode=0

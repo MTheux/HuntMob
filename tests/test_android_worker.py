@@ -92,6 +92,63 @@ class AndroidWorkerTests(unittest.TestCase):
         result = AndroidWorker(self.sdk).install_and_launch(Path("/missing.apk"), "br.com.test.app")
         self.assertFalse(result["ok"])
 
+    @patch("huntmob.android_worker.time.sleep")
+    @patch.object(AndroidWorker, "status", return_value={"state": "device", "properties": {"ro.build.version.sdk": "35"}})
+    @patch("huntmob.android_worker._run")
+    def test_legacy_install_grants_permissions_and_requires_stable_pid(self, run, _status, _sleep):
+        import tempfile
+        run.side_effect = [
+            subprocess.CompletedProcess([], 0, "Success\n", ""),
+            subprocess.CompletedProcess([], 0, "br.com.test.app/.MainActivity\n", ""),
+            subprocess.CompletedProcess([], 0, "Starting: Intent\n", ""),
+            subprocess.CompletedProcess([], 0, " PID NAME\n4329 br.com.test.app:launcher\n", ""),
+            subprocess.CompletedProcess([], 0, " PID NAME\n4329 br.com.test.app:launcher\n", ""),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "app.apk"; apk.write_bytes(b"apk")
+            result = AndroidWorker(self.sdk).install_and_launch(apk, "br.com.test.app", legacy_sdk=True, grant_permissions=True)
+        self.assertTrue(result["launched"])
+        self.assertEqual(result["pid"], "4329")
+        self.assertEqual(run.call_args_list[0].args[0][3:7], ("install", "-r", "-g", "--bypass-low-target-sdk-block"))
+
+    @patch.object(AndroidWorker, "launch_app", return_value={"ok": True, "installed": True, "launched": True})
+    @patch.object(AndroidWorker, "status", return_value={"state": "device", "properties": {"ro.build.version.sdk": "35"}})
+    @patch("huntmob.android_worker._run", return_value=subprocess.CompletedProcess([], 0, "Success\n", ""))
+    def test_legacy_bypass_does_not_implicitly_grant_permissions(self, run, _status, _launch):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "app.apk"; apk.write_bytes(b"apk")
+            result = AndroidWorker(self.sdk).install_and_launch(apk, "br.com.test.app", legacy_sdk=True)
+        self.assertTrue(result["ok"])
+        command = run.call_args.args[0]
+        self.assertIn("--bypass-low-target-sdk-block", command)
+        self.assertNotIn("-g", command)
+
+    @patch("huntmob.android_worker.time.sleep")
+    @patch("huntmob.android_worker._run")
+    def test_launch_fails_when_process_does_not_remain_alive(self, run, _sleep):
+        run.side_effect = [
+            subprocess.CompletedProcess([], 0, "br.com.test.app/.MainActivity\n", ""),
+            subprocess.CompletedProcess([], 0, "Starting: Intent\n", ""),
+            *[subprocess.CompletedProcess([], 0, "PID NAME\n", "") for _ in range(10)],
+        ]
+        result = AndroidWorker(self.sdk).launch_app("br.com.test.app")
+        self.assertFalse(result["ok"])
+        self.assertIn("did not remain alive", result["reason"])
+
+    @patch("huntmob.android_worker.time.sleep")
+    @patch("huntmob.android_worker._run")
+    def test_launch_accepts_persistent_main_process_while_service_changes(self, run, _sleep):
+        run.side_effect = [
+            subprocess.CompletedProcess([], 0, "br.com.test.app/.MainActivity\n", ""),
+            subprocess.CompletedProcess([], 0, "Starting: Intent\n", ""),
+            subprocess.CompletedProcess([], 0, "PID NAME\n4329 br.com.test.app\n4400 br.com.test.app:worker\n", ""),
+            subprocess.CompletedProcess([], 0, "PID NAME\n4329 br.com.test.app\n4401 br.com.test.app:worker\n", ""),
+        ]
+        result = AndroidWorker(self.sdk).launch_app("br.com.test.app")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["pid"], "4329")
+
     @patch.object(AndroidWorker, "status", return_value={"state": "device"})
     @patch("huntmob.android_worker._run")
     def test_touch_coordinates_are_mapped_to_guest_display(self, run, _status):

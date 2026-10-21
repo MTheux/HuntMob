@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from .android_worker import _run
 from .lab_sessions import current
-from .runtime_limits import MAX_CODEC_QUEUE_BYTES, MAX_STREAM_SECONDS, STREAM_STALL_SECONDS, stream_slot
+from .runtime_limits import MAX_CODEC_QUEUE_BYTES, MAX_STREAM_SECONDS, stream_slot
 
 VERSION='5.0.1'
 DIGEST='764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536'
@@ -138,6 +138,9 @@ class CodecRelay:
         except (ValueError,TypeError,KeyError,OSError,struct.error):
             return {'ok':False,'reason':'Entrada inválida ou canal de controle desconectado.'}
 
+    def _producer_stalled(self, process, lab):
+        return process.poll() is not None or not self.owner_check(lab)
+
     def _produce(self,target):
         adb,serial,lab=target
         base=(adb,'-s',serial)
@@ -181,8 +184,10 @@ class CodecRelay:
             while not self.closing.is_set() and time.monotonic()-self.last_viewer<10:
                 if time.monotonic()-self.started>MAX_STREAM_SECONDS: raise TimeoutError('Video session duration exceeded')
                 if not select.select([video],[],[],1)[0]:
-                    last=self.last_frame_at or self.started
-                    if time.monotonic()-last>STREAM_STALL_SECONDS:
+                    # scrcpy/H.264 may emit no frame while the display is static.
+                    # Treat producer death or ownership loss as a stall; frame
+                    # age alone is telemetry and must not force reconnects.
+                    if self._producer_stalled(process, lab):
                         with self.condition:self.stall_count+=1
                         raise TimeoutError('Video stream stalled')
                     continue

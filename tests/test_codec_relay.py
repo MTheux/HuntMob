@@ -33,6 +33,15 @@ class CodecRelayTests(unittest.TestCase):
         self.assertEqual(telemetry['queue_bytes'], 4096)
         self.assertGreater(telemetry['queue_limit_bytes'], telemetry['queue_bytes'])
 
+    def test_static_h264_screen_is_not_classified_as_a_stall(self):
+        relay = CodecRelay(owner_check=lambda lab: lab == LAB)
+        process = Mock(); process.poll.return_value = None
+        self.assertFalse(relay._producer_stalled(process, LAB))
+        process.poll.return_value = 1
+        self.assertTrue(relay._producer_stalled(process, LAB))
+        process.poll.return_value = None
+        self.assertTrue(relay._producer_stalled(process, 'other'))
+
     def relay(self):
         relay=CodecRelay();relay.target=('adb','emulator-5556',LAB);relay.width=648;relay.height=1440
         relay.control=unittest.mock.Mock();return relay

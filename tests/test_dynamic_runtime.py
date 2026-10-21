@@ -42,3 +42,11 @@ class DynamicTests(unittest.TestCase):
         agent,session=runtime.agent,runtime.session
         runtime.stop();agent.unload.assert_called_once();session.detach.assert_called_once()
 
+    def test_stop_preserves_abnormal_detached_terminal_state(self):
+        runtime=DynamicRuntime();runtime.receipt={'id':'dyn_one','lab_id':'lab','state':'detached'}
+        with tempfile.TemporaryDirectory() as directory,patch('huntmob.dynamic_runtime.root',return_value=Path(directory)):
+            (Path(directory)/'lab').mkdir()
+            result=runtime.stop()
+        self.assertEqual(result['state'],'detached')
+        self.assertEqual(runtime.receipt['state'],'detached')
+

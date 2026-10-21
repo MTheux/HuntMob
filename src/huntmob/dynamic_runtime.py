@@ -257,14 +257,17 @@ class DynamicRuntime:
     def stop(self):
         with self.lock:
             if self.receipt and not self.receipt.get('ended_at'):
-                self.receipt['state'] = 'failed' if self.receipt['state'] == 'failed' else 'stopped'; self.receipt['event_count'] = len(self.events); self.receipt['ended_at'] = datetime.now(timezone.utc).isoformat(); self.receipt['ended_epoch'] = time.time(); self.persist()
+                previous = self.receipt['state']
+                self.receipt['state'] = previous if previous in {'failed', 'detached', 'interrupted'} else 'stopped'
+                self.receipt['event_count'] = len(self.events); self.receipt['ended_at'] = datetime.now(timezone.utc).isoformat(); self.receipt['ended_epoch'] = time.time(); self.persist()
+            final_state = self.receipt.get('state', 'stopped') if self.receipt else 'stopped'
             agent, session = self.agent, self.session
             self.agent = self.session = None
         for obj, operation in ((agent, 'unload'), (session, 'detach')):
             if obj:
                 try: getattr(obj, operation)()
                 except Exception: pass
-        return {'ok': True, 'state': 'stopped'}
+        return {'ok': True, 'state': final_state}
 
     def export(self):
         with self.lock:

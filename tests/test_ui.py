@@ -108,8 +108,20 @@ class UiServerTests(unittest.TestCase):
         html = (web_root() / "index.html").read_text(encoding="utf-8")
         javascript = (web_root() / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="sessionDialog"', html)
+        self.assertIn('id="saveLabButton"', html)
+        self.assertIn('id="closeLabButton"', html)
         self.assertIn('id="destroyDevice"', html)
-        self.assertIn("deviceAction('destroy')", javascript)
+        self.assertIn("deviceAction('save-lab', {lab_id: labId})", javascript)
+        self.assertIn("finishLabShutdown('discard-lab')", javascript)
+        self.assertIn("finishLabShutdown('save-stop')", javascript)
+
+    def test_camera_factor_is_device_camera_not_browser_face_fixture(self):
+        html = (web_root() / "index.html").read_text(encoding="utf-8")
+        javascript = (web_root() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="useHostWebcam"', html)
+        self.assertIn('id="cameraSourceStatus"', html)
+        self.assertIn('Teste facial separado no navegador', html)
+        self.assertIn("deviceAction('front-camera-source'", javascript)
 
     def test_frida_ui_uses_validated_package_and_curated_scripts(self):
         html = (web_root() / "index.html").read_text(encoding="utf-8")

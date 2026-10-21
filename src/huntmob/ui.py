@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 import secrets
+import hmac
 import tempfile
 import shutil
 import subprocess
@@ -32,7 +33,7 @@ from .screen_relay import SCREEN_RELAY
 from .analysis_core import EmbeddedAnalysis
 from . import reverse_workspace
 from . import reverse_engines
-from .lab_sessions import inventory as lab_inventory, create_lab, create_play_lab, resume_lab, network_store, current as current_lab, change_root_profile
+from .lab_sessions import inventory as lab_inventory, create_lab, create_play_lab, resume_lab, network_store, current as current_lab, change_root_profile, close_current_lab, save_current_lab, front_camera_status, set_front_camera
 from .android_worker import PACKAGE_ID
 from . import workspace_devices
 
@@ -59,12 +60,29 @@ def web_root() -> Path:
 class HuntMobHandler(SimpleHTTPRequestHandler):
     """Static workbench plus read-only, same-origin runtime discovery."""
 
+    def parse_request(self) -> bool:
+        if not super().parse_request():
+            return False
+        expected = getattr(self.server, "worker_secret", None)
+        if expected is not None:
+            values = self.headers.get_all("X-HuntMob-Worker-Secret") or []
+            try:
+                authorized = len(values) == 1 and hmac.compare_digest(values[0].encode("ascii"), expected.encode("ascii"))
+            except UnicodeEncodeError:
+                authorized = False
+            if not authorized:
+                self.send_error(403, "Worker bridge authentication required")
+                return False
+        return True
+
     def __init__(self, *args, directory: str | None = None, **kwargs) -> None:
         super().__init__(*args, directory=directory or str(web_root()), **kwargs)
 
     def log_message(self, format: str, *args) -> None:
         # A detached worker can outlive the chat/terminal reading stderr.
         # Losing that log sink must not interrupt an HTTP response.
+        if getattr(self.server, "worker_secret", None) is not None:
+            return  # Paths may contain client evidence; Docker bridge logs no requests.
         try:
             super().log_message(format, *args)
         except (OSError, ValueError):
@@ -148,11 +166,15 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if route == "/api/evidence" or route.startswith("/api/evidence/export/"):
+        if route == "/api/evidence" or route.startswith("/api/evidence/export/") or route.startswith("/api/evidence/image/"):
             try:
                 if route == "/api/evidence":
                     body = json.dumps(EvidenceStore().inventory()).encode()
                     content_type = "application/json"
+                elif route.startswith("/api/evidence/image/"):
+                    identifier = route.removeprefix("/api/evidence/image/")
+                    _, body = EvidenceStore().read(identifier)
+                    content_type = "image/png"
                 else:
                     identifier = route.removeprefix("/api/evidence/export/")
                     body = EvidenceStore().export(identifier)
@@ -683,8 +705,10 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                     result = {"ok": False, "reason": "unknown proxy action"}
                 status = 200 if result.get("ok") else 409
             else:
-                actions = {"select-target": lambda: worker.select_target(payload.get("package_id")), "open-play-store": lambda: worker.open_play_store(payload.get("package_id", "")), "start": worker.start, "stop": worker.stop, "reboot": worker.reboot, "destroy": worker.destroy, "prepare-root-profile": lambda: worker.prepare_profile(payload.get("root_mode")), "root-profile": lambda: change_root_profile(worker, payload.get("root_mode"), expected_lab_id=payload.get("lab_id")), "new-lab": lambda: create_lab(worker, root_mode=payload.get("root_mode", "root"), android_api=payload.get("android_api",35), engagement=payload.get("engagement","")), "resume": lambda: resume_lab(worker, payload.get("lab_id"))}
+                actions = {"select-target": lambda: worker.select_target(payload.get("package_id")), "open-play-store": lambda: worker.open_play_store(payload.get("package_id", "")), "start": worker.start, "stop": worker.stop, "reboot": worker.reboot, "destroy": worker.destroy, "save-lab": lambda: save_current_lab(payload.get('lab_id')), "save-stop": lambda: close_current_lab(worker, payload.get('lab_id'), preserve=True), "discard-lab": lambda: close_current_lab(worker, payload.get('lab_id'), preserve=False), "prepare-root-profile": lambda: worker.prepare_profile(payload.get("root_mode")), "root-profile": lambda: change_root_profile(worker, payload.get("root_mode"), expected_lab_id=payload.get("lab_id")), "new-lab": lambda: create_lab(worker, root_mode=payload.get("root_mode", "root"), android_api=payload.get("android_api",35), engagement=payload.get("engagement","")), "resume": lambda: resume_lab(worker, payload.get("lab_id"))}
                 actions['new-play-lab'] = lambda: create_play_lab(worker, payload.get('package_id', ''), android_api=payload.get('android_api', 35))
+                actions['front-camera-status'] = lambda: front_camera_status(worker, payload.get('lab_id'))
+                actions['front-camera-source'] = lambda: set_front_camera(worker, payload.get('lab_id'), use_webcam=payload.get('use_webcam'))
                 action = actions.get(str(payload.get("action", "")))
                 if action is None:
                     result, status = {"ok": False, "reason": "unknown device action"}, 400
@@ -710,13 +734,20 @@ def serve(
     port: int = 8090,
     *,
     authorized_remote: bool = False,
+    worker_secret_file: str | None = None,
     server_class: Type[ThreadingHTTPServer] = ThreadingHTTPServer,
 ) -> None:
     validate_bind(host, authorized_remote)
+    worker_secret = None
+    if worker_secret_file is not None:
+        worker_secret = Path(worker_secret_file).read_text(encoding="ascii").strip()
+        if len(worker_secret) < 32 or len(worker_secret) > 256:
+            raise ValueError("Invalid worker bridge secret")
     handler = lambda *args, **kwargs: HuntMobHandler(  # noqa: E731
         *args, directory=str(web_root()), **kwargs
     )
     with server_class((host, port), handler) as server:
+        server.worker_secret = worker_secret
         print(f"HuntMob UI: http://{host}:{port}")
         old_handler = None
         if threading.current_thread() is threading.main_thread():

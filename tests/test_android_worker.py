@@ -78,6 +78,16 @@ class AndroidWorkerTests(unittest.TestCase):
         self.assertEqual(result['error_code'],'insufficient_disk_space')
         self.assertIn('preservados',result['reason'])
 
+    def test_host_webcam_is_passed_only_to_selected_lab_at_boot(self):
+        import tempfile
+        from unittest.mock import Mock
+        identifier = 'huntmob_lab_' + 'c'*32
+        with tempfile.TemporaryDirectory() as directory, patch('huntmob.android_worker.Path.home', return_value=Path(directory)), patch.object(AndroidWorker, 'status', return_value={'state':'offline','attached':False}), patch.object(AndroidWorker, 'create', return_value={'ok':True}), patch('huntmob.android_worker.subprocess.Popen') as popen, patch('huntmob.lab_sessions.current', return_value={'id':identifier,'camera_front':'webcam0'}):
+            process=Mock(); process.poll.return_value=1; popen.return_value=process
+            AndroidWorker(self.sdk, avd_name=identifier).start()
+            command=popen.call_args.args[0]
+        self.assertEqual(command[-2:], ('-camera-front','webcam0'))
+
     def test_missing_apk_fails_closed(self):
         result = AndroidWorker(self.sdk).install_and_launch(Path("/missing.apk"), "br.com.test.app")
         self.assertFalse(result["ok"])

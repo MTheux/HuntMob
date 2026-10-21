@@ -30,6 +30,11 @@ class PresentationTests(unittest.TestCase):
         with patch.object(devices,'worker') as worker,patch.object(devices,'AndroidWorker') as primary:
             with self.assertRaises(ValueError):devices.stop_many(P,[C,X])
             worker.assert_not_called();primary.assert_not_called()
+    def test_primary_shutdown_requires_lab_save_or_discard_choice(self):
+        with patch.object(devices,'worker') as worker,patch.object(devices,'AndroidWorker') as primary:
+            result=devices.stop_many(P,[P,C])
+        self.assertFalse(result['ok'])
+        worker.assert_not_called();primary.assert_not_called()
     def test_batch_shutdown_keeps_failures_separate_and_records_untouched(self):
         target=Mock();target.stop.return_value={'ok':True};target.status.return_value={'state':'offline','attached':False}
         with patch.object(devices,'worker',return_value=target),patch.object(devices,'relay'):

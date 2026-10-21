@@ -1,0 +1,25 @@
+services:
+  huntmob-control:
+    build:
+      context: .
+      dockerfile: Dockerfile.control
+    image: huntmob-control:local
+    init: true
+    ports:
+      - "127.0.0.1:8090:8090"
+    secrets:
+      - worker_secret
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/api/client/ping', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+secrets:
+  worker_secret:
+    file: ${HUNTMOB_WORKER_SECRET_FILE:?Run scripts/run-platform.py}

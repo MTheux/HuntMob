@@ -88,6 +88,7 @@ async function loadIosRuntime(render=false) {
 async function switchDevicePlatform(platform) {
   if(devicePlatform===platform)return;
   stopDeviceScreen();runtimeWasOnline=false;runtimeDevice=undefined;devicePlatform=platform;
+  syncLabLifecycleButtons();
   if(platform==='ios'){if(typeof clearCompanionTiles==='function')clearCompanionTiles();window.huntmobCanvas?.sync({});}
   document.querySelectorAll('.toolbar-actions button').forEach(button=>{button.disabled=true;});
   document.querySelector('#runtimeState').textContent='PROBING';

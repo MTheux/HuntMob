@@ -6,6 +6,7 @@ import re
 import threading
 import time
 import subprocess
+import shutil
 from pathlib import Path
 from uuid import uuid4
 from datetime import datetime, timezone
@@ -42,12 +43,82 @@ def save(record):
         temp.replace(folder / name)
 
 
+def is_saved(record):
+    # Records written before explicit saving existed are already user-visible labs.
+    return bool(record) and (record.get('saved_at') is not None if 'saved_at' in record else True)
+
+
+def save_current_lab(expected_lab_id):
+    """Make the current lab resumable without interrupting its Android runtime."""
+    if not isinstance(expected_lab_id, str) or not LAB_NAME.fullmatch(expected_lab_id):
+        return {'ok': False, 'reason': 'Identidade do laboratório inválida.'}
+    with LAB_LOCK:
+        record = current()
+        if record.get('id') != expected_lab_id:
+            return {'ok': False, 'reason': 'O laboratório selecionado mudou. Nenhum lab foi salvo.'}
+        record = {**record, 'saved_at': record.get('saved_at') or datetime.now(timezone.utc).isoformat()}
+        save(record)
+        return {'ok': True, 'saved': True, 'lab': record}
+
+
+def front_camera_status(worker, expected_lab_id):
+    """Report whether the native emulator can expose a host webcam to its camera HAL."""
+    if not isinstance(expected_lab_id, str) or not LAB_NAME.fullmatch(expected_lab_id):
+        return {'ok': False, 'reason': 'Identidade do laboratório inválida.'}
+    record = current()
+    if record.get('id') != expected_lab_id or worker.avd_name != expected_lab_id:
+        return {'ok': False, 'reason': 'O laboratório selecionado mudou.'}
+    if not worker.sdk or not worker.sdk.emulator.is_file():
+        return {'ok': True, 'available': False, 'configured': record.get('camera_front') == 'webcam0',
+                'applied': record.get('camera_front_applied') == 'webcam0', 'reason': 'Android Emulator nativo indisponível.'}
+    from .android_worker import _run
+    try:
+        listed = _run((str(worker.sdk.emulator), '-webcam-list'), timeout=10)
+        available = listed.returncode == 0 and bool(re.search(r'\bwebcam0\b', listed.stdout + listed.stderr))
+    except (OSError, subprocess.TimeoutExpired):
+        available = False
+    return {'ok': True, 'available': available, 'configured': record.get('camera_front') == 'webcam0',
+            'applied': record.get('camera_front_applied') == 'webcam0',
+            'reason': '' if available else 'Nenhuma webcam compatível foi anunciada pelo Android Emulator neste worker.'}
+
+
+def set_front_camera(worker, expected_lab_id, *, use_webcam):
+    """Restart only the selected lab to apply a real host camera source."""
+    if type(use_webcam) is not bool:
+        return {'ok': False, 'reason': 'Escolha de câmera inválida.'}
+    if not LAB_LOCK.acquire(blocking=False):
+        return {'ok': False, 'reason': 'Outra operação de laboratório está em andamento.'}
+    try:
+        status = front_camera_status(worker, expected_lab_id)
+        if not status.get('ok'):
+            return status
+        if use_webcam and not status.get('available'):
+            return {'ok': False, 'reason': status['reason']}
+        record = current()
+        desired = 'webcam0' if use_webcam else 'emulated'
+        if record.get('camera_front', 'emulated') == desired and record.get('camera_front_applied', 'emulated') == desired:
+            return {'ok': True, 'configured': use_webcam, 'restarted': False,
+                    'message': 'Fonte da câmera frontal já está configurada. O app deve abrir sua própria câmera.'}
+        updated = {**record, 'camera_front': desired}
+        save(updated)
+        result = switch(worker, updated)
+        if not result.get('ok'):
+            return {**result, 'camera_source_pending': True,
+                    'reason': result.get('reason', 'Reinício não concluído.') + ' A fonte foi registrada; confira o Android antes de tentar novamente.'}
+        applied = {**result['lab'], 'camera_front_applied': desired}
+        save(applied)
+        return {'ok': True, 'configured': use_webcam, 'restarted': True, 'lab': applied,
+                'message': 'Android reiniciado com webcam frontal do host.' if use_webcam else 'Android reiniciado com câmera frontal emulada.'}
+    finally:
+        LAB_LOCK.release()
+
+
 def inventory():
     records = []
     for path in root().glob('huntmob_*.json'):
         try:
             record = json.loads(path.read_text())
-            if LAB_NAME.fullmatch(record.get('id', '')) and record.get('state') != 'destroyed':
+            if LAB_NAME.fullmatch(record.get('id', '')) and record.get('state') != 'destroyed' and is_saved(record):
                 records.append(record)
         except (OSError, ValueError, TypeError):
             continue
@@ -59,6 +130,9 @@ def switch(worker, record):
     from .screen_relay import SCREEN_RELAY
     from .dynamic_runtime import DYNAMIC
     state = worker.status()
+    active = current()
+    if active and active.get('id') != record.get('id') and not is_saved(active):
+        return {'ok': False, 'reason': 'Salve ou descarte o laboratório temporário antes de trocar de aparelho.', 'error_code': 'unsaved_lab'}
     if state.get('state') in {'error','unauthorized'}:
         return {'ok':False,'reason':state.get('reason','O device atual não pode ser identificado com segurança.')}
     target = AndroidWorker(worker.sdk, avd_name=record['id'], root_mode=record.get('root_mode','root'), android_api=record.get('android_api',35))
@@ -105,12 +179,15 @@ def create_lab(worker, package_id='', apk_sha256='', *, root_mode='root', profil
         return {'ok':False,'reason':'Versão Android inválida. Escolha API 30 a 36.'}
     if root_mode not in {'root', 'stock'}:
         return {'ok': False, 'reason': 'Invalid root profile'}
+    active = current()
+    if active and not is_saved(active):
+        return {'ok': False, 'reason': 'Salve ou descarte o laboratório temporário antes de criar outro.', 'error_code': 'unsaved_lab'}
     from .android_worker import AndroidWorker
     if not LAB_LOCK.acquire(blocking=False):
         return {'ok': False, 'reason': 'Another lab operation is in progress'}
     try:
         record = {'id': 'huntmob_lab_' + uuid4().hex, 'package_id': package_id,
-                  'apk_sha256': apk_sha256, 'engagement':engagement, 'root_mode': root_mode, 'android_api': android_api, 'profile_group': profile_group or uuid4().hex, 'created_at': datetime.now(timezone.utc).isoformat()}
+                  'apk_sha256': apk_sha256, 'engagement':engagement, 'root_mode': root_mode, 'android_api': android_api, 'profile_group': profile_group or uuid4().hex, 'created_at': datetime.now(timezone.utc).isoformat(), 'saved_at': None}
         target = AndroidWorker(worker.sdk, avd_name=record['id'], root_mode=root_mode, android_api=android_api)
         record['architecture']=target.architecture
         if not target.prerequisites().get('ready'):
@@ -133,6 +210,9 @@ def create_play_lab(worker, package_id='', *, android_api=35):
         return {'ok': False, 'reason': 'Package ID do Google Play inválido.'}
     if type(android_api) is not int or android_api not in {30,31,32,33,34,35,36}:
         return {'ok': False, 'reason': 'Versão Android inválida.'}
+    active = current()
+    if active and not is_saved(active):
+        return {'ok': False, 'reason': 'Salve ou descarte o laboratório temporário antes de criar outro.', 'error_code': 'unsaved_lab'}
     if not worker.sdk:
         return {'ok': False, 'reason': 'Android SDK indisponível neste worker.'}
     if not LAB_LOCK.acquire(blocking=False):
@@ -166,11 +246,56 @@ def resume_lab(worker, identifier):
             record = json.loads((root() / (identifier + '.json')).read_text())
         except (OSError, ValueError):
             return {'ok': False, 'reason': 'Saved lab not found'}
-        if record.get('id') != identifier or record.get('state') == 'destroyed':
+        if record.get('id') != identifier or record.get('state') == 'destroyed' or not is_saved(record):
             return {'ok': False, 'reason': 'Invalid saved lab'}
         if current().get('id') == identifier:
             return {**worker.start(), 'lab': record}
         return switch(worker, record)
+    finally:
+        LAB_LOCK.release()
+
+
+def close_current_lab(worker, expected_lab_id, *, preserve):
+    """Stop only the selected workspace; preserve or discard its AVD explicitly."""
+    if type(preserve) is not bool or not isinstance(expected_lab_id, str) or not LAB_NAME.fullmatch(expected_lab_id):
+        return {'ok': False, 'reason': 'Identidade do laboratório inválida.'}
+    if not LAB_LOCK.acquire(blocking=False):
+        return {'ok': False, 'reason': 'Outra operação de laboratório está em andamento.'}
+    try:
+        record = current()
+        if record.get('id') != expected_lab_id or worker.avd_name != expected_lab_id:
+            return {'ok': False, 'reason': 'O laboratório selecionado mudou. Nenhum aparelho foi desligado.'}
+        from . import workspace_devices
+        companions = [item['id'] for item in workspace_devices.records() if item.get('workspace_id') == expected_lab_id]
+        if companions:
+            stopped = workspace_devices.stop_many(expected_lab_id, companions)
+            if not stopped.get('all_stopped'):
+                return {'ok': False, 'reason': 'Um aparelho adicional não desligou; o laboratório foi preservado.', 'devices': stopped.get('results', [])}
+        if worker.status().get('state') == 'device':
+            worker.clear_proxy()
+        result = worker.stop()
+        if not result.get('ok'):
+            return result
+        if not preserve:
+            result = worker.destroy()
+            if not result.get('ok'):
+                return result
+        from .dynamic_runtime import DYNAMIC
+        from .screen_relay import SCREEN_RELAY
+        from .codec_relay import CODEC_RELAY
+        DYNAMIC.stop()
+        SCREEN_RELAY.restart()
+        CODEC_RELAY.restart()
+        from .managed_proxy import stop_for_lab
+        stop_for_lab(expected_lab_id)
+        if preserve:
+            record = {**record, 'saved_at': record.get('saved_at') or datetime.now(timezone.utc).isoformat()}
+            save(record)
+            return {'ok': True, 'saved': True, 'stopped': True, 'lab': record}
+        lab_folder = root() / expected_lab_id
+        if lab_folder.is_dir() and not lab_folder.is_symlink():
+            shutil.rmtree(lab_folder)
+        return {'ok': True, 'discarded': True, 'stopped': True, 'lab_id': expected_lab_id}
     finally:
         LAB_LOCK.release()
 

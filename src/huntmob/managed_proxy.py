@@ -3,6 +3,8 @@ import json
 import os
 import shlex
 import subprocess
+import re
+import signal
 from pathlib import Path
 
 
@@ -34,4 +36,28 @@ def owned(port):
 
 def remember(port,process,command):
     from .dynamic_runtime import private_json
-    private_json(receipt_path(port),{'pid':process.pid,'port':port,'command':list(command)})
+    from .lab_sessions import current
+    private_json(receipt_path(port),{'pid':process.pid,'port':port,'command':list(command),'lab_id':current().get('id','')})
+
+
+def stop_for_lab(lab_id):
+    """Terminate only managed capture listeners whose receipt belongs to this lab."""
+    from .lab_sessions import LAB_NAME
+    if not isinstance(lab_id, str) or not LAB_NAME.fullmatch(lab_id):
+        return 0
+    count = 0
+    for path in (Path.home() / '.huntmob/run').glob('proxy-*.json'):
+        match = re.fullmatch(r'proxy-(\d+)\.json', path.name)
+        if not match:
+            continue
+        port = int(match[1])
+        try:
+            record = json.loads(path.read_text())
+            if record.get('lab_id') != lab_id or not owned(port):
+                continue
+            os.kill(record['pid'], signal.SIGTERM)
+            path.unlink(missing_ok=True)
+            count += 1
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return count

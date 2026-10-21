@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     ui.add_argument("--bind", default="127.0.0.1")
     ui.add_argument("--port", default=8090, type=int)
     ui.add_argument("--authorized-remote", action="store_true")
+    ui.add_argument("--worker-secret-file", help="require the Docker bridge secret on every request")
     runtime_plan = commands.add_parser(
         "runtime-plan", help="plan an owned HuntMob Android device without creating it"
     )
@@ -80,7 +81,8 @@ def main() -> int:
             print(str(error)); return 2
         return 0
     if args.command == "ui":
-        serve(args.bind, args.port, authorized_remote=args.authorized_remote)
+        serve(args.bind, args.port, authorized_remote=args.authorized_remote,
+              worker_secret_file=args.worker_secret_file)
         return 0
     if args.command == "runtime-plan":
         result = provision_plan(

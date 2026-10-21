@@ -25,6 +25,97 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(len(lab_sessions.inventory()['labs']), 2)
         self.assertEqual(json.loads((lab_sessions.root() / (one['id'] + '.json')).read_text()), one)
 
+    def test_temporary_lab_enters_inventory_only_after_explicit_save(self):
+        temporary = {'id': 'huntmob_lab_' + 'c'*32, 'package_id': 'com.test.app', 'saved_at': None}
+        lab_sessions.save(temporary)
+        self.assertEqual(lab_sessions.inventory()['labs'], [])
+        self.assertFalse(lab_sessions.resume_lab(MagicMock(), temporary['id'])['ok'])
+        result = lab_sessions.save_current_lab(temporary['id'])
+        self.assertTrue(result['ok'])
+        self.assertEqual([item['id'] for item in lab_sessions.inventory()['labs']], [temporary['id']])
+        self.assertTrue(lab_sessions.current()['saved_at'])
+
+    def test_unsaved_lab_cannot_be_replaced_before_user_decides(self):
+        lab_sessions.save({'id': 'huntmob_lab_' + 'c'*32, 'saved_at': None})
+        worker = MagicMock()
+        with patch('huntmob.android_worker.AndroidWorker') as factory:
+            self.assertEqual(lab_sessions.create_lab(worker)['error_code'], 'unsaved_lab')
+            self.assertEqual(lab_sessions.create_play_lab(worker)['error_code'], 'unsaved_lab')
+            factory.assert_not_called()
+
+    def test_close_rejects_stale_lab_without_touching_device(self):
+        active = 'huntmob_lab_' + 'c'*32
+        lab_sessions.save({'id': active, 'saved_at': None})
+        worker = MagicMock(avd_name=active)
+        result = lab_sessions.close_current_lab(worker, 'huntmob_lab_' + 'd'*32, preserve=False)
+        self.assertFalse(result['ok'])
+        worker.stop.assert_not_called()
+        worker.destroy.assert_not_called()
+
+    def test_save_and_stop_keeps_only_current_lab_resumable(self):
+        old = {'id': 'huntmob_lab_' + 'a'*32, 'saved_at': '2026-10-20T00:00:00Z'}
+        active = {'id': 'huntmob_lab_' + 'c'*32, 'saved_at': None}
+        lab_sessions.save(old); lab_sessions.save(active)
+        worker = MagicMock(avd_name=active['id'])
+        worker.status.return_value = {'state': 'device'}
+        worker.stop.return_value = {'ok': True}
+        with patch('huntmob.workspace_devices.records', return_value=[]), patch('huntmob.dynamic_runtime.DYNAMIC.stop'), patch('huntmob.screen_relay.SCREEN_RELAY.restart'), patch('huntmob.codec_relay.CODEC_RELAY.restart'), patch('huntmob.managed_proxy.stop_for_lab'):
+            result = lab_sessions.close_current_lab(worker, active['id'], preserve=True)
+        self.assertTrue(result['ok'])
+        worker.stop.assert_called_once()
+        worker.destroy.assert_not_called()
+        self.assertEqual(len(lab_sessions.inventory()['labs']), 2)
+
+    def test_discard_removes_only_selected_lab(self):
+        old = {'id': 'huntmob_lab_' + 'a'*32, 'saved_at': '2026-10-20T00:00:00Z'}
+        active = {'id': 'huntmob_lab_' + 'c'*32, 'saved_at': None}
+        lab_sessions.save(old); lab_sessions.save(active)
+        active_dir = lab_sessions.root() / active['id']; active_dir.mkdir()
+        (active_dir / 'sample.txt').write_text('fixture')
+        worker = MagicMock(avd_name=active['id'])
+        worker.status.return_value = {'state': 'offline'}
+        worker.stop.return_value = {'ok': True}
+        def destroy():
+            lab_sessions.save({**active, 'state': 'destroyed'})
+            return {'ok': True}
+        worker.destroy.side_effect = destroy
+        with patch('huntmob.workspace_devices.records', return_value=[]), patch('huntmob.dynamic_runtime.DYNAMIC.stop'), patch('huntmob.screen_relay.SCREEN_RELAY.restart'), patch('huntmob.codec_relay.CODEC_RELAY.restart'), patch('huntmob.managed_proxy.stop_for_lab'):
+            result = lab_sessions.close_current_lab(worker, active['id'], preserve=False)
+        self.assertTrue(result['ok'])
+        self.assertFalse(active_dir.exists())
+        self.assertEqual([item['id'] for item in lab_sessions.inventory()['labs']], [old['id']])
+        self.assertEqual(lab_sessions.current(), {})
+
+    def test_front_webcam_requires_native_discovery_and_selected_lab(self):
+        identifier = 'huntmob_lab_' + 'c'*32
+        lab_sessions.save({'id': identifier, 'saved_at': None})
+        emulator = self.directory / 'emulator'; emulator.write_text('fixture')
+        worker = MagicMock(avd_name=identifier)
+        worker.sdk.emulator = emulator
+        with patch('huntmob.android_worker._run', return_value=MagicMock(returncode=0, stdout='List of web cameras connected to the computer:\n Camera webcam0', stderr='')):
+            self.assertTrue(lab_sessions.front_camera_status(worker, identifier)['available'])
+        with patch('huntmob.android_worker._run', return_value=MagicMock(returncode=0, stdout='No web cameras', stderr='')), patch('huntmob.lab_sessions.switch') as switched:
+            result = lab_sessions.set_front_camera(worker, identifier, use_webcam=True)
+        self.assertFalse(result['ok'])
+        switched.assert_not_called()
+        self.assertNotIn('camera_front', lab_sessions.current())
+        self.assertFalse(lab_sessions.front_camera_status(worker, 'huntmob_lab_' + 'd'*32)['ok'])
+
+    def test_front_webcam_restarts_same_lab_without_saving_temporary_lab(self):
+        identifier = 'huntmob_lab_' + 'c'*32
+        lab_sessions.save({'id': identifier, 'saved_at': None})
+        emulator = self.directory / 'emulator'; emulator.write_text('fixture')
+        worker = MagicMock(avd_name=identifier)
+        worker.sdk.emulator = emulator
+        with patch('huntmob.android_worker._run', return_value=MagicMock(returncode=0, stdout='Camera webcam0', stderr='')), patch('huntmob.lab_sessions.switch', side_effect=lambda _worker, record: {'ok': True, 'lab': record}) as switched:
+            result = lab_sessions.set_front_camera(worker, identifier, use_webcam=True)
+        self.assertTrue(result['ok'])
+        switched.assert_called_once()
+        self.assertEqual(lab_sessions.current()['camera_front'], 'webcam0')
+        self.assertEqual(lab_sessions.current()['camera_front_applied'], 'webcam0')
+        self.assertIsNone(lab_sessions.current()['saved_at'])
+        self.assertEqual(lab_sessions.inventory()['labs'], [])
+
     def test_engagement_is_persisted_for_new_lab(self):
         worker=MagicMock()
         with patch('huntmob.android_worker.AndroidWorker') as factory,patch('huntmob.lab_sessions.switch',side_effect=lambda worker,record: {'ok':True,'lab':record}):

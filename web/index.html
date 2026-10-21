@@ -52,7 +52,7 @@
     <main id="workspace" class="workspace analysis-collapsed">
       <section class="device-stage" aria-label="Tela do dispositivo">
         <div class="stage-toolbar">
-          <div><span class="status-live" id="runtimeState">PROBING</span><strong id="stageDeviceName">HuntMob Runtime</strong><small id="stageSerial">aguardando worker</small><button class="outline" id="addWorkspaceDevice" type="button" disabled>Adicionar aparelho</button><button class="outline" id="connectWorkspaceAgent" type="button" disabled>Conectar agente</button><button class="outline" id="chooseDeviceFile" type="button" title="Enviar arquivo ao Android principal">Enviar arquivo</button><input id="deviceFileInput" class="sr-only" type="file" aria-label="Arquivo para o Android principal"></div>
+          <div><span class="status-live" id="runtimeState">PROBING</span><strong id="stageDeviceName">HuntMob Runtime</strong><small id="stageSerial">aguardando worker</small><button class="outline" id="addWorkspaceDevice" type="button" disabled>Adicionar aparelho</button><button class="outline" id="connectWorkspaceAgent" type="button" disabled>Conectar agente</button><button class="outline" id="chooseDeviceFile" type="button" title="Enviar arquivo ao Android principal">Enviar arquivo</button><input id="deviceFileInput" class="sr-only" type="file" aria-label="Arquivo para o Android principal"><button class="outline" id="saveLabButton" type="button" disabled>Salvar laboratório</button><button class="stop" id="closeLabButton" type="button" disabled>Desligar</button></div>
 
         <button class="analysis-toggle" id="analysisToggle" aria-controls="analysisPanel" aria-expanded="false" title="Abrir ferramentas"><span id="analysisChevron" aria-hidden="true">‹</span><span id="analysisToggleLabel">Ferramentas</span></button>
         </div>
@@ -109,8 +109,8 @@
           <div class="device-controls" aria-label="Controles do laboratório">
             <span class="controls-label">Controles</span>
             <button type="button" id="quickRoot" aria-pressed="false" aria-describedby="quickRootHelp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4v6c0 5-8 8-8 8s-8-3-8-8V7Z"/><circle cx="12" cy="11" r="2"/><path d="M12 13v4"/></svg><span id="quickRootLabel">Root</span></button>
-            <button type="button" data-panel="biometric" title="Eventos biométricos do Android"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 0 1 16 0m-12 9c1-3 1-6 1-9a3 3 0 0 1 6 0c0 4 0 7-1 10M5 15v-4a7 7 0 0 1 14 0v5m-7-5v6m-7 3 1-3"/></svg><span>Biometria</span></button>
-            <button type="button" data-panel="camera" title="Fixture facial no navegador"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="4"/></svg><span>Câmera</span></button>
+            <button type="button" data-panel="biometric" title="Sensor de digital do Android Emulator"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 0 1 16 0m-12 9c1-3 1-6 1-9a3 3 0 0 1 6 0c0 4 0 7-1 10M5 15v-4a7 7 0 0 1 14 0v5m-7-5v6m-7 3 1-3"/></svg><span>Digital</span></button>
+            <button type="button" data-panel="camera" title="Câmera frontal do app para reconhecimento facial"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="4"/></svg><span>Face / câmera</span></button>
             <button type="button" data-control-panel="location" title="Simular posição GPS"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/></svg><span>GPS</span></button>
             <button type="button" data-control-panel="network" title="Rádios e conectividade"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0m-10 4a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1"/></svg><span>Rede</span></button>
             <button type="button" data-control-panel="battery" title="Simular carga e restaurar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4M6 10v4m4-4v4m4-4v4"/></svg><span>Bateria</span></button>
@@ -119,7 +119,7 @@
             <button type="button" data-control-panel="system" title="Teclas e navegação Android"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></svg><span>Sistema</span></button>
             <button type="button" data-device-key="home" title="Tela inicial"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v11h-7v-7h-4v7H3Z"/></svg><span>Home</span></button>
             <button type="button" data-device-key="recents" title="Aplicativos recentes"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 5v14"/></svg><span>Recentes</span></button>
-            <button type="button" id="quickScreenshot" title="Salvar evidência de tela"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V2h6v2M8 10h8m-8 5h8"/></svg><span>Screenshot</span></button>
+            <button type="button" id="quickScreenshot" title="Salvar evidência e baixar JPEG"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V2h6v2M8 10h8m-8 5h8"/></svg><span>Screenshot JPEG</span></button>
             <button type="button" data-tool-shortcut="proxy" title="Abrir captura e requisições"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/></svg><span>Proxy</span></button>
             <button type="button" data-tool-shortcut="frida" title="Abrir instrumentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 6 0m-5 0v6l-6 10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2L14 9V3M8 15h8"/></svg><span>Frida</span></button>
           </div>
@@ -283,7 +283,7 @@
 
   <dialog id="fixtureDialog">
     <form method="dialog" class="dialog-shell">
-      <header><div><span class="eyebrow">FIXTURE CONTROLADA</span><h2 id="fixtureTitle">Biometria do device</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
+      <header><div><span class="eyebrow" id="fixtureEyebrow">SENSOR VIRTUAL</span><h2 id="fixtureTitle">Digital do Android</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
       <section class="device-biometric" id="deviceBiometric">
         <div class="face-status" id="biometricStatus" role="status">Consultando capacidade do Android…</div>
         <p class="privacy-note">O Android Emulator recebe toques no sensor virtual. O Android e o app decidem o resultado; não há alteração do código de autenticação.</p>
@@ -299,7 +299,8 @@
           <button type="button" data-biometric="too-fast" disabled title="O console nativo do Android Emulator não oferece este cenário">Rápido demais</button>
         </div>
       </section>
-      <section class="face-recognition" id="faceRecognition" hidden><div class="camera-device-action"><button type="button" class="outline" id="openAndroidCamera">Abrir câmera Android</button><p class="privacy-note">A câmera Android usa o sensor emulado do AVD. A fixture facial abaixo funciona no navegador e não injeta imagem na câmera do app.</p></div>
+      <section class="face-recognition" id="faceRecognition" hidden><div class="camera-device-action"><p class="privacy-note">Para o segundo fator por selfie ou reconhecimento facial, abra a câmera dentro do app. O HuntMob pode oferecer a webcam do computador como câmera frontal do Android; o app decide a autenticação.</p><p class="face-status" id="cameraSourceStatus" role="status">Verificando webcam do worker…</p><div class="camera-source-actions"><button type="button" class="primary" id="useHostWebcam" disabled>Usar webcam no app · reiniciar Android</button><button type="button" class="outline" id="useEmulatedCamera" disabled>Voltar à câmera emulada</button><button type="button" class="outline" id="openAndroidCamera">Testar câmera Android</button></div><p class="privacy-note">Trocar a fonte reinicia somente o Android atual. Abra novamente o fluxo de câmera no app após o boot. A webcam precisa estar disponível e liberada pelo sistema operacional.</p></div>
+      <details class="browser-face-demo"><summary>Teste facial separado no navegador</summary><p class="privacy-note">Este teste usa a webcam no navegador e não envia vídeo ao app Android.</p>
       <div class="camera-box"><video id="cameraPreview" autoplay playsinline muted></video><canvas id="faceOverlay" aria-hidden="true"></canvas><div id="cameraPlaceholder"><span>◎</span><p>A webcam só será ativada após sua confirmação.</p></div></div>
       <div class="face-status" id="faceStatus" role="status">Motor facial inativo</div>
       <p class="privacy-note">O reconhecimento roda neste navegador. A imagem não é enviada e o embedding fica somente na memória até fechar esta janela.</p>
@@ -307,13 +308,14 @@
         <button type="button" id="enrollFace" disabled>Cadastrar rosto da sessão</button>
         <button type="button" id="verifyFace" class="primary" disabled>Reconhecer agora</button>
       </div>
-      <small class="fixture-label">INJEÇÃO MANUAL PARA TESTES DE ERRO</small>
+      <small class="fixture-label">RESULTADO APENAS DESTA DEMONSTRAÇÃO</small>
       <div class="fixture-options">
         <button value="match" data-result="match">Reconhecimento aprovado</button>
         <button value="no-match" data-result="no-match">Não reconhecido</button>
         <button value="cancel" data-result="cancel">Usuário cancelou</button>
       </div>
       <button type="button" class="primary full" id="enableCamera">Ativar webcam</button>
+      </details>
       </section>
     </form>
   </dialog>
@@ -352,9 +354,10 @@
   </dialog>
   <dialog id="sessionDialog">
     <form method="dialog" class="dialog-shell">
-      <header><div><span class="eyebrow">SESSÃO DO DEVICE</span><h2>Encerrar laboratório?</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
-      <p class="privacy-note">Desligar preserva aplicativos e dados. Encerrar e descartar apaga definitivamente o AVD desta sessão.</p>
-      <div class="session-actions"><button value="cancel" class="outline">Cancelar</button><button type="button" id="powerOffDevice" class="outline">Desligar e preservar</button><button type="button" id="destroyDevice" class="stop">Encerrar e descartar tudo</button></div>
+      <header><div><span class="eyebrow">LABORATÓRIO ATUAL</span><h2>Desligar aparelho?</h2></div><button value="cancel" aria-label="Fechar">×</button></header>
+      <p class="privacy-note" id="sessionDialogNote">Escolha se deseja guardar este laboratório para retomar depois.</p>
+      <div class="form-error" id="sessionError" role="alert" hidden></div>
+      <div class="session-actions"><button value="cancel" class="outline">Cancelar</button><button type="button" id="powerOffDevice" class="outline">Salvar e desligar</button><button type="button" id="destroyDevice" class="stop">Desligar sem salvar</button></div>
     </form>
   </dialog>
   <dialog id="viewerDialog"><form method="dialog" class="dialog-shell"><header><div><span class="eyebrow">DISPOSITIVO EM JANELA</span><h2>HuntMob Viewer</h2></div><button value="cancel" aria-label="Fechar viewer">×</button></header><p class="privacy-note">Visualiza a sessão deste worker. O emulador continua no computador ligado; o viewer não executa uma VM local.</p><div class="control-presets"><button type="button" id="openBrowserViewer" class="primary">Abrir no navegador</button><a id="openNativeViewer" class="outline">Abrir aplicativo instalado</a></div><p class="privacy-note">Baixe o pacote do seu sistema, extraia e abra HuntMob Viewer. Em outro computador, conecte pelo endereço HTTPS do Tailscale.</p><div id="viewerDownloads"></div><p id="viewerStatus" role="status">Consultando pacotes…</p><details><summary>Validar este aparelho</summary><p class="privacy-note">Mede acesso ao worker e verifica a imagem exibida. Toque, arraste e teclado precisam ser exercitados manualmente. O resultado fica neste navegador até você baixar o JSON.</p><div class="control-presets"><button type="button" id="checkClientConnection" class="outline">Testar conexão</button><button type="button" id="exportClientCheck" class="outline" disabled>Baixar resultado</button></div><p id="clientCheckStatus" role="status">Teste ainda não executado neste aparelho.</p></details></form></dialog>
@@ -373,16 +376,16 @@
   <script src="screen-geometry.js?v=runtime-58-workspace"></script>
   <script src="ios-video.js?v=runtime-58-workspace"></script>
   <script src="ios-models.js?v=runtime-61-root-models"></script>
-  <script src="ios.js?v=runtime-68-android16"></script>
+  <script src="ios.js?v=runtime-72-lab-lifecycle"></script>
   <script src="video.js?v=runtime-58-workspace"></script>
   <script src="device-sidebar.js?v=runtime-64-same-avd-root"></script>
-  <script src="app.js?v=runtime-71-rea-results"></script>
+  <script src="app.js?v=runtime-75-screenshot-jpeg"></script>
   <script src="reverse-engines.js?v=runtime-71-rea-results"></script>
   <script src="ios-runtimes.js?v=runtime-58-workspace"></script>
   <script src="workspace-devices.js?v=runtime-68-android16"></script>
-  <script src="workspace-canvas.js?v=runtime-69-visible-device"></script>
+  <script src="workspace-canvas.js?v=runtime-72-lab-lifecycle"></script>
   <script src="device-drop.js?v=runtime-70-device-drop"></script>
-  <script src="device-tools.js?v=runtime-67-app-root"></script>
+  <script src="device-tools.js?v=runtime-72-lab-lifecycle"></script>
   <script src="remote.js?v=runtime-42"></script>
   <script src="viewer.js?v=runtime-42"></script>
   <script src="client-validation.js?v=runtime-42"></script>

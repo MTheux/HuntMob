@@ -174,6 +174,8 @@ def update_presentation(workspace_id, items):
 
 
 def stop_many(workspace_id, identities):
+    if isinstance(identities, list) and workspace_id in identities:
+        return {'ok': False, 'reason': 'Use Salvar e desligar ou Desligar sem salvar para o aparelho principal.'}
     if not LAB_LOCK.acquire(blocking=False): return {'ok': False, 'reason': 'Aguarde a operação de laboratório em andamento.'}
     try:
         members = _members(workspace_id, identities)

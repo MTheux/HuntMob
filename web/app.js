@@ -18,6 +18,18 @@ let csrfToken;
 let runtimeLoading = false;
 let runtimeWasOnline = false;
 let activeLab = {};
+let labLifecycleBusy = false;
+function labIsSaved(lab = activeLab) {
+  return !!lab?.id && (!Object.hasOwn(lab, 'saved_at') || lab.saved_at !== null);
+}
+function syncLabLifecycleButtons() {
+  const available = devicePlatform === 'android' && !!activeLab.id && !labLifecycleBusy;
+  const saveButton = document.querySelector('#saveLabButton');
+  const closeButton = document.querySelector('#closeLabButton');
+  saveButton.disabled = !available || labIsSaved();
+  saveButton.textContent = labIsSaved() ? 'Lab salvo' : 'Salvar laboratório';
+  closeButton.disabled = !available;
+}
 function renderEngagement(lab) {
   // Project metadata remains in the lab profile; no placeholder in the header.
 }
@@ -242,6 +254,7 @@ async function loadRuntime() {
       return;
     }
     activeLab = payload.lab || {};
+    syncLabLifecycleButtons();
     renderEngagement(activeLab);
     const verification = activeLab.root_verification;
     document.querySelector('#rootProfileStatus').textContent = verification?.verified ? (activeLab.root_mode==='stock' ? 'Google Play · ADB root indisponível' : 'AOSP · ADB root alternável em Controles') : 'Imagem ainda não verificada';
@@ -454,12 +467,68 @@ document.querySelectorAll('.file').forEach((file) => file.addEventListener('clic
 document.querySelectorAll('[data-panel]').forEach((button) => button.addEventListener('click', () => {
   if(window.huntmobTools?.isIos() && button.dataset.panel==='biometric'){openIosBiometrics();return;}
   const camera = button.dataset.panel === 'camera';
-  document.querySelector('#fixtureTitle').textContent = camera ? 'Câmera e fixture facial' : 'Biometria do device';
+  document.querySelector('#fixtureEyebrow').textContent = camera ? 'CÂMERA DO APP' : 'SENSOR VIRTUAL';
+  document.querySelector('#fixtureTitle').textContent = camera ? 'Câmera do app · biometria facial' : 'Digital do Android';
   document.querySelector('#deviceBiometric').hidden = camera;
   document.querySelector('#faceRecognition').hidden = !camera;
   dialog.showModal();
   if(!camera)window.huntmobBiometrics?.refresh();
+  else refreshCameraSource();
 }));
+
+let cameraSourceBusy = false;
+async function refreshCameraSource() {
+  const status = document.querySelector('#cameraSourceStatus');
+  const useHost = document.querySelector('#useHostWebcam');
+  const useEmulated = document.querySelector('#useEmulatedCamera');
+  if (devicePlatform !== 'android' || !activeLab.id) {
+    status.textContent = 'Selecione o Android principal deste laboratório.';
+    useHost.disabled = true; useEmulated.disabled = true;
+    return;
+  }
+  const labId = activeLab.id;
+  status.textContent = 'Verificando webcam do worker nativo…';
+  try {
+    const result = await deviceAction('front-camera-status', {lab_id: labId});
+    if (labId !== activeLab.id || !dialog.open || document.querySelector('#faceRecognition').hidden) return;
+    status.textContent = result.applied ? 'Webcam selecionada no boot do Android. Abra o segundo fator no app e confira o vídeo e o resultado nele.'
+      : result.configured ? 'Webcam selecionada; reinício ainda não confirmado. Tente aplicar novamente.'
+      : result.available ? 'Webcam detectada no worker. Ative para oferecê-la à câmera frontal do app.' : result.reason;
+    status.className = 'face-status' + (result.applied ? ' ready' : '');
+    useHost.disabled = cameraSourceBusy || !result.available || result.applied;
+    useEmulated.disabled = cameraSourceBusy || !result.configured;
+  } catch (error) {
+    status.textContent = error.message;
+    status.className = 'face-status error';
+    useHost.disabled = true; useEmulated.disabled = true;
+  }
+}
+async function setCameraSource(useWebcam) {
+  if (cameraSourceBusy || !activeLab.id || devicePlatform !== 'android') return;
+  const labId = activeLab.id;
+  cameraSourceBusy = true;
+  const status = document.querySelector('#cameraSourceStatus');
+  document.querySelector('#useHostWebcam').disabled = true;
+  document.querySelector('#useEmulatedCamera').disabled = true;
+  status.textContent = 'Reiniciando o Android atual para trocar a câmera frontal…';
+  try {
+    const result = await deviceAction('front-camera-source', {lab_id: labId, use_webcam: useWebcam});
+    if (labId !== activeLab.id) return;
+    stopDeviceScreen();
+    await loadRuntime();
+    status.textContent = result.message + ' O resultado do segundo fator precisa ser confirmado no app.';
+    status.className = 'face-status ready';
+    notify(result.message);
+  } catch (error) {
+    status.textContent = error.message;
+    status.className = 'face-status error';
+  } finally {
+    cameraSourceBusy = false;
+    if (status.className !== 'face-status error') await refreshCameraSource();
+  }
+}
+document.querySelector('#useHostWebcam').addEventListener('click', () => setCameraSource(true));
+document.querySelector('#useEmulatedCamera').addEventListener('click', () => setCameraSource(false));
 
 
 document.querySelector('#enableCamera').addEventListener('click', async () => {
@@ -1171,17 +1240,58 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
   }
 });
 const sessionDialog = document.querySelector('#sessionDialog');
-document.querySelector('#stopDevice').addEventListener('click', () => sessionDialog.showModal());
+let dialogLabId = '';
+function openLabShutdown() {
+  if (devicePlatform !== 'android' || !activeLab.id || labLifecycleBusy) return;
+  dialogLabId = activeLab.id;
+  document.querySelector('#sessionError').hidden = true;
+  document.querySelector('#sessionDialogNote').textContent = labIsSaved()
+    ? 'Este lab já está salvo. Desligar mantém apps e dados para retomada. Descartar apaga apenas o AVD e os dados deste lab.'
+    : 'Salvar e desligar guarda apps e dados para retomada. Desligar sem salvar apaga o AVD e os dados deste lab.';
+  document.querySelector('#powerOffDevice').textContent = labIsSaved() ? 'Desligar e preservar' : 'Salvar e desligar';
+  document.querySelector('#destroyDevice').textContent = labIsSaved() ? 'Descartar este lab' : 'Desligar sem salvar';
+  sessionDialog.showModal();
+}
+document.querySelector('#stopDevice').addEventListener('click', openLabShutdown);
+document.querySelector('#closeLabButton').addEventListener('click', openLabShutdown);
+document.querySelector('#saveLabButton').addEventListener('click', async () => {
+  if (labLifecycleBusy || devicePlatform !== 'android' || !activeLab.id || labIsSaved()) return;
+  const labId = activeLab.id;
+  labLifecycleBusy = true; syncLabLifecycleButtons();
+  try {
+    await deviceAction('save-lab', {lab_id: labId});
+    await loadRuntime(); await loadSavedLabs();
+    notify('Laboratório salvo; aparelho continua ligado');
+  } catch (error) { notify(error.message); }
+  finally { labLifecycleBusy = false; syncLabLifecycleButtons(); }
+});
 document.querySelector('#rebootDevice').addEventListener('click', async () => {
   notify('Reiniciando Android…');
   try { await deviceAction('reboot'); await loadRuntime(); notify('Android reiniciado'); } catch (error) { notify(error.message); }
 });
-document.querySelector('#powerOffDevice').addEventListener('click', async () => {
-  try { await deviceAction('stop'); sessionDialog.close(); window.clearInterval(screenTimer); await loadRuntime(); notify('Device desligado; dados preservados'); } catch (error) { notify(error.message); }
-});
-document.querySelector('#destroyDevice').addEventListener('click', async () => {
-  try { await deviceAction('destroy'); sessionDialog.close(); window.clearInterval(screenTimer); await loadRuntime(); notify('Sessão e dados do AVD foram descartados'); } catch (error) { notify(error.message); }
-});
+async function finishLabShutdown(action) {
+  if (labLifecycleBusy || !dialogLabId || dialogLabId !== activeLab.id) return;
+  labLifecycleBusy = true; syncLabLifecycleButtons();
+  document.querySelector('#powerOffDevice').disabled = true;
+  document.querySelector('#destroyDevice').disabled = true;
+  try {
+    await deviceAction(action, {lab_id: dialogLabId});
+    sessionDialog.close(); dialogLabId = '';
+    stopDeviceScreen();
+    await loadRuntime(); await loadSavedLabs(); await loadWorkspaceDevices();
+    notify(action === 'save-stop' ? 'Lab salvo; aparelho desligado' : 'Lab atual e seus dados descartados');
+  } catch (error) {
+    const box = document.querySelector('#sessionError');
+    box.textContent = error.message; box.hidden = false;
+  } finally {
+    labLifecycleBusy = false;
+    document.querySelector('#powerOffDevice').disabled = false;
+    document.querySelector('#destroyDevice').disabled = false;
+    syncLabLifecycleButtons();
+  }
+}
+document.querySelector('#powerOffDevice').addEventListener('click', () => finishLabShutdown('save-stop'));
+document.querySelector('#destroyDevice').addEventListener('click', () => finishLabShutdown('discard-lab'));
 loadRuntime();
 refreshProxyStatus();
 window.setInterval(loadRuntime, 2500);
@@ -1303,6 +1413,37 @@ document.querySelector('#captureEvidence').addEventListener('click', async () =>
   } catch (error) { notify(error.message); }
   finally { button.disabled = runtimeDevice?.state !== 'on'; }
 });
+async function downloadEvidenceJpeg(record) {
+  if (!/^ev_[a-f0-9]{32}$/.test(record?.id)) throw new Error('Identificador da captura inválido.');
+  const response = await fetch('/api/evidence/image/' + record.id, {cache: 'no-store', signal: AbortSignal.timeout(15000)});
+  if (!response.ok) throw new Error('Não foi possível ler a captura salva.');
+  const png = await response.blob();
+  if (png.type !== 'image/png') throw new Error('Formato de captura inesperado.');
+  const sourceUrl = URL.createObjectURL(png);
+  let image;
+  try {
+    image = new Image();
+    image.src = sourceUrl;
+    await image.decode();
+    if (!image.naturalWidth || !image.naturalHeight) throw new Error('Captura vazia.');
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    canvas.getContext('2d').drawImage(image, 0, 0);
+    const jpeg = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    if (!jpeg || jpeg.type !== 'image/jpeg') throw new Error('Não foi possível gerar JPEG.');
+    const downloadUrl = URL.createObjectURL(jpeg);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `huntmob-screenshot-${record.id}.jpg`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 30000);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
 document.querySelector('.top-actions .icon-button').addEventListener('click', () => document.querySelector('[data-tab="evidence"]').click());
 loadEvidence();
 
@@ -1548,7 +1689,26 @@ document.querySelectorAll('[data-control-action]').forEach(button => button.addE
 }));
 document.querySelectorAll('[data-device-key]').forEach(button => button.addEventListener('click', () => applyDeviceControl({action:button.dataset.deviceKey})));
 document.querySelectorAll('[data-tool-shortcut]').forEach(button => button.addEventListener('click', () => { if (controlDialog.open) controlDialog.close(); document.querySelector(`[data-tab="${button.dataset.toolShortcut}"]`).click(); }));
-document.querySelector('#quickScreenshot').addEventListener('click', () => document.querySelector('#captureEvidence').click());
+let screenshotBusy = false;
+document.querySelector('#quickScreenshot').addEventListener('click', async () => {
+  if (screenshotBusy) return;
+  screenshotBusy = true;
+  const button = document.querySelector('#quickScreenshot');
+  button.disabled = true;
+  try {
+    const result = devicePlatform === 'ios'
+      ? await authorizedPost('/api/ios/action', {action: 'capture'})
+      : await authorizedPost('/api/evidence/capture', {package_id: currentSelectedPackage});
+    await downloadEvidenceJpeg(result.record);
+    await loadEvidence();
+    notify('JPEG baixado; captura preservada nas evidências.');
+  } catch (error) {
+    notify(error.message);
+  } finally {
+    screenshotBusy = false;
+    button.disabled = runtimeDevice?.state !== 'on';
+  }
+});
 document.querySelectorAll('[data-report-section]').forEach(button => button.addEventListener('click', () => { const target = document.getElementById(button.dataset.reportSection); if (target.closest('details')) target.closest('details').open = true; target.scrollIntoView({block:'nearest',behavior:'smooth'}); }));
 tabs.forEach((tab,index) => { tab.tabIndex = tab.classList.contains('active') ? 0 : -1; tab.addEventListener('keydown', event => { if (!['ArrowRight','ArrowLeft','Home','End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; tabs[next].click(); tabs[next].focus(); }); });
 

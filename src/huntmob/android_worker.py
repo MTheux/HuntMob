@@ -306,9 +306,12 @@ class AndroidWorker:
         log_path = log_dir / ("android-" + self.avd_name + ".log")
         log = log_path.open("a", encoding="utf-8")
         log_offset = log.tell()
+        from .lab_sessions import current
+        lab = current()
+        camera = ('-camera-front', 'webcam0') if lab.get('id') == self.avd_name and lab.get('camera_front') == 'webcam0' else ()
         command = (
             str(self.sdk.emulator), f"@{self.avd_name}", *(("-writable-system",) if self.android_api == 30 else ()), "-no-window", "-no-audio",
-            "-no-boot-anim", "-port", self.port, "-no-snapshot-save",
+            "-no-boot-anim", "-port", self.port, "-no-snapshot-save", *camera,
         )
         # A device already visible to ADB may still be booting; never launch it twice.
         process = None

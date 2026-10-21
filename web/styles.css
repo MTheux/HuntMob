@@ -297,6 +297,16 @@
 .root-progress{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:28px;text-align:center;border-radius:23px;background:rgba(9,10,13,.94);backdrop-filter:blur(8px)}.root-progress[hidden]{display:none}.root-progress strong{font-size:14px;line-height:1.3}.root-progress small{font:10px/1.5 var(--mono);color:var(--muted)}.root-progress-spinner{width:38px;height:38px;border:2px solid #43c78444;border-top-color:var(--green);border-radius:50%;animation:root-progress-spin .8s linear infinite}@keyframes root-progress-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.root-progress-spinner{animation:none;border-color:var(--green)}}
 .device-drop-overlay{position:absolute;z-index:12;inset:12px;pointer-events:none;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;padding:20px;border:2px dashed var(--green);border-radius:12px;background:rgba(8,12,11,.88);text-align:center;box-shadow:0 14px 50px #0008}.device-drop-overlay[hidden]{display:none}.device-drop-overlay strong{font-size:17px}.device-drop-overlay span{max-width:310px;color:var(--muted);font:11px/1.5 var(--mono)}.device-drop-overlay.drop-error{border-color:var(--red)}.device-drop-overlay.drop-done{border-color:var(--green)}.stage-toolbar #chooseDeviceFile{white-space:nowrap}
 #newLabDialog #createLab:disabled{opacity:.4;cursor:not-allowed}
+#saveLabButton,#closeLabButton{white-space:nowrap;font-size:11px;padding:7px 10px}
+#saveLabButton:not(:disabled){border-color:rgba(67,199,132,.45);color:var(--green)}
+#closeLabButton{background:var(--red-dim);border-color:rgba(231,39,74,.35);color:var(--red)}
+#sessionDialog .session-actions{flex-wrap:wrap}
+#fixtureDialog{max-height:calc(100dvh - 32px);overflow:auto}
+#fixtureDialog .camera-device-action{display:grid;gap:10px}
+#fixtureDialog .camera-source-actions{display:flex;flex-wrap:wrap;gap:7px}
+#fixtureDialog .camera-source-actions button{font-size:11px}
+#fixtureDialog .browser-face-demo{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+#fixtureDialog .browser-face-demo summary{cursor:pointer;color:var(--muted);font-size:11px}
 
 /* REA: show the meaning of evidence before the provider's raw JSON. */
 #tab-reverse .reverse-engines{padding:22px;margin:18px 0 22px;background:#141418;border-color:#32323a;border-radius:9px}

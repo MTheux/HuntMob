@@ -2,11 +2,20 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
-from huntmob.dynamic_runtime import DynamicRuntime, scope
+from unittest.mock import MagicMock, patch
+from huntmob.dynamic_runtime import DynamicRuntime, frida_server_ready, scope
 
 
 class DynamicTests(unittest.TestCase):
+    @patch('huntmob.dynamic_runtime._run')
+    def test_frida_readiness_uses_protocol_instead_of_process_name(self, run):
+        run.return_value.returncode=0
+        device=MagicMock();frida=MagicMock()
+        frida.get_device_manager.return_value.add_remote_device.return_value=device
+        self.assertTrue(frida_server_ready(('adb','-s','emulator-5556'),frida))
+        device.enumerate_processes.assert_called_once_with()
+        self.assertEqual(run.call_args.args[0][-3:],('forward','tcp:27052','tcp:27042'))
+
     def test_cannot_instrument_an_unbound_package(self):
         with patch('huntmob.dynamic_runtime.current',return_value={'id':'lab','package_id':'com.lab.app','apk_sha256':'hash'}):
             with self.assertRaises(ValueError):scope('com.other.app')

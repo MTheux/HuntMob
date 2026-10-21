@@ -22,6 +22,22 @@ MAX_EVENT_BYTES = 2 * 1024 * 1024
 MAX_SESSION_SECONDS = 30 * 60
 
 
+def frida_server_ready(command, frida_module):
+    """Probe the Frida protocol; Android's pidof may hide long process names."""
+    forwarded = _run(command + ('forward', f'tcp:{FORWARD_PORT}', 'tcp:27042'), timeout=5)
+    if forwarded.returncode:
+        return False
+    try:
+        device = frida_module.get_device_manager().add_remote_device(f'127.0.0.1:{FORWARD_PORT}')
+        device.enumerate_processes()
+        return True
+    except Exception as error:
+        transport_error = getattr(frida_module, 'TransportError', ())
+        if transport_error and isinstance(error, transport_error):
+            return False
+        return False
+
+
 def private_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = path.with_name(path.name + '.' + uuid4().hex)
@@ -129,8 +145,7 @@ class DynamicRuntime:
             return {'ok': False, 'reason': 'Cache Frida com hash ou arquitetura divergente. Prepare o runtime novamente.'}
         command = (str(worker.sdk.adb), '-s', worker.serial)
         remote = '/data/local/tmp/huntmob-frida-server'
-        running = _run(command + ('shell', 'pidof', 'huntmob-frida-server'), timeout=5)
-        if running.stdout.strip():
+        if frida_server_ready(command, frida):
             check = _run(command + ('shell', remote, '--version'), timeout=5)
             if check.stdout.strip() == version:
                 return {'ok': True, 'version': version, 'architecture': arch, 'transport': 'server'}
@@ -140,12 +155,16 @@ class DynamicRuntime:
             if result.returncode: return {'ok': False, 'reason': 'Não foi possível preparar o servidor Frida.'}
         checked = _run(command + ('shell', remote, '--version'), timeout=10)
         if checked.stdout.strip() != version: return {'ok': False, 'reason': 'Versão do servidor Frida diverge do cliente.'}
-        launched = _run(command + ('shell', "su 0 /data/local/tmp/huntmob-frida-server -D -l 127.0.0.1:27042 >/dev/null 2>&1 </dev/null"), timeout=10)
+        # adb's shell service joins argv differently from a local shell. Keep
+        # this constant command as one remote expression so `sh -c` receives
+        # the daemon invocation instead of only the first token.
+        launch_command = f"su 0 sh -c 'exec {remote} -D -l 127.0.0.1:27042 >/dev/null 2>&1 </dev/null'"
+        launched = _run(command + ('shell', launch_command), timeout=10)
         if launched.returncode:
             return {'ok': False, 'reason': 'Servidor Frida não iniciou; outro worker pode estar usando a porta 27042.'}
         # `--daemonize` may return success even when the child crashes during startup.
         for _ in range(5):
-            if _run(command + ('shell', 'pidof', 'huntmob-frida-server'), timeout=5).stdout.strip():
+            if frida_server_ready(command, frida):
                 break
             time.sleep(0.2)
         else:

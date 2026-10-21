@@ -26,6 +26,7 @@ def _stream(relay_snapshot, online):
         "width": relay_snapshot.get("width"),
         "height": relay_snapshot.get("height"),
         "error": bool(relay_snapshot.get("error")),
+        "telemetry": relay_snapshot.get("telemetry", {}),
     }
 
 

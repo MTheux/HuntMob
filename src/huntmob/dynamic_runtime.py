@@ -18,6 +18,8 @@ from .network_capture import redact, visible_snapshot
 
 OBSERVERS = {'tls-observe', 'biometric-monitor', 'root-detection-observe', 'webview-observe', 'crypto-observe', 'file-observe'}
 FORWARD_PORT = 27052
+MAX_EVENT_BYTES = 2 * 1024 * 1024
+MAX_SESSION_SECONDS = 30 * 60
 
 
 def private_json(path, value):
@@ -41,6 +43,7 @@ class DynamicRuntime:
         self.session = self.agent = self.device = None
         self.receipt = None
         self.events = []
+        self.event_bytes = 0
         self.operation_lock = threading.Lock()
         self.preparing = False
         self.ready = threading.Event()
@@ -67,18 +70,24 @@ class DynamicRuntime:
         with self.lock:
             if not self.receipt:
                 return
+            if time.time() - self.receipt.get('started_epoch', time.time()) > MAX_SESSION_SECONDS:
+                self.receipt['dropped_event_count'] = self.receipt.get('dropped_event_count', 0) + 1
+                return
             # Strict metadata schema. No arbitrary message strings, buffers or credentials.
             allowed = {'script', 'kind', 'class_name', 'method', 'overloads', 'scheme', 'hostname', 'algorithm', 'integrity_indicator', 'java_available', 'scripts', 'reason_code'}
             cleaned = {key: value for key, value in payload.items() if key in allowed and isinstance(value, (str, bool, int, list))}
             for key, value in list(cleaned.items()):
                 if isinstance(value, str): cleaned[key] = value[:160]
             event = {'at': datetime.now(timezone.utc).isoformat(), 'job_id': self.receipt['id'], **redact(cleaned)}
-            if len(self.events) >= 4000:
+            encoded = json.dumps(event, ensure_ascii=False).encode()
+            if len(self.events) >= 4000 or self.event_bytes + len(encoded) > MAX_EVENT_BYTES:
+                self.receipt['dropped_event_count'] = self.receipt.get('dropped_event_count', 0) + 1
                 return
             self.events.append(event)
+            self.event_bytes += len(encoded)
             folder = root() / self.receipt['lab_id']
             with os.fdopen(os.open(folder / (self.receipt['id'] + '.jsonl'), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), 'a') as output:
-                output.write(json.dumps(event, ensure_ascii=False) + '\n')
+                output.write(encoded.decode() + '\n')
             if event.get('kind') == 'agent_ready': self.ready.set()
 
     def persist(self):
@@ -182,7 +191,7 @@ class DynamicRuntime:
             forwarded = _run(command + ('forward', f'tcp:{FORWARD_PORT}', 'tcp:27042'), timeout=10)
             if forwarded.returncode: return {'ok': False, 'reason': 'Forward Frida indisponível.'}
             self.receipt = {'id': 'dyn_' + uuid4().hex, 'lab_id': lab['id'], 'package_id': package, 'apk_sha256': lab['apk_sha256'], 'scripts': selected, 'root_mode': lab.get('root_mode', 'root'), 'frida_version': frida.__version__, 'started_at': datetime.now(timezone.utc).isoformat(), 'started_epoch': time.time(), 'state': 'starting', 'finding_status': 'not_assessed'}
-            self.events = []; self.ready.clear(); self.persist()
+            self.events = []; self.event_bytes = 0; self.ready.clear(); self.persist()
             pid = None
             spawned = False
             try:

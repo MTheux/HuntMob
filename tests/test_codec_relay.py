@@ -18,6 +18,21 @@ class CodecRelayTests(unittest.TestCase):
         self.assertFalse(result['ok'])
         self.assertTrue(result['stale_session'])
 
+    def test_snapshot_exposes_bounded_stream_telemetry(self):
+        relay = CodecRelay()
+        relay.connection_attempts = 2
+        relay.reconnect_count = 1
+        relay.stall_count = 1
+        relay.first_frame_ms = 125.5
+        relay.queue_bytes = 4096
+        telemetry = relay.snapshot()['telemetry']
+        self.assertEqual(telemetry['connection_attempts'], 2)
+        self.assertEqual(telemetry['reconnect_count'], 1)
+        self.assertEqual(telemetry['stall_count'], 1)
+        self.assertEqual(telemetry['first_frame_ms'], 125.5)
+        self.assertEqual(telemetry['queue_bytes'], 4096)
+        self.assertGreater(telemetry['queue_limit_bytes'], telemetry['queue_bytes'])
+
     def relay(self):
         relay=CodecRelay();relay.target=('adb','emulator-5556',LAB);relay.width=648;relay.height=1440
         relay.control=unittest.mock.Mock();return relay

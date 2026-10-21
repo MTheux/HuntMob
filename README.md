@@ -128,6 +128,10 @@ O inventário do workspace publica também o contrato normalizado
 `huntmob.device-inventory/v1`, com capabilities explícitas e estados separados
 de lifecycle, stream e input. Consulte a
 [avaliação da infraestrutura do Expo Device Hub](docs/expo-device-hub-infrastructure-review-v1.0-2026-10-21.md).
+Os transports atuais publicam telemetria e possuem watchdog/budgets explícitos;
+o [ADR de WebRTC](docs/webrtc-transport-decision-v1.0-2026-10-21.md) mantém a
+troca desativada até que as métricas indiquem benefício e o piloto passe pelos
+gates de segurança e rollback.
 
 ## Limites
 

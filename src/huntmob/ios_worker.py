@@ -315,11 +315,10 @@ class IosRelay(ScreenRelay):
         self.target_lock = threading.Lock()
 
     def snapshot(self):
-        with self.condition:
-            return {'transport':'mjpeg','state':'stopped' if self.closing.is_set() else 'error' if self.error else 'running' if self.frame else 'idle',
-                    'frames':self.sequence,'frame_bytes':len(self.frame),'error':self.error,
-                    'producer_alive':bool(self.thread and self.thread.is_alive()),'generation':self.generation,
-                    'input_ready':bool(self.frame)}
+        value=super().snapshot()
+        value['state']='stopped' if self.closing.is_set() else value['state']
+        value['input_ready']=bool(self.frame)
+        return value
 
     def get_frame(self, client, udid, unused, after=-1, timeout=15):
         with self.target_lock:
@@ -331,14 +330,24 @@ class IosRelay(ScreenRelay):
     def _produce(self, client, udid, _unused):
         process=None
         try:
+          from .runtime_limits import MAX_STREAM_SECONDS, STREAM_STALL_SECONDS, stream_slot
+          with stream_slot():
+            attempt_started=time.monotonic()
+            with self.condition:
+                if self.connection_attempts:self.reconnect_count+=1
+                self.connection_attempts+=1;self.first_frame_ms=None;self.last_frame_at=0.0
             record=self.record_provider() if self.record_provider else owned()
             if udid!=record['udid']: raise ValueError('Simulator divergente.')
             ensure_companion(record,primary=self.record_provider is None)
             process=subprocess.Popen((client,'--companion',str(bridge_path(record)),'video-stream','--format','mjpeg','--fps','60','--scale-factor','.5','--compression-quality','.55'),stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,bufsize=0)
             buffer=bytearray()
             while not self.closing.is_set() and time.monotonic()-self.last_viewer<10:
+                if time.monotonic()-attempt_started>MAX_STREAM_SECONDS:raise TimeoutError('Vídeo iOS excedeu a duração máxima.')
                 if not select.select([process.stdout],[],[],1)[0]:
                     if process.poll() is not None: raise OSError('Vídeo iOS terminou.')
+                    if time.monotonic()-(self.last_frame_at or attempt_started)>STREAM_STALL_SECONDS:
+                        with self.condition:self.stall_count+=1
+                        raise TimeoutError('Vídeo iOS sem frames.')
                     continue
                 data=process.stdout.read(65536)
                 if not data: raise OSError('Vídeo iOS desconectado.')
@@ -346,8 +355,11 @@ class IosRelay(ScreenRelay):
                 if len(buffer)>8*1024*1024: raise ValueError('Frame iOS excedeu limite.')
                 frame=latest_jpeg(buffer)
                 if frame is not None:
-                    with self.condition: self.frame=frame;self.sequence+=1;self.condition.notify_all()
-        except (OSError,ValueError,subprocess.TimeoutExpired) as error:
+                    with self.condition:
+                        self.frame=frame;self.sequence+=1;self.last_frame_at=time.monotonic()
+                        if self.first_frame_ms is None:self.first_frame_ms=round((self.last_frame_at-attempt_started)*1000,1)
+                        self.condition.notify_all()
+        except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as error:
             with self.condition: self.error=str(error);self.condition.notify_all()
         finally:
             if process:

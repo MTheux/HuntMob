@@ -5,6 +5,7 @@ import select
 import subprocess
 import threading
 import time
+from .runtime_limits import MAX_STREAM_SECONDS, STREAM_STALL_SECONDS, stream_slot
 
 
 class ScreenRelay:
@@ -17,6 +18,21 @@ class ScreenRelay:
         self.error = ""
         self.closing = threading.Event()
         self.generation = 1
+        self.connection_attempts = 0
+        self.reconnect_count = 0
+        self.stall_count = 0
+        self.last_frame_at = 0.0
+        self.first_frame_ms = None
+
+    def snapshot(self):
+        with self.condition:
+            age = round(time.monotonic() - self.last_frame_at, 3) if self.last_frame_at else None
+            return {"transport": "mjpeg", "state": "error" if self.error else "running" if self.frame else "idle",
+                    "frames": self.sequence, "frame_bytes": len(self.frame), "error": self.error,
+                    "producer_alive": bool(self.thread and self.thread.is_alive()), "generation": self.generation,
+                    "input_ready": False, "telemetry": {"connection_attempts": self.connection_attempts,
+                    "reconnect_count": self.reconnect_count, "stall_count": self.stall_count,
+                    "first_frame_ms": self.first_frame_ms, "last_frame_age_seconds": age}}
 
     def shutdown(self):
         self.closing.set()
@@ -64,12 +80,22 @@ class ScreenRelay:
         recorder = decoder = None
         guest_pid = None
         try:
+          with stream_slot():
+            attempt_started = time.monotonic()
+            with self.condition:
+                if self.connection_attempts:
+                    self.reconnect_count += 1
+                self.connection_attempts += 1
+                self.first_frame_ms = None
+                self.last_frame_at = 0.0
             screenshot = subprocess.run((adb, "-s", serial, "exec-out", "screencap", "-p"), capture_output=True, timeout=10)
             seed = subprocess.run((ffmpeg, "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vf", "scale=540:1200", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"), input=screenshot.stdout, capture_output=True, timeout=5)
             if seed.returncode == 0 and seed.stdout:
                 with self.condition:
                     self.frame = seed.stdout
                     self.sequence += 1
+                    self.last_frame_at = time.monotonic()
+                    self.first_frame_ms = round((self.last_frame_at - attempt_started) * 1000, 1)
                     self.condition.notify_all()
             # The fixed command returns its own PID before the H264 stream, so
             # teardown can stop this recording without touching other tools.
@@ -95,9 +121,15 @@ class ScreenRelay:
             buffer = bytearray()
             last_frame = time.monotonic()
             while not self.closing.is_set() and time.monotonic() - self.last_viewer < 10:
+                if time.monotonic() - attempt_started > MAX_STREAM_SECONDS:
+                    raise TimeoutError("Android video session duration exceeded")
                 if not select.select([decoder.stdout], [], [], 1)[0]:
                     if decoder.poll() is not None or recorder.poll() is not None:
                         raise RuntimeError("Android video ended")
+                    if time.monotonic() - (self.last_frame_at or attempt_started) > STREAM_STALL_SECONDS:
+                        with self.condition:
+                            self.stall_count += 1
+                        raise TimeoutError("Android video stream stalled")
                     continue
                 chunk = decoder.stdout.read(65536)
                 if not chunk:
@@ -116,6 +148,9 @@ class ScreenRelay:
                         self.frame = frame
                         self.sequence += 1
                         last_frame = time.monotonic()
+                        self.last_frame_at = last_frame
+                        if self.first_frame_ms is None:
+                            self.first_frame_ms = round((last_frame - attempt_started) * 1000, 1)
                         self.condition.notify_all()
         except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.TimeoutExpired) as error:
             with self.condition:

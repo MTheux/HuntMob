@@ -29,6 +29,7 @@ function companionTile(device,workspace){
   const post=(action,extra={})=>authorizedPost('/api/workspace/device/action',{...identity,action,...extra,...(action==='input'?{session_generation:device.session_generation}:{})});
   async function sendTouch(event){
     if(event.phase==='move'&&queue.at(-1)?.phase==='move')queue[queue.length-1]=event;else queue.push(event);
+    if(queue.length>64){queue=[];cancel();status.textContent='Fila de entrada excedeu o limite; gesto cancelado.';return;}
     if(sending)return;sending=true;
     try{while(queue.length)await post('input',{input:{action:'touch',...queue.shift()}});}
     catch(error){queue=[];status.textContent=error.message;}

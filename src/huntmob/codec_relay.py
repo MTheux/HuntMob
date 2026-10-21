@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from .android_worker import _run
 from .lab_sessions import current
+from .runtime_limits import MAX_CODEC_QUEUE_BYTES, MAX_STREAM_SECONDS, STREAM_STALL_SECONDS, stream_slot
 
 VERSION='5.0.1'
 DIGEST='764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536'
@@ -60,6 +61,12 @@ class CodecRelay:
         self.started=0
         # Session generation invalidates delayed browser input after stop/restart.
         self.generation=1
+        self.connection_attempts=0
+        self.reconnect_count=0
+        self.stall_count=0
+        self.last_frame_at=0
+        self.first_frame_ms=None
+        self.queue_bytes=0
 
     def shutdown(self):
         self.closing.set()
@@ -70,7 +77,7 @@ class CodecRelay:
         self.shutdown()
         if self.thread and self.thread.is_alive(): raise RuntimeError('Previous video is still closing')
         with self.condition:
-            self.closing.clear();self.thread=None;self.packets=[];self.prefix=[];self.error='';self.control=None;self.target=None;self.generation+=1
+            self.closing.clear();self.thread=None;self.packets=[];self.prefix=[];self.error='';self.control=None;self.target=None;self.generation+=1;self.queue_bytes=0
 
     def get_packets(self, worker, after=None, timeout=8):
         lab=worker.avd_name
@@ -98,7 +105,9 @@ class CodecRelay:
 
     def snapshot(self):
         with self.condition:
-            return {'transport':'h264-webcodecs','state':'error' if self.error else 'running' if self.control else 'idle','width':self.width,'height':self.height,'frames':self.frames,'error':self.error,'gop_packets':len(self.packets),'generation':self.generation,'input_ready':bool(self.control)}
+            age=round(time.monotonic()-self.last_frame_at,3) if self.last_frame_at else None
+            return {'transport':'h264-webcodecs','state':'error' if self.error else 'running' if self.control else 'idle','width':self.width,'height':self.height,'frames':self.frames,'error':self.error,'gop_packets':len(self.packets),'generation':self.generation,'input_ready':bool(self.control),
+                    'telemetry':{'connection_attempts':self.connection_attempts,'reconnect_count':self.reconnect_count,'stall_count':self.stall_count,'first_frame_ms':self.first_frame_ms,'last_frame_age_seconds':age,'queue_bytes':self.queue_bytes,'queue_limit_bytes':MAX_CODEC_QUEUE_BYTES}}
 
     def input(self,payload):
         requested=payload.get('session_generation')
@@ -135,6 +144,11 @@ class CodecRelay:
         process=video=control=None
         remote='/data/local/tmp/huntmob-video-'+VERSION+'.jar'
         try:
+          with stream_slot():
+            attempt_started=time.monotonic()
+            with self.condition:
+                if self.connection_attempts:self.reconnect_count+=1
+                self.connection_attempts+=1;self.first_frame_ms=None;self.last_frame_at=0
             if _run(base+('emu','avd','name'),timeout=5).stdout.splitlines()[0]!=lab: raise ValueError('AVD não corresponde ao laboratório.')
             path=server_path()
             if _run(base+('push',str(path),remote),timeout=15).returncode: raise OSError('Video push failed')
@@ -165,26 +179,33 @@ class CodecRelay:
                 except OSError: pass
             threading.Thread(target=drain,daemon=True).start()
             while not self.closing.is_set() and time.monotonic()-self.last_viewer<10:
-                if not select.select([video],[],[],1)[0]: continue
+                if time.monotonic()-self.started>MAX_STREAM_SECONDS: raise TimeoutError('Video session duration exceeded')
+                if not select.select([video],[],[],1)[0]:
+                    last=self.last_frame_at or self.started
+                    if time.monotonic()-last>STREAM_STALL_SECONDS:
+                        with self.condition:self.stall_count+=1
+                        raise TimeoutError('Video stream stalled')
+                    continue
                 header=read_exact(video,12);flags,size=struct.unpack('>QI',header)
                 if flags & SESSION:
                     width,height=struct.unpack('>II',header[4:])
                     if not 0<width<=8192 or not 0<height<=8192: raise ValueError('Invalid video geometry')
                     with self.condition:
-                        self.width=width;self.height=height;self.prefix=[header];self.packets=[];self.config_sequence=self.sequence+1
+                        self.width=width;self.height=height;self.prefix=[header];self.packets=[];self.queue_bytes=len(header);self.config_sequence=self.sequence+1
                     continue
                 if size>4*1024*1024: raise ValueError('Video packet too large')
                 packet=header+read_exact(video,size)
                 with self.condition:
                     if flags & CONFIG:
-                        self.prefix=self.prefix[:1]+[packet];self.packets=[];self.config_sequence=self.sequence+1
+                        self.prefix=self.prefix[:1]+[packet];self.packets=[];self.queue_bytes=sum(len(item) for item in self.prefix);self.config_sequence=self.sequence+1
                     else:
-                        if flags & KEY: self.packets=[]
-                        self.sequence+=1;self.frames+=1;self.packets.append((self.sequence,packet))
-                        if len(self.packets)>240:
-                            raise ValueError('Video GOP exceeded bounded queue')
+                        if flags & KEY:self.packets=[];self.queue_bytes=sum(len(item) for item in self.prefix)
+                        self.sequence+=1;self.frames+=1;self.packets.append((self.sequence,packet));self.queue_bytes+=len(packet)
+                        now=time.monotonic();self.last_frame_at=now
+                        if self.first_frame_ms is None:self.first_frame_ms=round((now-attempt_started)*1000,1)
+                        if len(self.packets)>240 or self.queue_bytes>MAX_CODEC_QUEUE_BYTES:raise ValueError('Video GOP exceeded bounded queue')
                     self.condition.notify_all()
-        except (OSError,ValueError,IndexError,subprocess.TimeoutExpired) as error:
+        except (OSError,ValueError,IndexError,RuntimeError,subprocess.TimeoutExpired) as error:
             with self.condition: self.error=str(error);self.condition.notify_all()
         finally:
             with self.condition: self.control=None

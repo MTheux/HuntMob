@@ -208,10 +208,8 @@ def stop_many(workspace_id, identities):
                 target = worker(record) if record else AndroidWorker(avd_name=workspace_id)
                 if record: relay(record).restart()
                 else:
-                    from .codec_relay import CODEC_RELAY
-                    from .screen_relay import SCREEN_RELAY
-                    from .dynamic_runtime import DYNAMIC
-                    DYNAMIC.stop(); CODEC_RELAY.restart(); SCREEN_RELAY.restart()
+                    from .runtime_cleanup import cleanup_primary_session
+                    cleanup_primary_session(workspace_id)
                 result = target.stop()
                 if result.get('ok'):
                     deadline = time.monotonic() + 20

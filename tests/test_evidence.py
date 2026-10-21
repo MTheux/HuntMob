@@ -7,6 +7,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from huntmob.evidence import EvidenceStore
+from unittest.mock import patch
 
 
 class EvidenceTests(unittest.TestCase):
@@ -42,3 +43,26 @@ class EvidenceTests(unittest.TestCase):
     def test_identifiers_cannot_escape_store(self):
         with self.assertRaises(ValueError):
             self.store.export('../../file')
+
+    def test_failed_atomic_publish_leaves_no_partial_evidence_and_writes_receipt(self):
+        original = Path.replace
+
+        def fail_publish(path, target):
+            if path.name.startswith('.ev_'):
+                raise OSError('private disk detail')
+            return original(path, target)
+
+        with patch.object(Path, 'replace', fail_publish):
+            with self.assertRaises(OSError):
+                self.store.capture(self.png, serial='emulator-5556', lab_id='huntmob_lab_' + 'a' * 32)
+        inventory = self.store.inventory()
+        self.assertEqual(inventory['records'], [])
+        self.assertEqual(inventory['failure_receipts'][0]['reason_code'], 'atomic_publish_failed')
+        self.assertNotIn('private disk detail', json.dumps(inventory))
+        self.assertEqual(list(self.store.root.glob('.ev_*.tmp')), [])
+
+    def test_oversized_screenshot_is_rejected_before_storage(self):
+        with patch('huntmob.evidence.MAX_SCREENSHOT_BYTES', 8):
+            with self.assertRaises(ValueError):
+                self.store.capture(self.png, serial='emulator-5556')
+        self.assertFalse(self.store.root.exists())

@@ -36,11 +36,34 @@ from . import reverse_engines
 from .lab_sessions import inventory as lab_inventory, create_lab, create_play_lab, resume_lab, network_store, current as current_lab, change_root_profile, close_current_lab, save_current_lab, front_camera_status, set_front_camera
 from .android_worker import PACKAGE_ID
 from . import workspace_devices
+from .runtime_limits import CapacityExceeded, upload_slot
 
 
 LOOPBACKS = {"127.0.0.1", "::1", "localhost"}
 SESSION_TOKEN = secrets.token_urlsafe(32)
 VIDEO_SLOTS = threading.BoundedSemaphore(2)
+
+
+def receive_upload(handler, path: Path, length: int, *, maximum: int, deadline_seconds: int = 120) -> None:
+    """Receive one bounded upload with global concurrency and wall-clock limits."""
+    if not 0 < length <= maximum:
+        raise ValueError("invalid upload size")
+    previous_timeout = handler.connection.gettimeout()
+    try:
+        with upload_slot() as elapsed:
+            handler.connection.settimeout(15)
+            with path.open("wb") as output:
+                remaining = length
+                while remaining:
+                    if elapsed() > deadline_seconds:
+                        raise TimeoutError("upload deadline exceeded")
+                    chunk = handler.rfile.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError("upload interrupted")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+    finally:
+        handler.connection.settimeout(previous_timeout)
 
 
 def validate_bind(host: str, authorized_remote: bool) -> None:
@@ -505,21 +528,12 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                 device_id = self.headers.get('X-HuntMob-Device', '')
                 device_drop.target(workspace_id, device_id)
                 length = int(self.headers.get('Content-Length', '0'))
-                if not 0 < length <= 512 * 1024 * 1024:
-                    raise ValueError('Arquivo deve ter até 512 MB.')
                 with tempfile.TemporaryDirectory(prefix='huntmob-drop-') as folder:
                     path = Path(folder) / ('upload' + Path(name).suffix.lower())
-                    with path.open('wb') as output:
-                        remaining = length
-                        while remaining:
-                            chunk = self.rfile.read(min(1024 * 1024, remaining))
-                            if not chunk:
-                                raise ValueError('Upload interrompido.')
-                            output.write(chunk)
-                            remaining -= len(chunk)
+                    receive_upload(self, path, length, maximum=512 * 1024 * 1024)
                     worker = device_drop.target(workspace_id, device_id)
                     result = device_drop.deliver(worker, path, name, primary=device_id == workspace_id)
-            except (OSError, ValueError, TimeoutError, subprocess.TimeoutExpired) as error:
+            except (OSError, ValueError, TimeoutError, CapacityExceeded, subprocess.TimeoutExpired) as error:
                 result = {'ok': False, 'reason': str(error) if isinstance(error, ValueError) else 'Envio ao Android não concluído.'}
             self.workspace_json(result, 200 if result.get('ok') else 409)
             return
@@ -528,21 +542,15 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                 self.send_error(403); return
             try:
                 length = int(self.headers.get('Content-Length','0'))
-                if not 0 < length <= 512*1024*1024: raise ValueError('ZIP deve ter até 512 MB.')
                 with tempfile.TemporaryDirectory(prefix='huntmob-ios-upload-') as directory:
                     path = Path(directory)/'app.zip'
-                    with path.open('wb') as target:
-                        remaining = length
-                        while remaining:
-                            chunk = self.rfile.read(min(remaining,1024*1024))
-                            if not chunk: raise ValueError('Upload interrompido.')
-                            target.write(chunk); remaining -= len(chunk)
+                    receive_upload(self, path, length, maximum=512 * 1024 * 1024)
                     if route == '/api/ios/xtool/install':
                         from . import ios_xtool
                         result=ios_xtool.install(path,self.headers.get('X-HuntMob-Device',''))
                     else:
                         result = ios_static.inspect_ipa(path) if route == '/api/ios/analyze' else ios_worker.install_zip(path)
-            except (OSError, ValueError, subprocess.TimeoutExpired, __import__('zipfile').BadZipFile) as error:
+            except (OSError, ValueError, TimeoutError, CapacityExceeded, subprocess.TimeoutExpired, __import__('zipfile').BadZipFile) as error:
                 result = {'ok':False,'reason':str(error) if isinstance(error,ValueError) else 'Build iOS não instalado; confira ZIP e Simulator.'}
             body = json.dumps(result).encode(); self.send_response(200 if result.get('ok') else 409); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
             return
@@ -552,20 +560,11 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 512 * 1024 * 1024:
-                    raise ValueError()
                 with tempfile.TemporaryDirectory(prefix="huntmob-upload-") as folder:
                     apk = Path(folder) / "app.apk"
-                    with apk.open("wb") as output:
-                        remaining = length
-                        while remaining:
-                            chunk = self.rfile.read(min(1024 * 1024, remaining))
-                            if not chunk:
-                                raise ValueError()
-                            output.write(chunk)
-                            remaining -= len(chunk)
+                    receive_upload(self, apk, length, maximum=512 * 1024 * 1024)
                     result = AndroidWorker().upload_and_launch(apk, legacy_sdk=self.headers.get("X-HuntMob-Legacy-SDK") == "true", new_lab=self.headers.get("X-HuntMob-New-Lab") == "true", root_mode=self.headers.get("X-HuntMob-Root-Mode", "root"), android_api=int(self.headers.get('X-HuntMob-Android-API','35')), engagement=unquote(self.headers.get('X-HuntMob-Engagement','')))
-            except (ValueError, TimeoutError):
+            except (ValueError, TimeoutError, CapacityExceeded):
                 result = {"ok": False, "reason": "invalid upload or Android operation timed out"}
             body = json.dumps(result).encode()
             self.send_response(200 if result.get("ok") else 409)
@@ -768,14 +767,7 @@ def serve(
         except KeyboardInterrupt:
             pass
         finally:
-            from . import ios_proxy
-            ios_proxy.stop()
-            CODEC_RELAY.shutdown()
-            workspace_devices.shutdown()
-            reverse_engines.shutdown()
-            ios_worker.IOS_RELAY.shutdown()
-            ios_worker.close_input_bridge()
-            DYNAMIC.stop()
-            SCREEN_RELAY.shutdown()
+            from .runtime_cleanup import cleanup_all
+            cleanup_all()
             if old_handler is not None:
                 signal.signal(signal.SIGTERM, old_handler)

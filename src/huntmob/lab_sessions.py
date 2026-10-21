@@ -127,8 +127,6 @@ def inventory():
 
 def switch(worker, record):
     from .android_worker import AndroidWorker
-    from .screen_relay import SCREEN_RELAY
-    from .dynamic_runtime import DYNAMIC
     state = worker.status()
     active = current()
     if active and active.get('id') != record.get('id') and not is_saved(active):
@@ -139,10 +137,8 @@ def switch(worker, record):
     prerequisites=target.prerequisites()
     if not prerequisites.get('ready'):
         return {'ok':False,'reason':prerequisites.get('reason','Runtime do lab solicitado não está instalado; lab atual preservado.')}
-    DYNAMIC.stop()
-    SCREEN_RELAY.restart()
-    from .codec_relay import CODEC_RELAY
-    CODEC_RELAY.restart()
+    from .runtime_cleanup import cleanup_primary_session
+    cleanup_primary_session((active or {}).get('id', ''))
     if state.get('attached') or state.get('state') == 'device':
         stopped = worker.stop()
         if not stopped.get('ok'):
@@ -280,14 +276,8 @@ def close_current_lab(worker, expected_lab_id, *, preserve):
             result = worker.destroy()
             if not result.get('ok'):
                 return result
-        from .dynamic_runtime import DYNAMIC
-        from .screen_relay import SCREEN_RELAY
-        from .codec_relay import CODEC_RELAY
-        DYNAMIC.stop()
-        SCREEN_RELAY.restart()
-        CODEC_RELAY.restart()
-        from .managed_proxy import stop_for_lab
-        stop_for_lab(expected_lab_id)
+        from .runtime_cleanup import cleanup_primary_session
+        cleanup_primary_session(expected_lab_id)
         if preserve:
             record = {**record, 'saved_at': record.get('saved_at') or datetime.now(timezone.utc).isoformat()}
             save(record)

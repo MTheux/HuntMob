@@ -25,16 +25,19 @@ Reference reviewed: `expo/expo-device-hub` at commit
 5. Capabilities are explicit and platform-specific. iOS Simulator does not
    advertise Android root or Frida capability.
 
-## Next high-value adaptations
+## Follow-up implementation status
 
 | Priority | Expo pattern | HuntMob application | Gate |
 |---|---|---|---|
-| P1 | Atomic screenshot publication plus failure receipt | Write evidence to a temporary path, hash it, rename atomically and persist a sanitized failure receipt | EvidenceStore review |
-| P1 | Stream telemetry and stall watchdog | Track first-frame latency, last-frame age, reconnect count and decoder failures per device | Metrics contract |
-| P1 | Session-scoped cleanup | Central session owner closes video, input, proxy and analysis handles together | Lifecycle integration tests |
-| P2 | Typed capability modules | Load device controls only when their capability is declared and healthy | UI capability routing |
-| P2 | Bounded recording/upload queues | Apply byte, duration and concurrency budgets to evidence capture | Storage policy |
-| P3 | WebRTC transport | Evaluate only after the current H.264/MJPEG paths have telemetry; WebRTC adds signaling and TURN operational cost | Architecture decision record |
+| Status | Expo pattern | HuntMob application |
+|---|---|---|
+| Implemented | Atomic screenshot publication plus failure receipt | Staged private directory, fsync, atomic rename and sanitized receipt |
+| Implemented | Stream telemetry and stall watchdog | First-frame, frame age, reconnect, stall and queue metrics |
+| Implemented | Session-scoped cleanup | One coordinator closes video, input, proxy and analysis handles |
+| Implemented | Bounded queues | Stream, upload, evidence, dynamic-event and browser-input budgets |
+| Decided | WebRTC transport | Instrument-first ADR; disabled until measurable pilot gates are met |
+
+See [the WebRTC transport decision](webrtc-transport-decision-v1.0-2026-10-21.md).
 
 ## Security review by the six engines
 

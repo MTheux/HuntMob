@@ -185,3 +185,13 @@ Avaliação local do Companion: com REA e Ollama `hermes3:8b` prontos, conclua u
 inspeção REA e use **Avaliar com modelo local** no Reverse. A revisão exige ação
 explícita e permanece pendente de revisão humana. Veja a
 [validação local e limites de plataforma](docs/companion-local-model-platform-validation-v1.0-2026-10-16.md).
+
+Análise DAST profunda: depois de vincular um engagement autorizado, gerar um
+relatório DAST e concluir ao menos uma inspeção REA do mesmo APK/SHA256, use
+**Análise profunda com AI** na aba DAST. O motor correlaciona somente evidências
+atribuídas, usa o modelo Ollama local e mantém o resultado como revisão humana
+pendente. O contrato JEV valida as transições observáveis do workflow; o agente
+JEV não controla a tela Android baseada em vídeo/canvas. A organização por fases
+e gates foi informada pelo projeto MIT
+[Johnmelo/mobile-sec](https://github.com/Johnmelo/mobile-sec), sem incorporar seu
+código ou transformar saída de AI em finding confirmado.

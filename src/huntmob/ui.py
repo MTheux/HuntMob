@@ -26,7 +26,7 @@ from .codec_relay import CODEC_RELAY
 from . import ios_worker, ios_static, ios_native_readiness
 from .ios_identity import simulator_identity
 from .dynamic_runtime import DYNAMIC
-from . import native_dast
+from . import native_dast, deep_dast
 from .network_capture import clear_capture, visible_snapshot
 from .evidence import EvidenceStore
 from .screen_relay import SCREEN_RELAY
@@ -104,6 +104,9 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             return
         if route == '/api/reverse/engines':
             self.workspace_json(reverse_engines.status())
+            return
+        if route == '/api/dynamic/deep':
+            self.workspace_json(deep_dast.status())
             return
         if route == '/api/reverse/target':
             try: self.workspace_json(reverse_engines.target(parse_qs(parsed.query).get('workspace', [''])[0]))
@@ -484,7 +487,7 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - inherited HTTP API name
         route = urlparse(self.path).path
-        if route not in {"/api/reverse/model-review", "/api/reverse/review", "/api/reverse/inspect", "/api/workspace/device/action", "/api/ios/xtool/install", "/api/ios/analyze", "/api/ios/action", "/api/ios/upload", "/api/device/direct-input", "/api/device/control", "/api/device/action", "/api/proxy", "/api/reverse", "/api/device/upload", "/api/device/drop", "/api/device/input", "/api/network/send", "/api/network/clear", "/api/dynamic", "/api/evidence/capture"}:
+        if route not in {"/api/reverse/model-review", "/api/reverse/review", "/api/reverse/inspect", "/api/workspace/device/action", "/api/ios/xtool/install", "/api/ios/analyze", "/api/ios/action", "/api/ios/upload", "/api/device/direct-input", "/api/device/control", "/api/device/action", "/api/proxy", "/api/reverse", "/api/device/upload", "/api/device/drop", "/api/device/input", "/api/network/send", "/api/network/clear", "/api/dynamic", "/api/dynamic/deep", "/api/evidence/capture"}:
             self.send_error(404)
             return
         if self.headers.get("X-HuntMob-CSRF") != SESSION_TOKEN:
@@ -650,6 +653,12 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                     else: result = {'ok': False, 'reason': 'Operação DAST desconhecida.'}
                 except (ValueError, OSError, subprocess.TimeoutExpired):
                     result = {'ok': False, 'reason': 'Operação DAST não concluída. Verifique app selecionado, device e armazenamento local.'}
+                status = 200 if result.get('ok') else 409
+            elif route == '/api/dynamic/deep':
+                try:
+                    result = deep_dast.start()
+                except (ValueError, OSError, TypeError, KeyError):
+                    result = {'ok': False, 'reason': 'Análise profunda não iniciada. Confira autorização, DAST, REA e modelo local.'}
                 status = 200 if result.get('ok') else 409
             elif route == "/api/network/clear":
                 result, status = clear_capture(network_store()), 200

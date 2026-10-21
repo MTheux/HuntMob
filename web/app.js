@@ -444,7 +444,7 @@ tabs.forEach((tab) => tab.addEventListener('click', () => {
   try { localStorage.setItem('huntmob.activeTool',tab.dataset.tab); } catch {}
   tab.classList.add('active'); tab.setAttribute('aria-selected','true'); tab.tabIndex = 0;
   document.querySelector(`#tab-${tab.dataset.tab}`).classList.add('active');
-  if (tab.dataset.tab === 'dast' && devicePlatform === 'android') { loadNativeReport(); refreshDynamic(); }
+  if (tab.dataset.tab === 'dast' && devicePlatform === 'android') { loadNativeReport(); refreshDynamic(); refreshDeepDast(); }
   if (tab.dataset.tab === 'frida' && devicePlatform === 'android') refreshDynamic();
   if (tab.dataset.tab === 'proxy' && devicePlatform === 'android') { loadNetwork(); refreshProxyStatus(); }
 }));
@@ -872,7 +872,53 @@ document.querySelector('#analyzeDast').addEventListener('click', async event => 
   finally { button.disabled = false; }
 });
 loadNativeReport();
-window.setInterval(() => { if (document.querySelector('#tab-dast').classList.contains('active') || document.querySelector('#tab-frida').classList.contains('active')) refreshDynamic(); }, 2000);
+let deepDastPolling = false;
+function renderDeepDast(data) {
+  const gates = document.querySelector('#deepDastGates'); gates.replaceChildren();
+  (data.gates || []).forEach(item => {
+    const row = document.createElement('div'); row.dataset.state = item.passed ? 'passed' : 'blocked';
+    const marker = document.createElement('span'); marker.textContent = item.passed ? 'PASS' : 'BLOCK';
+    const copy = document.createElement('div'); const title = document.createElement('strong'); title.textContent = item.id;
+    const detail = document.createElement('small'); detail.textContent = item.detail; copy.append(title,detail); row.append(marker,copy); gates.append(row);
+  });
+  const button = document.querySelector('#deepAnalyzeDast');
+  const status = document.querySelector('#deepDastStatus');
+  const job = data.job;
+  button.disabled = !data.ready || job?.state === 'running';
+  button.textContent = job?.state === 'running' ? 'Analisando evidências…' : 'Análise profunda com AI';
+  if (!job) status.textContent = data.ready ? 'Pré-requisitos completos. A execução usa somente o modelo local configurado.' : 'Complete os gates bloqueados antes de iniciar.';
+  else if (job.state === 'running') status.textContent = 'Correlacionando DAST e REA com o modelo local. Nenhum candidato será promovido automaticamente.';
+  else if (job.state === 'failed' || job.state === 'interrupted') status.textContent = job.reason || 'Análise profunda interrompida.';
+  else if (job.state === 'complete') status.textContent = `Concluída · ${job.review.correlations.length} correlação(ões) · revisão humana obrigatória.`;
+  const output = document.querySelector('#deepDastResult'); output.replaceChildren(); output.hidden = job?.state !== 'complete';
+  if (job?.state !== 'complete') return;
+  const summary = document.createElement('p'); summary.className = 'deep-summary'; summary.textContent = job.review.summary; output.append(summary);
+  const ledger = document.createElement('div'); ledger.className = 'deep-ledger';
+  const facts = [
+    ['Finding', 'Não promovido'],
+    ['Revisão independente', job.independently_verified ? 'Sim' : 'Pendente'],
+    ['JEV DONE', job.jev?.done_allowed ? 'Gates aceitos' : 'Bloqueado'],
+    ['Executor JEV', job.jev?.executor_invoked ? 'Executado' : 'Contrato somente'],
+  ];
+  facts.forEach(([label,value]) => { const cell=document.createElement('div'); const strong=document.createElement('strong'); strong.textContent=value; const span=document.createElement('span'); span.textContent=label; cell.append(strong,span); ledger.append(cell); }); output.append(ledger);
+  const correlations = document.createElement('section'); const heading = document.createElement('h4'); heading.textContent = 'Correlações atribuídas'; correlations.append(heading);
+  job.review.correlations.forEach(item => { const row=document.createElement('details'); const title=document.createElement('summary'); title.textContent=`${item.title} · ${item.status} · ${item.confidence}`; const analysis=document.createElement('p'); analysis.textContent=item.analysis; const refs=document.createElement('code'); refs.textContent=item.evidence_ids.join(' · '); row.append(title,analysis,refs); correlations.append(row); }); output.append(correlations);
+  [['Hipóteses',job.review.hypotheses],['Desconhecidos',job.review.unknowns],['Próximos testes',job.review.next_tests]].forEach(([title,items]) => { const section=document.createElement('section'); const heading=document.createElement('h4'); heading.textContent=title; const list=document.createElement('ul'); items.forEach(text => { const li=document.createElement('li'); li.textContent=text; list.append(li); }); section.append(heading,list); output.append(section); });
+}
+async function refreshDeepDast() {
+  if (deepDastPolling) return; deepDastPolling = true;
+  try { const response=await fetch('/api/dynamic/deep',{cache:'no-store'}); if(response.ok)renderDeepDast(await response.json()); }
+  catch (_) {}
+  finally { deepDastPolling=false; }
+}
+document.querySelector('#deepAnalyzeDast').addEventListener('click', async event => {
+  const button=event.currentTarget; button.disabled=true; document.querySelector('#deepDastStatus').textContent='Iniciando correlação profunda…';
+  try { const result=await authorizedPost('/api/dynamic/deep',{action:'start',package_id:packageId.value.trim()}); renderDeepDast({...(await fetch('/api/dynamic/deep',{cache:'no-store'}).then(response=>response.json())),job:result}); }
+  catch(error){document.querySelector('#deepDastStatus').textContent=error.message;}
+  finally { await refreshDeepDast(); }
+});
+refreshDeepDast();
+window.setInterval(() => { if (document.querySelector('#tab-dast').classList.contains('active') || document.querySelector('#tab-frida').classList.contains('active')) { refreshDynamic(); if (document.querySelector('#tab-dast').classList.contains('active')) refreshDeepDast(); } }, 2000);
 document.querySelector('#openGhidra').addEventListener('click', () => notify('Selecione uma biblioteca nativa .so antes de abrir no Ghidra'));
 
 async function refreshProxyStatus() {

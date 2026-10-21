@@ -215,6 +215,13 @@
           <section class="native-dast-analysis" aria-label="Análise nativa da sessão">
             <div class="panel-title"><div><span class="eyebrow">HUNTMOB</span><h2>Resultados DAST</h2></div><button id="analyzeDast" class="outline">Analisar evidências</button></div>
             <p class="profile-description" id="nativeReportStatus">Encerre a sessão para gerar o relatório, ou analise uma captura em andamento.</p>
+            <section class="deep-dast" aria-labelledby="deepDastTitle">
+              <div class="deep-dast-copy"><span class="eyebrow">REA · AI LOCAL · JEV</span><h3 id="deepDastTitle">Correlação profunda do aplicativo</h3><p>Combina a sessão dinâmica com evidências REA do mesmo APK. A AI local organiza fatos, hipóteses e próximos testes; o contrato JEV verifica as transições do workflow, sem controlar a tela Android.</p></div>
+              <button class="primary deep-dast-action" id="deepAnalyzeDast" type="button">Análise profunda com AI</button>
+              <div class="deep-gates" id="deepDastGates" aria-label="Pré-requisitos da análise profunda"></div>
+              <p class="deep-dast-status" id="deepDastStatus" role="status" aria-live="polite">Verificando DAST, REA, autorização e modelo local…</p>
+              <div class="deep-dast-result" id="deepDastResult" hidden></div>
+            </section>
             <div class="report-metrics" id="nativeMetrics" hidden></div>
             <div class="report-navigation" aria-label="Seções do relatório"><button data-report-section="nativeCandidates">Achados</button><button data-report-section="nativeCoverage">Cobertura</button><button data-report-section="nativeObservations">Observações</button><button data-report-section="nativeLimitations">Limitações</button></div>
             <h3 class="report-heading">Achados para revisão</h3>
@@ -379,7 +386,7 @@
   <script src="ios.js?v=runtime-72-lab-lifecycle"></script>
   <script src="video.js?v=runtime-58-workspace"></script>
   <script src="device-sidebar.js?v=runtime-64-same-avd-root"></script>
-  <script src="app.js?v=runtime-75-screenshot-jpeg"></script>
+  <script src="app.js?v=runtime-76-deep-dast"></script>
   <script src="reverse-engines.js?v=runtime-71-rea-results"></script>
   <script src="ios-runtimes.js?v=runtime-58-workspace"></script>
   <script src="workspace-devices.js?v=runtime-68-android16"></script>

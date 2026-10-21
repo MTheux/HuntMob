@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=runtime-71-rea-results">
+  <link rel="stylesheet" href="styles.css?v=runtime-72-tool-nav">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
@@ -86,18 +86,17 @@
 
       <aside class="analysis-panel" id="analysisPanel" hidden>
         <header class="toolbox-head"><div><span class="eyebrow">WORKBENCH</span><strong>Ferramentas</strong></div><button id="closeToolbox" class="icon-button" aria-label="Recolher ferramentas">×</button></header>
-        <nav class="analysis-tabs" role="tablist" aria-label="Ferramentas de pentest">
-          <span class="tool-group-label" aria-hidden="true">APARELHO</span>
-          <button data-tab="device-tools" role="tab" aria-selected="false" aria-controls="tab-device-tools"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="tab-label">Dispositivo</span></button>
-          <button data-tab="files" role="tab" aria-selected="false" aria-controls="tab-files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 3h9v11H3Z"/></svg><span class="tab-label">Arquivos</span></button>
-          <span class="tool-group-label" aria-hidden="true">ANÁLISE</span>
-          <button class="active" data-tab="reverse" role="tab" aria-selected="true" aria-controls="tab-reverse"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span class="tab-label">Reverse</span></button>
-          <button data-tab="frida" role="tab" aria-selected="false" aria-controls="tab-frida"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 6 0m-5 0v6l-6 10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2L14 9V3M8 15h8"/></svg><span class="tab-label">Frida</span></button>
-          <button data-tab="dast" role="tab" aria-selected="false" aria-controls="tab-dast"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v6c0 5 9 8 9 8s9-3 9-8V7Zm-4 9 3 3 5-6"/></svg><span class="tab-label">DAST</span></button>
-          <span class="tool-group-label" aria-hidden="true">TRÁFEGO</span>
-          <button data-tab="proxy" role="tab" aria-selected="false" aria-controls="tab-proxy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/></svg><span class="tab-label">Proxy</span></button>
-          <span class="tool-group-label" aria-hidden="true">REGISTROS</span>
-          <button data-tab="evidence" role="tab" aria-selected="false" aria-controls="tab-evidence"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V2h6v2M8 10h8m-8 5h8"/></svg><span class="tab-label">Evidências</span><span id="evidenceCount">0</span></button>
+        <nav class="analysis-tabs" role="tablist" aria-label="Ferramentas do laboratório">
+          <span class="tool-group-label" aria-hidden="true">LABORATÓRIO</span>
+          <button data-tab="device-tools" role="tab" aria-label="Dispositivo: controles" aria-selected="false" aria-controls="tab-device-tools"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="tool-tab-copy"><span class="tab-label">Dispositivo</span><small>Controles</small></span></button>
+          <button data-tab="files" role="tab" aria-label="Arquivos: APK e sandbox" aria-selected="false" aria-controls="tab-files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 3h9v11H3Z"/></svg><span class="tool-tab-copy"><span class="tab-label">Arquivos</span><small>APK e sandbox</small></span></button>
+          <span class="tool-group-label" aria-hidden="true">INVESTIGAÇÃO</span>
+          <button class="active" data-tab="reverse" role="tab" aria-label="Análise estática: REA e código" aria-selected="true" aria-controls="tab-reverse"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span class="tool-tab-copy"><span class="tab-label">Análise estática</span><small>REA e código</small></span></button>
+          <button data-tab="frida" role="tab" aria-label="Frida: instrumentação" aria-selected="false" aria-controls="tab-frida"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 6 0m-5 0v6l-6 10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2L14 9V3M8 15h8"/></svg><span class="tool-tab-copy"><span class="tab-label">Frida</span><small>Instrumentação</small></span></button>
+          <button data-tab="dast" role="tab" aria-label="Análise dinâmica: DAST" aria-selected="false" aria-controls="tab-dast"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v6c0 5 9 8 9 8s9-3 9-8V7Zm-4 9 3 3 5-6"/></svg><span class="tool-tab-copy"><span class="tab-label">Análise dinâmica</span><small>DAST</small></span></button>
+          <button data-tab="proxy" role="tab" aria-label="Tráfego: Proxy" aria-selected="false" aria-controls="tab-proxy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/></svg><span class="tool-tab-copy"><span class="tab-label">Tráfego</span><small>Proxy</small></span></button>
+          <span class="tool-group-label" aria-hidden="true">RESULTADOS</span>
+          <button data-tab="evidence" role="tab" aria-label="Evidências: capturas e registros" aria-selected="false" aria-controls="tab-evidence"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V2h6v2M8 10h8m-8 5h8"/></svg><span class="tool-tab-copy"><span class="tab-label">Evidências</span><small>Capturas e registros</small></span><span id="evidenceCount">0</span></button>
         </nav>
 
         <section class="tab-content" id="tab-device-tools">
@@ -123,6 +122,18 @@
             <button type="button" data-tool-shortcut="proxy" title="Abrir captura e requisições"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/></svg><span>Proxy</span></button>
             <button type="button" data-tool-shortcut="frida" title="Abrir instrumentação"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 6 0m-5 0v6l-6 10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2L14 9V3M8 15h8"/></svg><span>Frida</span></button>
           </div>
+          <section class="tools-analysis-shortcuts" aria-label="Análise do aplicativo principal">
+            <div class="tools-shortcut-head"><span class="eyebrow">APK INSTALADO · APARELHO PRINCIPAL</span><h3>Engenharia do app</h3></div>
+            <p>Escolha um app instalado. O HuntMob prepara o APK e inicia a inspeção estática de Package e Manifest no REA.</p>
+            <label class="lab-field" for="quickReaPackage">Aplicativo<select id="quickReaPackage" disabled><option value="">Atualize a lista de apps</option></select></label>
+            <div class="tools-shortcut-actions"><button type="button" class="outline" id="quickReaRefresh">Atualizar apps</button><button type="button" class="primary" id="quickReaStart" disabled>Analisar com REA</button></div>
+            <p id="quickReaStatus" role="status">Análise estática; resultados precisam de revisão.</p>
+            <div class="tools-shortcut-divider"></div>
+            <div class="tools-shortcut-head"><span class="eyebrow">OBSERVAÇÃO · SEM ALTERAR TRUST</span><h3>TLS e mTLS</h3></div>
+            <p>Abra o observador de trust e pinning no Frida. A presença de mTLS exige confirmação no handshake e na configuração do app.</p>
+            <button type="button" class="outline" id="quickTlsObserve">Preparar diagnóstico TLS</button>
+            <p id="quickTlsStatus" role="status">Nenhuma conexão TLS foi avaliada nesta sessão.</p>
+          </section>
 <p class="profile-description root-control-help" id="quickRootHelp" role="status">Verificando root para apps neste aparelho…</p>
 <details class="primary-device-actions"><summary>Janela e conexão do principal</summary>          <div class="toolbar-actions tools-stage-actions"><button type="button" id="openViewer">Abrir janela</button><button type="button" id="openDeviceKeyboard">Teclado</button>
             <button disabled aria-label="Rotacionar" hidden data-control-panel="rotation">↻</button><button disabled id="captureEvidence" hidden aria-label="Capturar tela">⌗</button><button disabled aria-label="Reiniciar" id="rebootDevice">↺</button>
@@ -161,16 +172,15 @@
           <div class="root-profile-controls"><label for="deviceRootMode">Perfil Android</label><select id="deviceRootMode"><option value="root">Com root · AOSP</option><option value="stock">Sem root · Google Play</option></select><button id="prepareRootProfile" class="outline">Preparar imagem</button><button id="switchRootProfile" class="outline">Trocar perfil</button><span id="rootProfileStatus" role="status">Root ainda não verificado</span></div>
         </div></details></section>
         <section class="tab-content active" id="tab-reverse"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2>Análise iOS</h2></div></div><div class="ios-upload"><label class="lab-field">Análise local de IPA<input id="iosStaticFile" type="file" accept=".ipa"></label><button id="analyzeIos" class="outline">Analisar IPA sem instalar</button></div><p class="profile-description">Info.plist · permissões · URL schemes · ATS · SHA256. Funciona sem device. Frida/Objection e sandbox exigem runtime compatível; o iOS virtual está em validação.</p><pre id="iosStaticResult" class="console" role="status">Selecione um IPA autorizado para ver os resultados.</pre></div><div class="platform-android">
-          <div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><button class="outline" id="refreshApps">Atualizar apps</button></div>
+          <div class="panel-title"><div><span class="eyebrow">ANÁLISE ESTÁTICA</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><button class="outline" id="refreshApps">Atualizar apps</button></div>
           <div class="artifact-meta"><span id="targetAppState">Nenhum app selecionado</span><span id="reverseHash">SHA256 pendente</span><span id="analysisEngineState">Verificando motor integrado…</span></div>
           <section class="reverse-engines" aria-label="REA e Reconstruction Companion">
-            <div class="panel-title"><div><span class="eyebrow">ANÁLISE ESTÁTICA · APK SELECIONADO</span><h3>Do APK à evidência</h3></div><span id="reverseProvidersState" class="safe-badge">Verificando worker…</span></div>
+            <div class="panel-title"><div><span class="eyebrow">INSPEÇÃO DO APK</span><h3>Do APK à evidência</h3></div><span id="reverseProvidersState" class="safe-badge">Verificando worker…</span></div>
             <p class="profile-description">O REA lê o APK e registra fatos verificáveis. O Companion entrega esse contexto ao agente. O modelo local só avalia quando você solicitar e a resposta exige revisão humana.</p>
             <section id="reaResultPanel" class="rea-result-panel" aria-label="Resultado da inspeção REA" hidden>
               <div class="rea-result-heading"><div><span class="eyebrow">RESULTADO OBSERVADO</span><h4 id="reaResultTitle">Leitura do APK</h4><p id="reaResultSubtitle"></p></div><span class="rea-observed-badge">Estático · não validado em runtime</span></div>
               <div class="rea-metrics" id="reaMetrics"></div>
-              <div class="rea-result-grid"><section><h5>O que o REA encontrou</h5><div id="reaFindings"></div></section><section><h5>O que ainda precisa verificar</h5><div id="reaLimits"></div></section></div>
-              <div class="rea-result-provenance" id="reaProvenance"></div>
+              <details class="rea-result-details"><summary>Ver observações, limites e origem da evidência</summary><div class="rea-result-grid"><section><h5>O que o REA encontrou</h5><div id="reaFindings"></div></section><section><h5>O que ainda precisa verificar</h5><div id="reaLimits"></div></section></div><div class="rea-result-provenance" id="reaProvenance"></div></details>
             </section>
             <div class="rea-stage-guide" aria-label="Etapas da análise"><span><b>01</b> Inspecionar APK</span><span><b>02</b> Preparar contexto</span><span><b>03</b> Revisar avaliação</span></div>
             <div class="reverse-engine-selectors">
@@ -188,6 +198,7 @@
             <details id="agentReviewDetails" hidden><summary>Avaliação recebida · requer revisão humana</summary><div id="agentReviewOutput" class="rea-review-content"></div></details>
             <details id="reaEvidenceDetails" hidden><summary>Registro de evidências REA</summary><div id="reaEvidenceOutput" class="rea-evidence-list"></div><details class="rea-raw-details"><summary>JSON técnico completo</summary><pre id="reaEvidenceRaw" class="console"></pre></details></details>
           </section>
+          <div class="reverse-files-head"><div><span class="eyebrow">ARQUIVOS DA ANÁLISE</span><h3>Código e recursos</h3></div><span>Abra uma pasta e escolha um arquivo</span></div>
           <div class="re-layout">
             <div class="file-tree" id="installedApps" role="list" aria-label="Aplicativos instalados">
               <p>Nenhum device online.</p>
@@ -386,8 +397,8 @@
   <script src="ios.js?v=runtime-72-lab-lifecycle"></script>
   <script src="video.js?v=runtime-58-workspace"></script>
   <script src="device-sidebar.js?v=runtime-64-same-avd-root"></script>
-  <script src="app.js?v=runtime-76-deep-dast"></script>
-  <script src="reverse-engines.js?v=runtime-71-rea-results"></script>
+  <script src="app.js?v=runtime-77-rea-shortcuts"></script>
+  <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>
   <script src="ios-runtimes.js?v=runtime-58-workspace"></script>
   <script src="workspace-devices.js?v=runtime-68-android16"></script>
   <script src="workspace-canvas.js?v=runtime-72-lab-lifecycle"></script>

@@ -645,13 +645,13 @@ document.querySelector('#refreshFiles').addEventListener('click', loadAppFiles);
 let currentSelectedPackage = "";
 let targetBindingBusy = false;
 async function selectApp(packageName, revalidate=false) {
-  if(targetBindingBusy)return;
+  if(targetBindingBusy)return false;
   if(currentSelectedPackage!==packageName || revalidate){
     targetBindingBusy=true;refreshFridaSelection();
     document.querySelector('#targetAppState').textContent='Validando app instalado…';
     try{
       const result=await deviceAction('select-target',{package_id:packageName});activeLab=result.lab;
-    }catch(error){document.querySelector('#targetAppState').textContent=error.message;notify(error.message);return;}
+    }catch(error){document.querySelector('#targetAppState').textContent=error.message;notify(error.message);return false;}
     finally{targetBindingBusy=false;refreshFridaSelection();}
   }
   const changed = currentSelectedPackage !== packageName;
@@ -664,7 +664,8 @@ async function selectApp(packageName, revalidate=false) {
   document.querySelector('#prepareReverse').disabled = !analysisReady;
   document.querySelector('#reverseHash').textContent = activeLab.apk_sha256 ? `SHA256 · ${activeLab.apk_sha256.slice(0,8)}…${activeLab.apk_sha256.slice(-4)}` : 'SHA256 pendente';
   refreshFridaSelection();
-  if (changed || !reverseAnalysis) restoreReverseWorkspace(packageName);
+  if (changed || !reverseAnalysis) await restoreReverseWorkspace(packageName);
+  return true;
 }
 
 async function loadInstalledApps() {
@@ -711,16 +712,18 @@ async function loadInstalledApps() {
 }
 
 document.querySelector('#refreshApps').addEventListener('click', loadInstalledApps);
-document.querySelector('#reverseOutput').addEventListener('click', async event => {
-  if (!event.target.closest('#prepareReverse')) return;
-  const selectedPackage = packageId.value.trim();
-  if (!validPackage(selectedPackage)) return notify('Selecione um package válido');
+let reversePreparationBusy = false;
+async function prepareReverseWorkspace(selectedPackage) {
+  if (!validPackage(selectedPackage)) throw new Error('Selecione um package válido.');
+  if (reversePreparationBusy) throw new Error('O APK já está sendo preparado.');
+  reversePreparationBusy = true;
   const output = document.querySelector('#reverseOutput');
   output.innerHTML = '<strong>Extraindo APK e analisando aplicativo…</strong><p>Isso pode levar alguns minutos.</p>';
   try {
     const payload = await authorizedPost('/api/reverse', { package_id: selectedPackage });
     renderReverseWorkspace(payload);
     notify(payload.status === 'partial' ? 'Análise parcial disponível para revisão' : `Decompilação criada para ${selectedPackage}`);
+    return payload;
   } catch (error) {
     output.replaceChildren();
     const title = document.createElement('strong');
@@ -735,7 +738,98 @@ document.querySelector('#reverseOutput').addEventListener('click', async event =
     if (error.payload?.sha256) document.querySelector('#reverseHash').textContent = `SHA256 · ${error.payload.sha256.slice(0, 8)}…`;
     document.querySelector('#fileName').textContent = 'Análise não concluída';
     notify(error.message);
+    throw error;
+  } finally {
+    reversePreparationBusy = false;
   }
+}
+document.querySelector('#reverseOutput').addEventListener('click', async event => {
+  if (!event.target.closest('#prepareReverse')) return;
+  try { await prepareReverseWorkspace(packageId.value.trim()); }
+  catch { /* The workspace panel already shows the error and retry action. */ }
+});
+
+const quickReaPackage = document.querySelector('#quickReaPackage');
+const quickReaStart = document.querySelector('#quickReaStart');
+const quickReaStatus = document.querySelector('#quickReaStatus');
+let quickReaBusy = false;
+function quickReaAllowed() {
+  return devicePlatform === 'android' && runtimeDevice?.state === 'on' && !!activeLab.id && !window.huntmobTools?.extra();
+}
+async function refreshQuickReaApps() {
+  quickReaStart.disabled = true;
+  quickReaPackage.disabled = true;
+  if (!quickReaAllowed()) {
+    quickReaPackage.replaceChildren(new Option('Selecione o Android principal', ''));
+    quickReaStatus.textContent = 'REA disponível para apps instalados no Android principal.';
+    return;
+  }
+  const labId = activeLab.id;
+  quickReaStatus.textContent = 'Consultando apps instalados…';
+  try {
+    const response = await fetch('/api/device/apps', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.reason || 'Não foi possível listar os apps.');
+    if (labId !== activeLab.id || !quickReaAllowed()) return;
+    const apps = [...new Set((data.apps || []).map(app => app.package_id).filter(validPackage))];
+    quickReaPackage.replaceChildren(new Option('Escolha um APK instalado', ''));
+    apps.forEach(name => quickReaPackage.add(new Option(name, name)));
+    quickReaPackage.value = apps.includes(currentSelectedPackage) ? currentSelectedPackage : apps.includes(activeLab.package_id) ? activeLab.package_id : '';
+    quickReaPackage.disabled = !apps.length;
+    quickReaStart.disabled = quickReaBusy || !quickReaPackage.value || !analysisReady;
+    quickReaStatus.textContent = apps.length ? `${apps.length} app(s) instalado(s). Selecione o APK para análise estática.` : 'Nenhum app de terceiro instalado no Android principal.';
+  } catch (error) {
+    quickReaStatus.textContent = error.message;
+  }
+}
+quickReaPackage.addEventListener('change', () => { quickReaStart.disabled = quickReaBusy || !quickReaPackage.value || !analysisReady; });
+document.querySelector('#quickReaRefresh').addEventListener('click', refreshQuickReaApps);
+document.querySelector('[data-tab="device-tools"]').addEventListener('click', refreshQuickReaApps);
+quickReaStart.addEventListener('click', async () => {
+  if (quickReaBusy || !quickReaAllowed() || !validPackage(quickReaPackage.value)) return;
+  quickReaBusy = true;
+  quickReaStart.disabled = true;
+  const labId = activeLab.id, selectedPackage = quickReaPackage.value;
+  try {
+    quickReaStatus.textContent = 'Verificando REA no worker…';
+    const readiness = await fetch('/api/reverse/engines', {cache: 'no-store', signal: AbortSignal.timeout(10000)}).then(response => response.json());
+    if (!readiness.rea_ready) throw new Error(readiness.rea_reason || 'REA indisponível neste worker.');
+    if (labId !== activeLab.id || !quickReaAllowed()) throw new Error('O laboratório selecionado mudou.');
+    quickReaStatus.textContent = 'Validando app e preparando APK…';
+    if (!await selectApp(selectedPackage, true)) throw new Error('O app não pôde ser vinculado ao laboratório.');
+    if (labId !== activeLab.id || currentSelectedPackage !== selectedPackage || activeLab.package_id !== selectedPackage) throw new Error('O app selecionado mudou.');
+    const targetResponse = await fetch('/api/reverse/target?' + new URLSearchParams({workspace: labId}), {cache: 'no-store'});
+    const target = await targetResponse.json();
+    if (!targetResponse.ok) throw new Error(target.reason || 'Contexto REA indisponível.');
+    if (target.prepared) {
+      await restoreReverseWorkspace(selectedPackage, true);
+    } else {
+      quickReaStatus.textContent = 'Extraindo e preparando o APK para REA…';
+      await prepareReverseWorkspace(selectedPackage);
+    }
+    if (labId !== activeLab.id || currentSelectedPackage !== selectedPackage) throw new Error('O app selecionado mudou.');
+    if (!window.huntmobReaInspectPackage) throw new Error('Módulo REA ainda não carregado.');
+    quickReaStatus.textContent = 'Iniciando inspeção estática REA…';
+    await window.huntmobReaInspectPackage();
+    document.querySelector('[data-tab="reverse"]').click();
+    quickReaStatus.textContent = 'Inspeção REA iniciada. Acompanhe o resultado em Reverse.';
+  } catch (error) {
+    quickReaStatus.textContent = error.message;
+    notify(error.message);
+  } finally {
+    quickReaBusy = false;
+    quickReaStart.disabled = !quickReaAllowed() || !quickReaPackage.value || !analysisReady;
+  }
+});
+document.querySelector('#quickTlsObserve').addEventListener('click', () => {
+  const status = document.querySelector('#quickTlsStatus');
+  if (!quickReaAllowed()) { status.textContent = 'Selecione o Android principal online.'; return; }
+  const observer = document.querySelector('.script-option input[value="tls-observe"]');
+  if (!observer || observer.disabled) { status.textContent = 'Observador TLS indisponível neste worker.'; return; }
+  observer.checked = true;
+  refreshFridaSelection();
+  document.querySelector('[data-tab="frida"]').click();
+  status.textContent = 'Observador TLS selecionado. Inicie a sessão Frida para registrar chamadas de trust e pinning; mTLS precisa de validação separada.';
 });
 
 function refreshFridaSelection() {
@@ -1556,17 +1650,23 @@ async function loadAnalysisStatus() {
   }
   const button = document.querySelector('#prepareReverse');
   if (button) button.disabled = !analysisReady || !currentSelectedPackage;
+  quickReaStart.disabled = quickReaBusy || !quickReaAllowed() || !quickReaPackage.value || !analysisReady;
 }
 loadAnalysisStatus();
 
 
-async function restoreReverseWorkspace(packageName) {
+async function restoreReverseWorkspace(packageName, required = false) {
   try {
     const response = await fetch('/api/reverse/workspace?' + new URLSearchParams({ package: packageName }), { cache: 'no-store' });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error('Decompilação preparada não pôde ser carregada.');
     const payload = await response.json();
-    if (currentSelectedPackage === packageName) renderReverseWorkspace(payload);
-  } catch { /* No previous run: leave the preparation control available. */ }
+    if (currentSelectedPackage !== packageName) throw new Error('O app selecionado mudou.');
+    renderReverseWorkspace(payload);
+    return payload;
+  } catch (error) {
+    if (required) throw error;
+    /* No previous run: leave the preparation control available. */
+  }
 }
 
 function renderReverseWorkspace(payload) {

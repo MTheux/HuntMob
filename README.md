@@ -195,6 +195,14 @@ inspeção REA e use **Avaliar com modelo local** no Reverse. A revisão exige a
 explícita e permanece pendente de revisão humana. Veja a
 [validação local e limites de plataforma](docs/companion-local-model-platform-validation-v1.0-2026-10-16.md).
 
+Atalhos em **Ferramentas → Dispositivo**: escolha um APK já instalado no Android
+principal e clique em **Analisar com REA**. O HuntMob valida o app selecionado,
+reutiliza uma decompilação vinculada ao mesmo SHA256 quando disponível e inicia
+uma inspeção estática de Package e Manifest; o resultado aparece em Reverse.
+**Preparar diagnóstico TLS** seleciona apenas o observador de trust/pinning no
+Frida. Ele não altera certificados ou decisões de autenticação e não comprova
+sozinho que o aplicativo usa mTLS.
+
 Análise DAST profunda: depois de vincular um engagement autorizado, gerar um
 relatório DAST e concluir ao menos uma inspeção REA do mesmo APK/SHA256, use
 **Análise profunda com AI** na aba DAST. O motor correlaciona somente evidências

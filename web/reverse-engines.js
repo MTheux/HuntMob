@@ -99,6 +99,19 @@ document.querySelector('#reaOperation').addEventListener('change',()=>{
   document.querySelector('#reaClassField').hidden=!['class','method','references'].includes(operation);
   document.querySelector('#reaMethodField').hidden=operation!=='method';document.querySelector('#reaOverloadField').hidden=operation!=='method';
 });
+window.huntmobReaInspectPackage=async()=>{
+  if(!reaReady)throw new Error('REA indisponível neste worker.');
+  if(!reaCurrent())throw new Error('APK e decompilação não correspondem ao app selecionado.');
+  if(reaRunning)throw new Error('Uma inspeção REA já está em andamento neste APK.');
+  document.querySelector('#reaOperation').value='package';
+  document.querySelector('#reaOperation').dispatchEvent(new Event('change'));
+  reaRunning=true;reaButtons();reaElements.status.textContent='Iniciando inspeção REA de Package e Manifest…';
+  try{
+    const result=await authorizedPost('/api/reverse/inspect',{...reaIdentity(),operation:'package'});
+    await loadReaJobs();
+    return result;
+  }catch(error){reaRunning=false;reaButtons();reaElements.status.textContent=error.message;throw error;}
+};
 reaElements.run.addEventListener('click',async()=>{
   if(!reaCurrent()||reaRunning)return;reaRunning=true;reaButtons();reaElements.download.hidden=true;
   reaElements.status.textContent='Iniciando inspeção REA…';

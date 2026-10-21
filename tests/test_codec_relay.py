@@ -1,12 +1,23 @@
 import socket
 import struct
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from huntmob.codec_relay import CodecRelay,read_exact
 
 LAB='huntmob_lab_'+'a'*32
 
 class CodecRelayTests(unittest.TestCase):
+    def test_restart_invalidates_delayed_input_generation(self):
+        relay = CodecRelay(owner_check=lambda value: value == 'lab', forward_port=39999)
+        relay.target = ('adb', 'emulator-5558', 'lab')
+        relay.control = Mock()
+        generation = relay.snapshot()['generation']
+        relay.thread = None
+        relay.restart()
+        result = relay.input({'action': 'home', 'session_generation': generation})
+        self.assertFalse(result['ok'])
+        self.assertTrue(result['stale_session'])
+
     def relay(self):
         relay=CodecRelay();relay.target=('adb','emulator-5556',LAB);relay.width=648;relay.height=1440
         relay.control=unittest.mock.Mock();return relay

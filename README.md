@@ -124,6 +124,11 @@ O servidor usa loopback por padrão. Exposição em VPN/Tailscale exige autentic
 no gateway e a confirmação explícita `--authorized-remote`; não exponha o servidor
 de desenvolvimento diretamente à internet.
 
+O inventário do workspace publica também o contrato normalizado
+`huntmob.device-inventory/v1`, com capabilities explícitas e estados separados
+de lifecycle, stream e input. Consulte a
+[avaliação da infraestrutura do Expo Device Hub](docs/expo-device-hub-infrastructure-review-v1.0-2026-10-21.md).
+
 ## Limites
 
 - O worker Android usa o Android Emulator e imagens oficiais do SDK. Genymotion

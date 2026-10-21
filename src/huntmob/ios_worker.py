@@ -318,7 +318,8 @@ class IosRelay(ScreenRelay):
         with self.condition:
             return {'transport':'mjpeg','state':'stopped' if self.closing.is_set() else 'error' if self.error else 'running' if self.frame else 'idle',
                     'frames':self.sequence,'frame_bytes':len(self.frame),'error':self.error,
-                    'producer_alive':bool(self.thread and self.thread.is_alive())}
+                    'producer_alive':bool(self.thread and self.thread.is_alive()),'generation':self.generation,
+                    'input_ready':bool(self.frame)}
 
     def get_frame(self, client, udid, unused, after=-1, timeout=15):
         with self.target_lock:

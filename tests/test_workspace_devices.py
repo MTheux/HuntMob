@@ -114,3 +114,44 @@ class WorkspaceDevicesTests(unittest.TestCase):
             self.assertTrue(relay.input({'action': 'home'})['ok'])
         relay.target = ('adb', 'emulator-5558', OTHER)
         self.assertFalse(relay.input({'action': 'home'})['ok'])
+
+    def test_stale_generation_is_rejected_before_input(self):
+        devices._save(self.record)
+        target = Mock(sdk=SimpleNamespace(adb='adb'), serial='emulator-5558', avd_name=CHILD)
+        channel = Mock(target=('adb', 'emulator-5558', CHILD))
+        channel.snapshot.return_value = {'generation': 3}
+        with patch.object(devices, 'worker', return_value=target), patch.object(devices, 'relay', return_value=channel):
+            result = devices.action({'workspace_id': PARENT, 'device_id': CHILD, 'action': 'input',
+                                     'session_generation': 2, 'input': {'action': 'home'}})
+        self.assertFalse(result['ok'])
+        self.assertTrue(result['stale_session'])
+        channel.input.assert_not_called()
+
+    def test_snapshot_isolates_discovery_failure_and_exposes_contract(self):
+        devices._save(self.record)
+        good = {**self.record, 'id': OTHER, 'port': 5560, 'created_at': 'later'}
+        devices._save(good)
+        good_worker = Mock()
+        good_worker.status.return_value = {'state': 'device', 'ownership_verified': True,
+                                           'properties': {'sys.boot_completed': '1'}}
+        good_relay = Mock()
+        good_relay.snapshot.return_value = {'state': 'idle', 'transport': 'h264-webcodecs',
+                                            'generation': 7, 'frames': 0, 'input_ready': False}
+
+        def choose(record):
+            if record['id'] == CHILD:
+                raise OSError('private worker detail')
+            return good_worker
+
+        with patch.object(devices, 'worker', side_effect=choose), patch.object(devices, 'relay', return_value=good_relay), \
+             patch.object(devices, 'current', return_value={}):
+            result = devices.snapshot(PARENT)
+        self.assertTrue(result['ok'])
+        self.assertEqual(len(result['devices']), 2)
+        self.assertEqual(result['contract']['schema'], 'huntmob.device-inventory/v1')
+        self.assertEqual(result['contract']['discovery_errors'][0]['reason'], 'device_discovery_failed')
+        self.assertNotIn('private worker detail', json.dumps(result))
+        normalized = next(item for item in result['contract']['devices'] if item['identity']['device_id'] == OTHER)
+        self.assertEqual(normalized['channels']['stream']['status'], 'idle')
+        self.assertEqual(normalized['channels']['stream']['generation'], 7)
+        self.assertTrue(normalized['capabilities']['security']['frida'])

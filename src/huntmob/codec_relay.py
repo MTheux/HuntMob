@@ -58,6 +58,8 @@ class CodecRelay:
         self.last_viewer=0
         self.frames=0
         self.started=0
+        # Session generation invalidates delayed browser input after stop/restart.
+        self.generation=1
 
     def shutdown(self):
         self.closing.set()
@@ -68,7 +70,7 @@ class CodecRelay:
         self.shutdown()
         if self.thread and self.thread.is_alive(): raise RuntimeError('Previous video is still closing')
         with self.condition:
-            self.closing.clear();self.thread=None;self.packets=[];self.prefix=[];self.error='';self.control=None;self.target=None
+            self.closing.clear();self.thread=None;self.packets=[];self.prefix=[];self.error='';self.control=None;self.target=None;self.generation+=1
 
     def get_packets(self, worker, after=None, timeout=8):
         lab=worker.avd_name
@@ -96,9 +98,12 @@ class CodecRelay:
 
     def snapshot(self):
         with self.condition:
-            return {'transport':'h264-webcodecs','state':'error' if self.error else 'running' if self.control else 'idle','width':self.width,'height':self.height,'frames':self.frames,'error':self.error,'gop_packets':len(self.packets)}
+            return {'transport':'h264-webcodecs','state':'error' if self.error else 'running' if self.control else 'idle','width':self.width,'height':self.height,'frames':self.frames,'error':self.error,'gop_packets':len(self.packets),'generation':self.generation,'input_ready':bool(self.control)}
 
     def input(self,payload):
+        requested=payload.get('session_generation')
+        if requested is not None and requested!=self.generation:
+            return {'ok':False,'reason':'Sessão de controle mudou. Atualize o aparelho antes de enviar entrada.','stale_session':True}
         if self.target is None or not self.owner_check(self.target[2]) or not self.control:
             return {'ok':False,'reason':'Vídeo e controle direto ainda não conectados.'}
         try:

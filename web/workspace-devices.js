@@ -26,7 +26,7 @@ function companionTile(device,workspace){
   const controls=document.createElement('div');controls.className='companion-controls';
   let abort,retry,disposed=false,connected=false,pointer,queue=[],sending=false,lastPoint={x:0,y:0};
   const identity={workspace_id:workspace,device_id:device.id};
-  const post=(action,extra={})=>authorizedPost('/api/workspace/device/action',{...identity,action,...extra});
+  const post=(action,extra={})=>authorizedPost('/api/workspace/device/action',{...identity,action,...extra,...(action==='input'?{session_generation:device.session_generation}:{})});
   async function sendTouch(event){
     if(event.phase==='move'&&queue.at(-1)?.phase==='move')queue[queue.length-1]=event;else queue.push(event);
     if(sending)return;sending=true;

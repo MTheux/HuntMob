@@ -17,6 +17,7 @@ from uuid import uuid4
 from .android_worker import AndroidWorker, _run
 from .lab_sessions import LAB_LOCK, LAB_NAME, current, configure_graphics
 from .codec_relay import CodecRelay
+from .device_contract import describe, inventory
 
 MAX_DEVICES = 4
 RELAYS = {}
@@ -97,23 +98,45 @@ def relay(record):
 def snapshot(workspace_id):
     _name(workspace_id)
     items = []
+    contracts = []
+    errors = []
     for record in records():
         if record['workspace_id'] != workspace_id:
             continue
-        state = worker(record).status()
-        items.append({**record, 'serial': record['udid'] if record.get('platform')=='ios' else 'emulator-' + str(record['port']),
-                      'state': state['state'], 'online': state['state'] == 'device' and state.get('properties', {}).get('sys.boot_completed') == '1',
-                      'ownership_verified': state.get('ownership_verified', False)})
+        try:
+            target = worker(record)
+            state = target.status()
+            serial = record['udid'] if record.get('platform') == 'ios' else 'emulator-' + str(record['port'])
+            online = state['state'] == 'device' and state.get('properties', {}).get('sys.boot_completed') == '1' and state.get('ownership_verified') is True
+            item = {**record, 'serial': serial, 'state': state['state'], 'online': online,
+                    'ownership_verified': state.get('ownership_verified', False)}
+            item['session_generation'] = relay(record).snapshot().get('generation')
+            items.append(item)
+            contracts.append(describe(item, state, relay(record).snapshot()))
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+            serial = record.get('udid') if record.get('platform') == 'ios' else 'emulator-' + str(record.get('port', ''))
+            item = {**record, 'serial': serial, 'state': 'error', 'online': False,
+                    'ownership_verified': False, 'session_generation': None}
+            items.append(item)
+            contracts.append(describe(item, {'state': 'error', 'ownership_verified': False},
+                                      {'state': 'error', 'error': 'device_discovery_failed'}))
+            errors.append({'device_id': record['id'], 'platform': record.get('platform', 'android'),
+                           'reason': 'device_discovery_failed'})
     primary = current()
+    primary_contract = None
     if primary.get('id') == workspace_id:
         state = AndroidWorker().status()
         primary = {key: primary.get(key) for key in ('id', 'android_api', 'root_mode')}
-        primary.update({'serial': state.get('serial'), 'state': state['state']})
+        primary.update({'serial': state.get('serial'), 'state': state['state'], 'platform': 'android', 'workspace_id': workspace_id})
+        from .codec_relay import CODEC_RELAY
+        primary['session_generation'] = CODEC_RELAY.snapshot().get('generation')
+        primary_contract = describe(primary, state, CODEC_RELAY.snapshot(), primary=True)
     else:
         primary = {'id': workspace_id, 'state': 'not_selected'}
+    normalized = inventory(workspace_id, primary_contract, contracts, errors)
     return {'ok': True, 'workspace_id': workspace_id, 'primary': primary, 'devices': sorted(items, key=lambda r: r['created_at']),
             'presentation': presentation(workspace_id),
-            'max_devices': MAX_DEVICES}
+            'max_devices': MAX_DEVICES, 'contract': normalized}
 
 
 def presentation(workspace_id):
@@ -326,11 +349,15 @@ def action(payload):
             relay(record).restart()
             return target.stop()
         if verb == 'input':
-            if record.get('platform')=='ios':return target.input(payload.get('input',{}))
+            input_payload = payload.get('input', {})
+            requested = payload.get('session_generation')
             channel = relay(record)
+            if requested is not None and requested != channel.snapshot().get('generation'):
+                return {'ok': False, 'reason': 'Sessão de controle mudou. Atualize o aparelho antes de enviar entrada.', 'stale_session': True}
+            if record.get('platform')=='ios':return target.input(input_payload)
             if not target.sdk or channel.target != (str(target.sdk.adb), target.serial, target.avd_name):
                 return {'ok': False, 'reason': 'Conecte o vídeo deste aparelho antes de enviar entrada.'}
-            return channel.input(payload.get('input', {}))
+            return channel.input({**input_payload, 'session_generation': requested} if requested is not None else input_payload)
         if target.status().get('ownership_verified') is not True:
             return {'ok': False, 'reason': 'Identidade ADB não confirmada. Nenhuma entrada enviada.'}
         if verb == 'open-store':

@@ -16,6 +16,7 @@ class ScreenRelay:
         self.last_viewer = 0.0
         self.error = ""
         self.closing = threading.Event()
+        self.generation = 1
 
     def shutdown(self):
         self.closing.set()
@@ -34,6 +35,7 @@ class ScreenRelay:
             self.error = ""
             self.frame = b""
             self.thread = None
+            self.generation += 1
 
     def get_frame(self, adb: str, serial: str, ffmpeg: str, after: int = -1, timeout: float = 15):
         with self.condition:

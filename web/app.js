@@ -73,7 +73,8 @@ function syncAnalysisAvailability(online) {
 const viewport = document.querySelector('#deviceViewport');
 const phoneCanvas = document.querySelector('#phoneCanvas');
 let deviceZoom = 1;
-function setDeviceZoom(value) {
+function setDeviceZoom(value, {automatic=false} = {}) {
+  if(!automatic)window.huntmobCanvas?.manual();
   deviceZoom = Math.min(2.5, Math.max(0.5, Math.round(value * 100) / 100));
   phoneCanvas.style.setProperty('--device-zoom', deviceZoom);
   window.huntmobCanvas?.resize();
@@ -98,11 +99,27 @@ document.querySelector('#zoomFit').addEventListener('click', () => {
 });
 viewport.addEventListener('wheel', event => {
   // Preserve browser accessibility zoom and scrolling over the tool buttons.
-  if (phoneCanvas.classList.contains('free-layout') || event.ctrlKey || event.metaKey || event.target.closest('.device-controls') || viewport.classList.contains('runtime-unavailable')) return;
+  if (event.ctrlKey || event.metaKey || event.target.closest('button,input,select,textarea,.device-controls,.workspace-selection-tools') || viewport.classList.contains('runtime-unavailable')) return;
   event.preventDefault();
-  const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1);
-  setDeviceZoom(deviceZoom * Math.exp(-Math.max(-100, Math.min(100, delta)) * 0.002));
+  const delta = (event.deltaY||event.deltaX) * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1);
+  const next=deviceZoom * Math.exp(-Math.max(-100, Math.min(100, delta)) * 0.002);
+  if(!window.huntmobCanvas?.zoomAt(next,event.clientX,event.clientY))setDeviceZoom(next);
 }, { passive: false });
+let viewportPan;
+viewport.addEventListener('pointerdown',event=>{
+  if(event.button!==1||event.target.closest('button,input,select,textarea,a')||viewport.classList.contains('runtime-unavailable'))return;
+  event.preventDefault();event.stopPropagation();
+  viewportPan={id:event.pointerId,x:event.clientX,y:event.clientY};viewport.setPointerCapture(event.pointerId);viewport.classList.add('viewport-panning');
+},{capture:true});
+viewport.addEventListener('pointermove',event=>{
+  if(viewportPan?.id!==event.pointerId)return;
+  event.preventDefault();const dx=event.clientX-viewportPan.x,dy=event.clientY-viewportPan.y;viewportPan.x=event.clientX;viewportPan.y=event.clientY;
+  if(!window.huntmobCanvas?.panBy(dx,dy)){viewport.scrollLeft-=dx;viewport.scrollTop-=dy;}
+});
+function finishViewportPan(event){if(!viewportPan||(event?.pointerId!==undefined&&event.pointerId!==viewportPan.id))return;const id=viewportPan.id;viewportPan=undefined;viewport.classList.remove('viewport-panning');if(viewport.hasPointerCapture(id))viewport.releasePointerCapture(id);}
+for(const type of ['pointerup','pointercancel','lostpointercapture'])viewport.addEventListener(type,finishViewportPan);
+viewport.addEventListener('auxclick',event=>{if(event.button===1)event.preventDefault();});
+window.addEventListener('blur',()=>finishViewportPan());
 setDeviceZoom(1);
 
 
@@ -195,7 +212,7 @@ function startCompatibleScreen(generation) {
   };
   screen.dataset.frameWidth = '540';
   screen.dataset.frameHeight = '1200';
-  screen.src = `/api/device/stream?t=${Date.now()}`;
+  window.huntmobOperator.mediaUrl(`/api/device/stream?t=${Date.now()}`).then(url=>{if(generation===screenGeneration)screen.src=url;}).catch(()=>screen.onerror?.());
 }
 document.querySelector('#reconnectScreen').addEventListener('click', () => {
   screenRetries = 0;
@@ -378,6 +395,7 @@ async function loadRuntime() {
   } finally {
     runtimeLoading = false;
     window.huntmobSidebar?.sync();
+    window.huntmobDastApps?.sync();
   }
 }
 
@@ -436,7 +454,16 @@ function notify(message) {
   notify.timer = window.setTimeout(() => toast.classList.remove('show'), 2600);
 }
 
+function syncActiveToolGroup(){
+  document.querySelectorAll('.analysis-tabs .tool-group-label').forEach((label) => label.classList.remove('tool-group-active'));
+  const active = document.querySelector('.analysis-tabs button.active');
+  if (!active) return;
+  let node = active.previousElementSibling;
+  while (node && !node.classList.contains('tool-group-label')) node = node.previousElementSibling;
+  if (node) node.classList.add('tool-group-active');
+}
 tabs.forEach((tab) => tab.addEventListener('click', () => {
+  if(tab.hidden||tab.disabled)return;
   if (tab.dataset.tab !== 'proxy') setProxyFocus(false);
   tabs.forEach((item) => { item.classList.remove('active'); item.setAttribute('aria-selected', 'false'); item.tabIndex = -1; });
   panels.forEach((panel) => panel.classList.remove('active'));
@@ -444,7 +471,8 @@ tabs.forEach((tab) => tab.addEventListener('click', () => {
   try { localStorage.setItem('huntmob.activeTool',tab.dataset.tab); } catch {}
   tab.classList.add('active'); tab.setAttribute('aria-selected','true'); tab.tabIndex = 0;
   document.querySelector(`#tab-${tab.dataset.tab}`).classList.add('active');
-  if (tab.dataset.tab === 'dast' && devicePlatform === 'android') { loadNativeReport(); refreshDynamic(); refreshDeepDast(); }
+  syncActiveToolGroup();
+  if (tab.dataset.tab === 'dast' && devicePlatform === 'android') { loadNativeReport(); refreshDynamic().then(()=>window.huntmobDastApps?.load()); refreshDeepDast(); }
   if (tab.dataset.tab === 'frida' && devicePlatform === 'android') refreshDynamic();
   if (tab.dataset.tab === 'proxy' && devicePlatform === 'android') { loadNetwork(); refreshProxyStatus(); }
 }));
@@ -646,11 +674,14 @@ let currentSelectedPackage = "";
 let targetBindingBusy = false;
 async function selectApp(packageName, revalidate=false) {
   if(targetBindingBusy)return false;
+  const expectedLab=activeLab.id;
   if(currentSelectedPackage!==packageName || revalidate){
     targetBindingBusy=true;refreshFridaSelection();
     document.querySelector('#targetAppState').textContent='Validando app instalado…';
     try{
-      const result=await deviceAction('select-target',{package_id:packageName});activeLab=result.lab;
+      const result=await deviceAction('select-target',{package_id:packageName});
+      if(devicePlatform!=='android'||activeLab.id!==expectedLab||result.lab?.id!==expectedLab)return false;
+      activeLab=result.lab;
     }catch(error){document.querySelector('#targetAppState').textContent=error.message;notify(error.message);return false;}
     finally{targetBindingBusy=false;refreshFridaSelection();}
   }
@@ -665,6 +696,7 @@ async function selectApp(packageName, revalidate=false) {
   document.querySelector('#reverseHash').textContent = activeLab.apk_sha256 ? `SHA256 · ${activeLab.apk_sha256.slice(0,8)}…${activeLab.apk_sha256.slice(-4)}` : 'SHA256 pendente';
   refreshFridaSelection();
   if (changed || !reverseAnalysis) await restoreReverseWorkspace(packageName);
+  window.huntmobDastApps?.sync();
   return true;
 }
 
@@ -850,19 +882,163 @@ document.querySelector('#detectApps').addEventListener('click', loadInstalledApp
 let dynamicBusy = false;
 let dynamicError = '';
 let dynamicPollBusy = false;
+let dynamicSessionLab = '', dynamicSessionActive = false;
+let dastAppSignature = '';
+let dastInventory, dastDeviceId='primary';
+function dastTarget(){
+  const child=dastDeviceId!=='primary'&&dastInventory?.workspace_id===activeLab.id?dastInventory.devices.find(d=>d.id===dastDeviceId):null;
+  return child?{...child,available:devicePlatform==='android'&&child.online===true}: {...activeLab,available:devicePlatform==='android'&&runtimeDevice?.state==='on'};
+}
+function dastQuery(){return dastDeviceId==='primary'?'':'?'+new URLSearchParams({workspace:activeLab.id,device:dastDeviceId});}
+function dastPayload(){return dastDeviceId==='primary'?{}:{workspace_id:activeLab.id,device_id:dastDeviceId};}
+let dastProgressScope='',dastProgressData={},dastProgressReport,dastProgressOperation,dastProgressError='';
+function updateDastProgress(data){
+  const scope=dastTarget().id||'';
+  if(dastProgressScope!==scope){dastProgressScope=scope;dastProgressData={};dastProgressReport=dastProgressOperation=undefined;dastProgressError='';}
+  if(data&&(!data.receipt||data.receipt.lab_id===scope)){dastProgressData=data;dastProgressError='';}
+  const view=window.huntmobDastProgress.present({snapshot:dastProgressData,report:dastProgressReport,operation:dastProgressOperation?.scope===scope?dastProgressOperation:undefined,error:dastProgressError});
+  const panel=document.querySelector('#dastProgress'),bar=document.querySelector('#dastProgressBar');panel.dataset.state=view.kind;
+  for(const [id,value]of [['dastProgressTitle',view.title],['dastProgressPercent',view.percentage],['dastElapsedLabel',view.timeLabel],['dastElapsed',view.time],['dastRemainingLabel',view.remainingLabel],['dastRemaining',view.remaining],['dastProgressDetail',view.detail]]){const el=document.querySelector('#'+id);if(el.textContent!==value)el.textContent=value;}
+  bar.dataset.indeterminate=String(view.indeterminate);bar.setAttribute('aria-label',view.indeterminate?'Progresso da operação':view.kind==='complete'?'Conclusão do relatório':'Tempo da janela de coleta');bar.setAttribute('aria-valuetext',view.percentage||view.title);
+  if(view.value===null)bar.removeAttribute('aria-valuenow');else bar.setAttribute('aria-valuenow',String(view.value));
+  bar.firstElementChild.style.width=view.indeterminate?'35%':(view.value??0)+'%';
+  panel.querySelectorAll('[data-step]').forEach((step,i)=>{step.dataset.state=view.steps[i];if(view.steps[i]==='current')step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');});
+}
+window.setInterval(()=>{if(document.querySelector('#tab-dast').classList.contains('active'))updateDastProgress();},1000);
+function clearDastView(){
+  dynamicSessionLab='';dynamicSessionActive=false;nativeReportJob='';dynamicError='';dastConnection={};
+  dastProgressData={};dastProgressReport=dastProgressOperation=undefined;dastProgressError='';updateDastProgress();
+  for(const id of ['nativeCoverage','nativeCandidates','nativeObservations','nativeLimitations'])document.querySelector('#'+id).replaceChildren();
+  document.querySelector('#nativeMetrics').hidden=true;
+  document.querySelector('#nativeReportStatus').textContent='Nenhuma análise carregada para este aparelho.';
+  document.querySelector('#nativeReportJson').hidden=document.querySelector('#nativeReportHtml').hidden=true;
+  document.querySelector('#dastEvents').textContent='';document.querySelector('#dastMetrics').textContent='Sem eventos neste aparelho';
+  for(const [id,path] of [['exportDast','export'],['nativeReportJson','report.json'],['nativeReportHtml','report.html']])document.querySelector('#'+id).href='/api/dynamic/'+path+dastQuery();
+  document.querySelector('#deepDastGates').replaceChildren();document.querySelector('#deepDastResult').hidden=true;
+  document.querySelector('#deepAnalyzeDast').disabled=true;document.querySelector('#prepareDeepRea').disabled=true;
+  document.querySelector('#deepEngagementForm').hidden=true;document.querySelector('#deepDastStatus').textContent='Verificando a correlação deste aparelho…';
+}
+window.huntmobDastDevices={
+  sync(data){
+    const before=dastTarget().id;
+    if(data?.workspace_id)dastInventory=data;
+    if(dastInventory?.workspace_id!==activeLab.id){dastInventory=undefined;dastDeviceId='primary';}
+    const select=document.querySelector('#dastDeviceSelect'),items=[['primary','Principal · API '+(activeLab.android_api||'')+' · '+(activeLab.root_mode==='stock'?'sem root':'com root')],...(dastInventory?.devices||[]).filter(d=>d.platform==='android'&&d.link?.kind==='root-companion').map(d=>[d.id,'Companheiro · API '+d.android_api+' · com root'+(d.online?'':' · desligado')])];
+    if(!items.some(([id])=>id===dastDeviceId))dastDeviceId='primary';
+    if(JSON.stringify(items)!==select.dataset.items){select.dataset.items=JSON.stringify(items);select.replaceChildren(...items.map(([id,label])=>new Option(label,id)));}
+    select.value=dastDeviceId;select.disabled=dynamicBusy;
+    document.querySelector('#dastDeviceNote').textContent=dastDeviceId==='primary'?'Sessão e evidências vinculadas ao Android principal.':'Sessão e relatório próprios deste companheiro. A correlação usa REA do mesmo SHA256; tráfego do proxy principal não é atribuído a este aparelho.';
+    if(before!==dastTarget().id)clearDastView();
+    window.huntmobDastApps?.sync();
+  },
+  async select(id){
+    if(dynamicBusy)return;
+    dastDeviceId=id===activeLab.id?'primary':id;this.sync();clearDastView();
+    document.querySelector('[data-tab="dast"]').click();await refreshDynamic();await loadNativeReport();await refreshDeepDast();
+  }
+};
+document.querySelector('#dastDeviceSelect').addEventListener('change',event=>window.huntmobDastDevices.select(event.target.value));
+let dastConnection={};
+const dastConnectionKey=()=>JSON.stringify([devicePlatform,activeLab.id,dastTarget().id,dastTarget().package_id,dastTarget().apk_sha256,dastTarget().root_mode]);
+const currentDastConnection=()=>dastConnection.key===dastConnectionKey()?dastConnection:{};
+async function refreshDastConnection(force=false) {
+  const target=dastTarget();
+  if(!target.available||!target.package_id||!target.apk_sha256||dynamicBusy||targetBindingBusy||dynamicSessionActive)return;
+  const key=dastConnectionKey(),existing=currentDastConnection();
+  if(existing.loading||(!force&&existing.checked))return;
+  dastConnection={key,loading:true,checked:false,ready:false};dastAppPicker.sync();
+  try {
+    const response=await fetch('/api/dynamic/readiness'+dastQuery(),{cache:'no-store',signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw new Error('Verificação Frida indisponível. Confira a conexão do worker.');
+    const data=await response.json();
+    if(key!==dastConnectionKey()||dastConnection.key!==key)return;
+    if(data.lab_id!==target.id||data.package_id!==target.package_id||data.apk_sha256!==target.apk_sha256)throw new Error('O contexto do app mudou. Clique em Verificar Frida novamente.');
+    dastConnection={key,checked:true,ready:data.ready===true,error_code:data.error_code,reason:data.reason};
+  } catch(error) {
+    if(key===dastConnectionKey()&&dastConnection.key===key)dastConnection={key,checked:true,ready:false,error_code:'readiness_unavailable',reason:error.name==='TimeoutError'?'A verificação Frida demorou. Tente novamente.':error instanceof SyntaxError?'Resposta do worker indisponível. Verifique a conexão novamente.':error.message};
+  } finally {
+    if(dastConnection.key===key){dastConnection.loading=false;window.huntmobDastApps?.sync();}
+  }
+}
+function renderDastTarget(view) {
+  document.querySelector('#dastDeviceSelect').disabled=dynamicBusy||targetBindingBusy;
+  const select=document.querySelector('#dastAppSelect'),status=document.querySelector('#dastAppStatus');
+  const signature=JSON.stringify([view.scope,view.apps,view.packageId,view.active]);
+  if(signature!==dastAppSignature){
+    dastAppSignature=signature;
+    select.replaceChildren(new Option('Selecione um app instalado…',''));
+    select.options[0].disabled=true;
+    const names=[...view.apps];if(view.packageId&&!names.includes(view.packageId))names.unshift(view.packageId);
+    for(const name of names){const option=new Option(name,name);option.disabled=name!==view.packageId&&(view.active||!!view.packageId);select.add(option);}
+  }
+  select.value=view.binding||view.packageId||'';
+  select.disabled=view.disabled&&!view.browseOnly;
+  const refresh=document.querySelector('#refreshDastApps');
+  refresh.disabled=view.refreshDisabled;refresh.textContent=view.loading?'Atualizando…':'Atualizar apps';
+  status.dataset.error=String(!!view.error);
+  status.textContent=!view.available?'Selecione um Android online para listar seus apps.':view.binding?'Identificando o APK selecionado…':view.loading?'Buscando apps instalados no Android…':view.error?view.error:view.active?`${view.apps.length} app(s) listado(s). Sessão em andamento; você pode consultar a lista. Encerre antes de trocar o aplicativo.`:view.checking?'Verificando a sessão DAST…':!view.loaded?'Clique em Atualizar apps para carregar a lista.':!view.apps.length?'Nenhum app de terceiro instalado. Instale o app no Android e atualize a lista.':view.packageId&&!view.apps.includes(view.packageId)?'O app vinculado não está instalado neste Android. Verifique a instalação e atualize a lista.':view.packageId?'App selecionado para este laboratório. Para analisar outro app, crie um novo lab.':`${view.apps.length} app(s) instalado(s). Escolha o aplicativo para DAST.`;
+  document.querySelector('#dastRuntimeNote').hidden=!view.available||view.rootMode!=='stock';
+  const connection=currentDastConnection(),connectionStatus=document.querySelector('#dastConnectionStatus'),check=document.querySelector('#checkDastConnection');
+  check.disabled=!view.available||!view.packageId||!!view.binding||!!view.busy||!!view.active||!!connection.loading;
+  check.textContent=connection.loading?'Verificando Frida…':'Verificar Frida';
+  connectionStatus.textContent=!view.available?'Selecione um Android online para verificar o Frida.':!view.packageId?'Selecione o app para verificar a conexão de instrumentação.':connection.loading?'Verificando os requisitos do Frida neste Android…':connection.reason||'Clique em Verificar Frida antes de iniciar a sessão.';
+  connectionStatus.dataset.error=String(!!view.available&&!!connection.checked&&!connection.ready);connectionStatus.dataset.ready=String(!!view.available&&connection.ready===true);
+  renderDastActions(view);
+}
+function renderDastActions(view){
+  const snapshot=dastProgressScope===view.labId?dastProgressData:{};
+  const actions=window.huntmobDastProgress.actions({active:view.active,busy:view.busy,available:view.available,identified:!!view.packageId&&!!view.sha256,canStart:view.canStart,hasReceipt:!!snapshot.receipt});
+  const start=document.querySelector('#startDast'),stop=document.querySelector('#stopDast'),analyze=document.querySelector('#analyzeDast'),exportLink=document.querySelector('#exportDast');
+  start.hidden=!actions.showStart;start.disabled=!actions.startEnabled;
+  stop.hidden=!actions.showStop;stop.disabled=!actions.stopEnabled;stop.className=actions.showStop?'primary':'outline';
+  document.querySelector('#captureDast').disabled=!actions.captureEnabled;
+  analyze.disabled=!actions.analyzeEnabled;analyze.textContent=actions.analyzeLabel;
+  exportLink.setAttribute('aria-disabled',String(!actions.exportEnabled));exportLink.tabIndex=actions.exportEnabled?0:-1;
+  if(actions.exportEnabled)exportLink.href='/api/dynamic/export'+dastQuery();else exportLink.removeAttribute('href');
+  const help=document.querySelector('#dastActionHelp');if(help.textContent!==actions.help)help.textContent=actions.help;
+}
+const dastAppPicker=window.huntmobDastTarget.create({
+  context:()=>({labId:dastTarget().id,packageId:dastTarget().package_id,sha256:dastTarget().apk_sha256,rootMode:dastTarget().root_mode,connectionReady:currentDastConnection().ready===true,
+    available:!!dastTarget().available,
+    checking:dynamicSessionLab!==dastTarget().id,busy:dynamicBusy||targetBindingBusy||dynamicSessionLab!==dastTarget().id,active:dynamicSessionLab===dastTarget().id&&dynamicSessionActive}),
+  list:async()=>{
+    const response=await fetch('/api/dynamic/apps'+dastQuery(),{cache:'no-store',signal:AbortSignal.timeout(10000)});
+    const data=await response.json();
+    if(!response.ok||!data.ok||!Array.isArray(data.apps))throw new Error(data.reason||'Não foi possível listar os apps. Clique em Atualizar apps para tentar novamente.');
+    return data.apps.map(app=>app.package_id);
+  },
+  bind:async selected=>{
+    if(dastDeviceId!=='primary'){if(selected!==dastTarget().package_id||!dastTarget().apk_sha256)throw new Error('Sincronize o app selecionado no par antes de iniciar.');return true;}
+    if(!await selectApp(selected,true))throw new Error(document.querySelector('#targetAppState').textContent||'Não foi possível selecionar o app.');
+    return true;
+  },onChange:renderDastTarget
+});
+window.huntmobDastApps={
+  load:()=>dastAppPicker.load(),
+  sync(){if(!dastTarget().available)dastConnection={};const view=dastAppPicker.sync();if(document.querySelector('#tab-dast').classList.contains('active')&&view.available&&!view.busy){if(!view.attempted)void dastAppPicker.load();if(view.packageId&&!view.binding&&!view.active)void refreshDastConnection();}}
+};
+document.querySelector('#checkDastConnection').addEventListener('click',()=>refreshDastConnection(true));
+document.querySelector('#refreshDastApps').addEventListener('click',()=>dastAppPicker.load());
+document.querySelector('#dastAppSelect').addEventListener('change',async event=>{
+  if(await dastAppPicker.choose(event.target.value)){await refreshDynamic();await refreshDeepDast();}
+});
 const observerIds = ['tls-observe', 'biometric-monitor', 'root-detection-observe', 'webview-observe', 'crypto-observe', 'file-observe'];
 async function refreshDynamic() {
-  if (dynamicPollBusy) return;
+  if (dynamicPollBusy || devicePlatform!=='android') return;
   dynamicPollBusy = true;
+  const requestedLab=dastTarget().id;
   try {
-    const response = await fetch('/api/dynamic/status', {cache: 'no-store'});
+    const response = await fetch('/api/dynamic/status'+dastQuery(), {cache: 'no-store'});
     if (!response.ok) throw new Error('Worker Frida indisponível');
     const data = await response.json();
+    if(devicePlatform!=='android'||dastTarget().id!==requestedLab)return;
     const active = ['running', 'starting'].includes(data.state);
+    dynamicSessionLab=requestedLab;dynamicSessionActive=active;updateDastProgress(data);
     const states = {idle: 'Sem sessão', running: 'Instrumentando', starting: 'Iniciando', stopped: 'Parada', failed: 'Falhou', detached: 'App desconectado', interrupted: 'Worker reiniciado'};
     document.querySelector('#dastState').textContent = states[data.state] || data.state;
-    document.querySelector('#dastTarget').textContent = data.receipt ? `${data.receipt.package_id} · SHA256 ${data.receipt.apk_sha256.slice(0,12)} · Frida ${data.receipt.frida_version}` : activeLab.package_id || 'Selecione um aplicativo';
+    document.querySelector('#dastTarget').textContent = data.receipt ? `${data.receipt.package_id} · SHA256 ${data.receipt.apk_sha256.slice(0,12)} · Frida ${data.receipt.frida_version}` : dastTarget().package_id || 'Selecione um aplicativo';
     if (nativeReportJob && data.receipt && nativeReportJob !== data.receipt.id) document.querySelector('#nativeReportStatus').textContent = 'Relatório de uma sessão anterior. Analise a sessão atual para atualizar.';
+    else if(!nativeReportJob&&active)document.querySelector('#nativeReportStatus').textContent='A coleta está em andamento. Use Gerar análise parcial para consultar os resultados já coletados.';
     const events = data.events || [];
     const lines = events.map(event => `${new Date(event.at).toLocaleTimeString('pt-BR')}  ${event.script || 'sessão'}  ${event.kind}  ${event.class_name || ''}${event.method ? '.' + event.method : ''}${event.algorithm ? ' · ' + event.algorithm : ''}`);
     document.querySelector('#dastEvents').textContent = lines.join('\n') || 'Nenhum evento nesta sessão. APIs ausentes são indicadas; não equivalem a finding.';
@@ -871,44 +1047,55 @@ async function refreshDynamic() {
     document.querySelector('#dastMetrics').textContent = `${events.length} eventos exibidos · ${events.filter(e => e.kind === 'call').length} chamadas · ${events.filter(e => e.kind === 'hook_unavailable').length} hooks ausentes`;
     document.querySelector('#stopDast').disabled = dynamicBusy || !active;
     document.querySelector('#stopFrida').disabled = dynamicBusy || !active;
-    document.querySelector('#startDast').disabled = dynamicBusy || active || !activeLab.package_id;
     runFrida.disabled = targetBindingBusy || dynamicBusy || active || !scriptOptions.some(item => item.checked && !item.disabled) || !validPackage(packageId.value);
-  } catch (error) { document.querySelector('#dastState').textContent = error.message; }
-  finally { dynamicPollBusy = false; }
+  } catch (error) { if(dastTarget().id===requestedLab){dynamicSessionLab='';document.querySelector('#dastState').textContent=error.message;dastProgressError=error.message;updateDastProgress();} }
+  finally { dynamicPollBusy = false;window.huntmobDastApps?.sync(); }
 }
 async function dynamicAction(action, dast = false) {
-  if (dynamicBusy) return;
+  if (dynamicBusy || targetBindingBusy) return;
+  if(dast&&action==='start'&&!dastAppPicker.state().canStart)return;
   dynamicBusy = true; dynamicError = '';
+  const requestedLab=dastTarget().id;
+  updateDastProgress();dastProgressError='';dastProgressOperation={scope:requestedLab,action,started:Date.now()/1000};updateDastProgress();
+  document.querySelector('#analyzeDast').disabled=true;
+  window.huntmobDastApps?.sync();
   document.querySelector('#dastState').textContent = 'Executando…';
   const selected = scriptOptions.filter(item => item.checked && !item.disabled).map(item => item.value);
   try {
-    const result = await authorizedPost('/api/dynamic', {action, package_id: packageId.value.trim(), mode: document.querySelector('#fridaMode').value, script_ids: dast ? observerIds : selected.length ? selected : observerIds, include_proxy: dast});
+    const result = await authorizedPost('/api/dynamic', {...dastPayload(),action, package_id: dast?dastTarget().package_id:packageId.value.trim(), mode: document.querySelector('#fridaMode').value, script_ids: dast ? observerIds : selected.length ? selected : observerIds, include_proxy: dast&&dastDeviceId==='primary'});
+    if(dastTarget().id!==requestedLab)return;
     if (result.proxy && !result.proxy.ok) notify('Frida ativo; captura de rede não ficou pronta. Verifique Proxy.');
-    else notify(action === 'prepare' ? 'Servidor Frida preparado' : action === 'capture' ? 'Evidência capturada' : action === 'stop' ? 'Sessão encerrada' : 'Agente real conectado ao app');
+    else notify(action === 'prepare' ? 'Servidor Frida preparado' : action === 'capture' ? 'Evidência capturada' : action === 'stop' ? 'Sessão encerrada' : action==='analyze'?'Relatório de evidências atualizado':'Agente real conectado ao app');
     if (action === 'capture') loadEvidence();
     if (result.report) renderNativeReport(result.report);
     if (action === 'start') { clearReportDetails(); nativeReportJob = ''; document.querySelector('#nativeCoverage').replaceChildren(); document.querySelector('#nativeCandidates').replaceChildren(); document.querySelector('#nativeReportStatus').textContent = 'Nova sessão em andamento. Encerre e analise para atualizar o relatório.'; document.querySelector('#nativeReportJson').hidden = true; document.querySelector('#nativeReportHtml').hidden = true; }
-  } catch (error) { dynamicError = error.message; notify(error.message); fridaConsole.textContent = error.message; }
-  finally { dynamicBusy = false; await refreshDynamic(); }
+  } catch (error) {
+    if(dastTarget().id!==requestedLab)return;
+    dynamicError = error.message;dastProgressError=error.message;notify(error.message);fridaConsole.textContent=error.message;
+    if(action==='start')dastConnection={key:dastConnectionKey(),checked:true,ready:false,error_code:error.payload?.error_code||'connection_failed',reason:error.message};
+  }
+  finally { dynamicBusy=false;if(dastProgressOperation?.scope===requestedLab)dastProgressOperation=undefined;document.querySelector('#analyzeDast').disabled=false;updateDastProgress();await refreshDynamic(); }
 }
 runFrida.addEventListener('click', () => dynamicAction('start'));
 document.querySelector('#prepareFrida').addEventListener('click', () => dynamicAction('prepare'));
 document.querySelector('#stopFrida').addEventListener('click', () => dynamicAction('stop'));
 document.querySelector('#startDast').addEventListener('click', () => dynamicAction('start', true));
-document.querySelector('#stopDast').addEventListener('click', () => dynamicAction('stop'));
-document.querySelector('#captureDast').addEventListener('click', () => dynamicAction('capture'));
+document.querySelector('#stopDast').addEventListener('click', () => dynamicAction('stop',true));
+document.querySelector('#captureDast').addEventListener('click', () => dynamicAction('capture',true));
 let nativeReportJob = '';
 async function loadNativeReport() {
   try {
-    const response = await fetch('/api/dynamic/report', {cache:'no-store'});
+    const response = await fetch('/api/dynamic/report'+dastQuery(), {cache:'no-store'});
     if (!response.ok) return;
-    const report = await response.json(); if (report.lab_id === activeLab.id) renderNativeReport(report);
+    const report = await response.json(); if (report.lab_id === dastTarget().id) renderNativeReport(report);
   } catch (_) {}
 }
 function renderNativeReport(report) {
+  if(report.lab_id!==dastTarget().id)return;
+  updateDastProgress();dastProgressReport=report;updateDastProgress();
   nativeReportJob = report.job_id;
   const summary = report.summary;
-  document.querySelector('#nativeReportStatus').textContent = `${summary.events} eventos · ${summary.network_requests} requisições · ${summary.candidates} candidato(s) para revisão · gerado ${new Date(report.generated_at).toLocaleString('pt-BR')}`;
+  document.querySelector('#nativeReportStatus').textContent = `${['running','starting'].includes(report.session_state)?'Análise parcial · coleta em andamento':'Análise da sessão'} · ${summary.events} eventos · ${summary.network_requests} requisições · ${summary.candidates} candidato(s) para revisão · gerado ${new Date(report.generated_at).toLocaleString('pt-BR')}`;
   const coverage = document.querySelector('#nativeCoverage'); coverage.replaceChildren();
   const states = {observed:'Observado',ready_not_exercised:'Não exercitado',unavailable:'API indisponível',not_selected:'Não selecionado',no_evidence:'Sem evidência'};
   const metrics = document.querySelector('#nativeMetrics'); metrics.replaceChildren(); metrics.hidden = false;
@@ -959,14 +1146,10 @@ function renderNativeReport(report) {
   document.querySelector('#nativeReportJson').hidden = false;
   document.querySelector('#nativeReportHtml').hidden = false;
 }
-document.querySelector('#analyzeDast').addEventListener('click', async event => {
-  const button = event.currentTarget; button.disabled = true;
-  try { const data = await authorizedPost('/api/dynamic', {action:'analyze',package_id:packageId.value.trim()}); renderNativeReport(data.report); }
-  catch (error) { document.querySelector('#nativeReportStatus').textContent = error.message; }
-  finally { button.disabled = false; }
-});
+document.querySelector('#analyzeDast').addEventListener('click',()=>dynamicAction('analyze',true));
 loadNativeReport();
 let deepDastPolling = false;
+let deepDastBusy = false;
 function renderDeepDast(data) {
   const gates = document.querySelector('#deepDastGates'); gates.replaceChildren();
   (data.gates || []).forEach(item => {
@@ -978,12 +1161,18 @@ function renderDeepDast(data) {
   const button = document.querySelector('#deepAnalyzeDast');
   const status = document.querySelector('#deepDastStatus');
   const job = data.job;
-  button.disabled = !data.ready || job?.state === 'running';
+  button.disabled = deepDastBusy || !data.ready || job?.state === 'running';
   button.textContent = job?.state === 'running' ? 'Analisando evidências…' : 'Análise profunda com AI';
   if (!job) status.textContent = data.ready ? 'Pré-requisitos completos. A execução usa somente o modelo local configurado.' : 'Complete os gates bloqueados antes de iniciar.';
   else if (job.state === 'running') status.textContent = 'Correlacionando DAST e REA com o modelo local. Nenhum candidato será promovido automaticamente.';
   else if (job.state === 'failed' || job.state === 'interrupted') status.textContent = job.reason || 'Análise profunda interrompida.';
   else if (job.state === 'complete') status.textContent = `Concluída · ${job.review.correlations.length} correlação(ões) · revisão humana obrigatória.`;
+  const preparation=data.preparation,reaReady=(data.gates||[]).some(item=>item.id==='rea-evidence'&&item.passed);
+  const prepare=document.querySelector('#prepareDeepRea');
+  prepare.disabled=deepDastBusy||preparation?.state==='running'||reaReady||!data.lab?.apk_sha256;
+  prepare.textContent=preparation?.state==='running'?'Preparando REA…':reaReady?'REA preparado':'Preparar REA deste APK';
+  document.querySelector('#deepReaStatus').textContent=reaReady?'REA disponível para este APK. Reconstrução Java completa pode ser aberta em Reverse.':preparation?.reason||preparation?.detail||'Extração local do APK e inspeção estática; o app não será executado pelo REA.';
+  document.querySelector('#deepEngagementForm').hidden=!!data.lab?.engagement;
   const output = document.querySelector('#deepDastResult'); output.replaceChildren(); output.hidden = job?.state !== 'complete';
   if (job?.state !== 'complete') return;
   const summary = document.createElement('p'); summary.className = 'deep-summary'; summary.textContent = job.review.summary; output.append(summary);
@@ -1001,16 +1190,23 @@ function renderDeepDast(data) {
 }
 async function refreshDeepDast() {
   if (deepDastPolling) return; deepDastPolling = true;
-  try { const response=await fetch('/api/dynamic/deep',{cache:'no-store'}); if(response.ok)renderDeepDast(await response.json()); }
-  catch (_) {}
+  const requested=dastTarget().id;
+  try { const response=await fetch('/api/dynamic/deep'+dastQuery(),{cache:'no-store',signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error('Não foi possível verificar a correlação deste aparelho.');const data=await response.json();if(dastTarget().id===requested)renderDeepDast(data); }
+  catch (error) {if(dastTarget().id===requested){document.querySelector('#deepDastStatus').textContent=error.message;document.querySelector('#deepAnalyzeDast').disabled=true;}}
   finally { deepDastPolling=false; }
 }
-document.querySelector('#deepAnalyzeDast').addEventListener('click', async event => {
-  const button=event.currentTarget; button.disabled=true; document.querySelector('#deepDastStatus').textContent='Iniciando correlação profunda…';
-  try { const result=await authorizedPost('/api/dynamic/deep',{action:'start',package_id:packageId.value.trim()}); renderDeepDast({...(await fetch('/api/dynamic/deep',{cache:'no-store'}).then(response=>response.json())),job:result}); }
-  catch(error){document.querySelector('#deepDastStatus').textContent=error.message;}
-  finally { await refreshDeepDast(); }
-});
+async function deepDastAction(action,extra={}) {
+  if(deepDastBusy)return;
+  const target=dastTarget(),requested=target.id;
+  deepDastBusy=true;
+  document.querySelector('#deepAnalyzeDast').disabled=true;document.querySelector('#prepareDeepRea').disabled=true;
+  try {await authorizedPost('/api/dynamic/deep',{...dastPayload(),action,package_id:target.package_id,apk_sha256:target.apk_sha256,...extra});}
+  catch(error){if(dastTarget().id===requested){notify(error.message);document.querySelector('#deepDastStatus').textContent=error.message;}}
+  finally {deepDastBusy=false;await refreshDeepDast();}
+}
+document.querySelector('#deepAnalyzeDast').addEventListener('click',()=>deepDastAction('start'));
+document.querySelector('#prepareDeepRea').addEventListener('click',()=>deepDastAction('prepare-rea'));
+document.querySelector('#deepEngagementForm').addEventListener('submit',event=>{event.preventDefault();void deepDastAction('set-engagement',{engagement:document.querySelector('#deepEngagement').value.trim()});});
 refreshDeepDast();
 window.setInterval(() => { if (document.querySelector('#tab-dast').classList.contains('active') || document.querySelector('#tab-frida').classList.contains('active')) { refreshDynamic(); if (document.querySelector('#tab-dast').classList.contains('active')) refreshDeepDast(); } }, 2000);
 document.querySelector('#openGhidra').addEventListener('click', () => notify('Selecione uma biblioteca nativa .so antes de abrir no Ghidra'));
@@ -1437,6 +1633,8 @@ refreshProxyStatus();
 window.setInterval(loadRuntime, 2500);
 
 const interactiveScreens = [document.querySelector('#deviceScreen'),document.querySelector('#deviceVideo')];
+const keyboardScope=()=>devicePlatform+':'+(devicePlatform==='ios'?iosInfo?.lab?.udid:activeLab.id)+':'+screenGeneration;
+const screenKeyboard=window.huntmobInteraction.inputQueue(input=>authorizedPost(input.route,input.payload),scope=>scope===keyboardScope(),error=>notify(error.message));
 let pointerStart;
 function screenPoint(event) {
   const interactiveScreen = event.currentTarget;
@@ -1468,9 +1666,10 @@ interactiveScreens.forEach(interactiveScreen => {
 interactiveScreen.style.touchAction = 'none';
 interactiveScreen.tabIndex = 0;
 interactiveScreen.addEventListener('pointerdown', event => {
+  if(event.button!==0)return;
   event.preventDefault();
   if (pointerStart) return;
-  interactiveScreen.focus();
+  interactiveScreen.focus({preventScroll:true});
   pointerStart = screenPoint(event);
   if (![pointerStart.x,pointerStart.y].every(value=>Number.isFinite(value)&&value>=0&&value<=1)) {pointerStart=undefined;return;}
   activePointer=event.pointerId;
@@ -1496,11 +1695,11 @@ interactiveScreen.addEventListener('pointerup', async event => {
     await authorizedPost(devicePlatform === 'ios' ? '/api/ios/action' : '/api/device/input', {action: swipe ? 'swipe' : 'tap', ...start, end_x: end.x, end_y: end.y});
   } catch (error) { notify(error.message); }
 });
-interactiveScreen.addEventListener('keydown', async event => {
-  const action = ['Backspace','Enter','Tab','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key) ? 'key' : event.key === 'Escape' ? (devicePlatform === 'ios' ? 'home' : 'back') : (event.key.length === 1 && /^[A-Za-z0-9 @._+:/-]$/.test(event.key) ? 'text' : null);
-  if (!action) return;
+interactiveScreen.addEventListener('keydown', event => {
+  const payload=window.huntmobInteraction.keyboardAction(event,{platform:devicePlatform,mode:devicePlatform==='ios'?'ascii':directVideoActive?'unicode':'adb'});
+  if (!payload) return;
   event.preventDefault();
-  try { await authorizedPost(devicePlatform === 'ios' ? '/api/ios/action' : directVideoActive ? '/api/device/direct-input' : '/api/device/input', {action, text: event.key, key:event.key}); } catch (error) { notify(error.message); }
+  void screenKeyboard.push({route:devicePlatform==='ios'?'/api/ios/action':directVideoActive?'/api/device/direct-input':'/api/device/input',payload},keyboardScope());
 });
 });
 document.querySelector('#deviceBack').addEventListener('click', async () => {
@@ -1856,7 +2055,7 @@ document.querySelector('#quickScreenshot').addEventListener('click', async () =>
   }
 });
 document.querySelectorAll('[data-report-section]').forEach(button => button.addEventListener('click', () => { const target = document.getElementById(button.dataset.reportSection); if (target.closest('details')) target.closest('details').open = true; target.scrollIntoView({block:'nearest',behavior:'smooth'}); }));
-tabs.forEach((tab,index) => { tab.tabIndex = tab.classList.contains('active') ? 0 : -1; tab.addEventListener('keydown', event => { if (!['ArrowRight','ArrowLeft','Home','End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; tabs[next].click(); tabs[next].focus(); }); });
+tabs.forEach((tab) => { tab.tabIndex = tab.classList.contains('active') ? 0 : -1; tab.addEventListener('keydown', event => { if (!['ArrowRight','ArrowLeft','ArrowUp','ArrowDown','Home','End'].includes(event.key)) return; event.preventDefault(); const available=[...tabs].filter(item=>!item.hidden&&!item.disabled);const index=available.indexOf(tab);const next=event.key==='Home'?0:event.key==='End'?available.length-1:(index+(['ArrowRight','ArrowDown'].includes(event.key)?1:-1)+available.length)%available.length;available[next]?.click();available[next]?.focus(); }); });
 
 document.querySelector('#selectObservers').addEventListener('click', () => { scriptOptions.forEach(option => { option.checked = !option.disabled; }); refreshFridaSelection(); });
 document.querySelector('#clearObservers').addEventListener('click', () => { scriptOptions.forEach(option => { option.checked = false; }); refreshFridaSelection(); });
@@ -1864,3 +2063,4 @@ document.querySelector('#clearObservers').addEventListener('click', () => { scri
 document.querySelector('#openAndroidCamera').addEventListener('click', async () => { dialog.close(); await applyDeviceControl({action:'camera'}); });
 
 try { const selected = localStorage.getItem('huntmob.activeTool'); const saved = [...tabs].find(item => item.dataset.tab === selected); if (saved) { const open = !analysisPanel.hidden; saved.click(); setAnalysisOpen(open); } } catch {}
+syncActiveToolGroup();

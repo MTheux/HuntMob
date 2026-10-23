@@ -646,3 +646,17 @@ dialog{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 
 /* Item 4 — ícone de Evidências na topbar com hover coerente. */
 .top-actions .icon-button:hover{border-color:rgba(231,39,74,.45);color:var(--text)}
+
+/* ============================================================
+   FASE 2 — Abas por contexto do device (2026-10-23)
+   CSS aditivo; preserva data-tab e a lógica JS. Vence por ordem
+   de fonte.
+   ============================================================ */
+
+/* Guarda de grupo vazio — o [hidden] vence o display:block do rótulo. */
+.analysis-tabs .tool-group-label[hidden]{display:none!important}
+
+/* Realce do grupo cuja aba está ativa: "onde estou" ao rolar a nav. */
+.analysis-tabs .tool-group-label.tool-group-active{color:var(--red);border-left:2px solid var(--red);padding-left:9px}
+.analysis-tabs .tool-group-label.tool-group-active:first-child{padding-left:9px}
+@media(max-width:650px){.analysis-tabs .tool-group-label.tool-group-active{border-left:0;padding-left:0}}

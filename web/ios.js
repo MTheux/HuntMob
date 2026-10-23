@@ -11,6 +11,9 @@ function updateIosControls() {
   document.querySelector('#captureIos').disabled=iosActionBusy || !online;
   document.querySelector('#fixtureIos').disabled=iosActionBusy || !ready;
   document.querySelector('#installIos').disabled=iosActionBusy || !online || !document.querySelector('#iosAppFile').files.length || !document.querySelector('#iosAppApproval').checked;
+  document.querySelector('#resetIosIdentity').disabled=iosActionBusy||!ready||!iosInfo?.device;
+  document.querySelector('#restoreIosIdentity').hidden=!iosInfo?.lab?.previous_udid;
+  document.querySelector('#restoreIosIdentity').disabled=iosActionBusy||!ready||!iosInfo?.device;
 }
 function renderIosNativeReadiness(info) {
   const native=info.virtual_runtime;
@@ -100,8 +103,9 @@ async function switchDevicePlatform(platform) {
   syncIosDeviceControls();
   document.querySelector('#iosDevice').classList.toggle('selected',platform==='ios');
   document.querySelector('#runtimeDevice').classList.toggle('selected',platform==='android');
-  document.querySelectorAll('.analysis-tabs button').forEach(button=>{button.disabled=false;});
-  if(platform==='ios') {document.querySelector('[data-tab="device-tools"]').click();document.querySelector('#deviceProfileDetails').open=true;await loadIosRuntime(true);}
+  syncPlatformTools();
+  window.huntmobTools?.sync();
+  if(platform==='ios') {document.querySelector('[data-tab="device-tools"]').click();document.querySelector('#deviceProfileDetails').open=false;await loadIosRuntime(true);}
   else {document.querySelector('[data-tab="reverse"]').click();await loadRuntime();}
   loadEvidence();
 }
@@ -132,7 +136,7 @@ function startIosScreen(generation) {
     },()=>screen.onerror?.());
     return;
   }
-  screen.src='/api/ios/stream?t='+Date.now();
+  window.huntmobOperator.mediaUrl('/api/ios/stream?t='+Date.now()).then(url=>{if(generation===screenGeneration)screen.src=url;}).catch(()=>screen.onerror?.());
 }
 async function iosAction(action) {
   if(iosActionBusy)return;
@@ -199,19 +203,75 @@ function syncIosDeviceControls() {
   document.querySelectorAll('.device-controls button').forEach(button=>{
     if (!button.dataset.originalTitle) button.dataset.originalTitle=button.title;
     const panel=button.dataset.controlPanel;
-    const supported=['location','battery','system','rotation'].includes(panel) || button.dataset.panel==='biometric' || ['home','recents'].includes(button.dataset.deviceKey) || ['proxy','frida'].includes(button.dataset.toolShortcut) || button.id==='quickScreenshot';
+    const supported=window.huntmobToolSupport.control(button,ios).state!=='android';
+    button.hidden=ios&&!supported;
     button.disabled=ios && (!online || !supported);
     button.title=ios && !supported?'Indisponível no perfil iOS atual. Requer um runtime compatível.':button.dataset.originalTitle;
-    if(ios && button.dataset.panel==='biometric')button.title='Eventos biométricos simulados do iOS';
+    if(button.dataset.panel==='biometric'){button.querySelector('span').textContent=ios?'Biometria':'Digital';if(ios)button.title='Eventos biométricos simulados do iOS';}
     if(ios && panel==='rotation')button.title='Orientação do iOS';
     if(ios && panel==='system')button.title='Sistema e navegação iOS';
     if(ios && panel==='battery')button.title='Indicador visual de bateria';
   });
   document.querySelectorAll('[data-control-action]').forEach(button=>{
     button.disabled=ios && (!online || !['location','battery','battery-reset','home','recents','rotation'].includes(button.dataset.controlAction));
+    button.hidden=ios&&!['location','battery','battery-reset','home','recents','rotation'].includes(button.dataset.controlAction);
   });
-  document.querySelectorAll('[data-device-key]').forEach(button=>{button.disabled=ios && (!online || !['home','recents'].includes(button.dataset.deviceKey));});
+  document.querySelectorAll('[data-device-key]').forEach(button=>{button.disabled=ios && (!online || !['home','recents'].includes(button.dataset.deviceKey));button.hidden=ios&&!['home','recents'].includes(button.dataset.deviceKey);});
+  // Device-specific restrictions remain authoritative after platform repaint.
+  window.huntmobTools?.refreshCapabilities?.();
 }
+
+function syncPlatformTools(){
+  const ios=devicePlatform==='ios';
+  document.querySelector('#toolsPlatformLabel').textContent=ios?'WORKBENCH · IOS SIMULATOR':'WORKBENCH · ANDROID';
+  document.querySelector('#iosUnavailableTools').hidden=!ios;
+  for(const button of document.querySelectorAll('.analysis-tabs [data-tab]')){
+    const support=window.huntmobToolSupport.tab(button.dataset.tab,ios);
+    button.hidden=support.state==='android';button.disabled=button.hidden;
+    const subtitle=button.querySelector('small');
+    if(!button.dataset.androidSubtitle)button.dataset.androidSubtitle=subtitle.textContent;
+    subtitle.textContent=ios?({reverse:'IPA e Info.plist',frida:'Experimental · Simmy',proxy:'Captura iOS'}[button.dataset.tab]||button.dataset.androidSubtitle):button.dataset.androidSubtitle;
+    button.setAttribute('aria-label',button.querySelector('.tab-label').textContent+': '+subtitle.textContent);
+  }
+  // Oculta o rótulo de um grupo quando todas as suas abas ficam indisponíveis
+  // no contexto do device atual, evitando cabeçalho de grupo órfão.
+  for(const label of document.querySelectorAll('.analysis-tabs .tool-group-label')){
+    let node=label.nextElementSibling,empty=true;
+    while(node&&!node.classList.contains('tool-group-label')){if(node.matches('[data-tab]')&&!node.hidden)empty=false;node=node.nextElementSibling;}
+    label.hidden=empty;
+  }
+}
+window.addEventListener('DOMContentLoaded',syncPlatformTools);
+
+window.addEventListener('DOMContentLoaded',()=>{
+  const dialog=document.querySelector('#iosIdentityDialog');let expected;
+  const close=()=>{if(!iosActionBusy){dialog.close();expected=undefined;}};
+  document.querySelector('#iosIdentityClose').addEventListener('click',close);
+  document.querySelector('#iosIdentityCancel').addEventListener('click',close);
+  dialog.addEventListener('cancel',event=>{if(iosActionBusy)event.preventDefault();else expected=undefined;});
+  document.querySelector('#resetIosIdentity').addEventListener('click',()=>{
+    if(iosActionBusy||devicePlatform!=='ios'||!iosInfo?.lab?.udid)return;
+    expected=iosInfo.lab.udid;document.querySelector('#iosIdentityPrevious').textContent=expected;
+    document.querySelector('#iosIdentityError').hidden=true;dialog.showModal();
+  });
+  async function changeIdentity(action,udid){
+    if(iosActionBusy||devicePlatform!=='ios'||!udid)return;
+    iosActionBusy=true;updateIosControls();const confirm=document.querySelector('#iosIdentityConfirm');
+    confirm.disabled=true;confirm.textContent='Preparando iOS…';dialog.setAttribute('aria-busy','true');
+    document.querySelector('#iosIdentityActionStatus').textContent=action==='reset-identity'?'Criando outro Simulator; o lab atual será preservado…':'Retomando o lab anterior…';
+    try{
+      const result=await authorizedPost('/api/ios/action',{action,expected_udid:udid});
+      dialog.close();expected=undefined;
+      document.querySelector('#iosIdentityActionStatus').textContent=result.reason||'Lab anterior retomado.';
+      notify(action==='reset-identity'?'Novo UUID criado; lab anterior salvo.':'Lab anterior retomado.');
+    }catch(error){
+      document.querySelector('#iosIdentityError').textContent=error.message;document.querySelector('#iosIdentityError').hidden=false;
+      document.querySelector('#iosIdentityActionStatus').textContent=error.message;
+    }finally{iosActionBusy=false;confirm.disabled=false;confirm.textContent='Criar iOS com novo UUID';dialog.removeAttribute('aria-busy');await loadIosRuntime(true);if(iosInfo?.lab?.udid!==udid)document.querySelector('#iosFridaOutput').textContent='Selecione um app autorizado neste lab.';await Promise.all([loadEvidence(),refreshIosProxy()]);updateIosControls();}
+  }
+  document.querySelector('#iosIdentityConfirm').addEventListener('click',()=>changeIdentity('reset-identity',expected));
+  document.querySelector('#restoreIosIdentity').addEventListener('click',()=>changeIdentity('restore-identity',iosInfo?.lab?.udid));
+});
 
 let iosLabCatalog;
 let labCatalogGeneration=0;

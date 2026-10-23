@@ -199,3 +199,37 @@ sem regressão.
 
 **Recomendação:** o maior ganho de "intuitivo" está nas Fases 3 (onboarding) e
 4 (stepper de pentest). A navegação já cumpre bem o papel após a Fase 1.
+
+---
+
+## Adendo — Execução da Fase 2 (Abas por contexto do device) — 2026-10-23
+
+Como na Fase 1, a inspeção mostrou que o grosso do briefing já existia:
+
+- **Agrupamento** (LABORATÓRIO / INVESTIGAÇÃO / RESULTADOS) já no HTML.
+- **Contexto do device** já implementado: `syncPlatformTools()` (`ios.js`) +
+  `tool-support.js` ocultam abas android-only no iOS (`files`, `dast`),
+  renomeiam subtítulos por plataforma e carregam *reasons* de capacidade.
+- **Nomes** já claros.
+
+**Implementado (aditivo, `data-tab` preservado, lógica JS não reescrita):**
+- **Ordenação por fluxo de pentest** em INVESTIGAÇÃO: `Análise estática →
+  Análise dinâmica (DAST) → Frida → Tráfego` (antes estática→frida→dast→proxy).
+  Só reordenação de HTML; os testes não checam ordem do DOM.
+- **Realce do grupo ativo** (`.tool-group-label.tool-group-active`): o rótulo do
+  grupo cuja aba está ativa ganha cor de acento + borda-acento à esquerda. JS
+  aditivo (`syncActiveToolGroup()` em `app.js`, chamado no clique de aba e no
+  init) + CSS. Resolve "onde estou" ao rolar a nav.
+- **Guarda de grupo vazio** (`syncPlatformTools` + `.tool-group-label[hidden]`):
+  se todas as abas de um grupo ficarem ocultas no contexto atual, o rótulo some
+  junto. Defensivo — nas configs atuais nenhum grupo esvazia.
+
+**Validação:** 733 testes Python + 16 suítes JS verdes. Screenshots via Edge
+headless + CDP em dois contextos de device: Android (reorder + realce de
+INVESTIGAÇÃO vermelho) e iOS (abas android-only ocultas, realce de LABORATÓRIO,
+nenhum grupo órfão).
+
+**Nota de commit:** diferente das Fases 0/1 (só `styles.css`/`index.html`), a
+Fase 2 tocou `app.js` e `ios.js`, que já carregavam WIP não commitado da branch.
+Commitar isolando apenas as mudanças da Fase 2 exige *staging* cirúrgico desses
+dois arquivos.

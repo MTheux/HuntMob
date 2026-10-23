@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=runtime-102-context">
+  <link rel="stylesheet" href="styles.css?v=runtime-103-stepper">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
@@ -87,7 +87,7 @@
       </section>
 
       <aside class="analysis-panel" id="analysisPanel" hidden>
-        <header class="toolbox-head"><div><span class="eyebrow" id="toolsPlatformLabel">WORKBENCH · ANDROID</span><strong>Ferramentas</strong></div><button id="closeToolbox" class="icon-button" aria-label="Recolher ferramentas">×</button></header>
+        <header class="toolbox-head"><div class="toolbox-head-main"><div><span class="eyebrow" id="toolsPlatformLabel">WORKBENCH · ANDROID</span><strong>Ferramentas</strong></div><button id="closeToolbox" class="icon-button" aria-label="Recolher ferramentas">×</button></div><ol class="engagement-stepper" id="engagementStepper" aria-label="Fases do pentest"><li data-phase="engagement"><button type="button" data-step-tab="device-tools"><span class="step-mark">1</span><span class="step-name">Engagement</span></button></li><li data-phase="reverse"><button type="button" data-step-tab="reverse"><span class="step-mark">2</span><span class="step-name">Estático</span></button></li><li data-phase="dast"><button type="button" data-step-tab="dast"><span class="step-mark">3</span><span class="step-name">Dinâmico</span></button></li><li data-phase="evidence"><button type="button" data-step-tab="evidence"><span class="step-mark">4</span><span class="step-name">Evidências</span></button></li></ol></header>
         <nav class="analysis-tabs" role="tablist" aria-label="Ferramentas do laboratório">
           <span class="tool-group-label" aria-hidden="true">LABORATÓRIO</span>
           <button data-tab="device-tools" role="tab" aria-label="Dispositivo: controles" aria-selected="false" aria-controls="tab-device-tools"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="tool-tab-copy"><span class="tab-label">Dispositivo</span><small>Controles</small></span></button>

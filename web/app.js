@@ -271,6 +271,7 @@ async function loadRuntime() {
       return;
     }
     activeLab = payload.lab || {};
+    engagementBound = !!activeLab.engagement; syncEngagementStepper();
     syncLabLifecycleButtons();
     renderEngagement(activeLab);
     const verification = activeLab.root_verification;
@@ -477,6 +478,27 @@ tabs.forEach((tab) => tab.addEventListener('click', () => {
   if (tab.dataset.tab === 'proxy' && devicePlatform === 'android') { loadNetwork(); refreshProxyStatus(); }
 }));
 
+// Stepper global do engagement: reflete o estado real das fases do pentest
+// (engagement → estático → dinâmico → evidências) lendo sinais já rastreados.
+// Aditivo: não altera os fluxos das abas; apenas lê e navega.
+let engagementBound = false;
+function syncEngagementStepper() {
+  const stepper = document.querySelector('#engagementStepper');
+  if (!stepper) return;
+  const evidence = Number.parseInt(document.querySelector('#evidenceCount')?.textContent, 10) || 0;
+  const done = { engagement: engagementBound, reverse: !!reverseAnalysis, dast: !!dastProgressReport, evidence: evidence > 0 };
+  const order = ['engagement', 'reverse', 'dast', 'evidence'];
+  const current = order.findIndex((phase) => !done[phase]);
+  order.forEach((phase, index) => {
+    const li = stepper.querySelector(`li[data-phase="${phase}"]`);
+    if (!li) return;
+    li.dataset.state = done[phase] ? 'done' : index === current ? 'current' : 'pending';
+  });
+}
+document.querySelectorAll('#engagementStepper [data-step-tab]').forEach((button) => button.addEventListener('click', () => {
+  const target = document.querySelector(`[data-tab="${button.dataset.stepTab}"]`);
+  if (target && !target.hidden && !target.disabled) target.click();
+}));
 document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
   const view = button.dataset.view;
   document.querySelectorAll('[data-view]').forEach(item => item.classList.toggle('active', item === button));
@@ -1092,7 +1114,7 @@ async function loadNativeReport() {
 }
 function renderNativeReport(report) {
   if(report.lab_id!==dastTarget().id)return;
-  updateDastProgress();dastProgressReport=report;updateDastProgress();
+  updateDastProgress();dastProgressReport=report;updateDastProgress();syncEngagementStepper();
   nativeReportJob = report.job_id;
   const summary = report.summary;
   document.querySelector('#nativeReportStatus').textContent = `${['running','starting'].includes(report.session_state)?'Análise parcial · coleta em andamento':'Análise da sessão'} · ${summary.events} eventos · ${summary.network_requests} requisições · ${summary.candidates} candidato(s) para revisão · gerado ${new Date(report.generated_at).toLocaleString('pt-BR')}`;
@@ -1173,6 +1195,7 @@ function renderDeepDast(data) {
   prepare.textContent=preparation?.state==='running'?'Preparando REA…':reaReady?'REA preparado':'Preparar REA deste APK';
   document.querySelector('#deepReaStatus').textContent=reaReady?'REA disponível para este APK. Reconstrução Java completa pode ser aberta em Reverse.':preparation?.reason||preparation?.detail||'Extração local do APK e inspeção estática; o app não será executado pelo REA.';
   document.querySelector('#deepEngagementForm').hidden=!!data.lab?.engagement;
+  engagementBound=!!data.lab?.engagement;syncEngagementStepper();
   const output = document.querySelector('#deepDastResult'); output.replaceChildren(); output.hidden = job?.state !== 'complete';
   if (job?.state !== 'complete') return;
   const summary = document.createElement('p'); summary.className = 'deep-summary'; summary.textContent = job.review.summary; output.append(summary);
@@ -1714,6 +1737,7 @@ async function loadEvidence() {
     const payload = await response.json();
     payload.records = payload.records.filter(record => devicePlatform === 'ios' ? record.lab_id === 'ios_' + iosInfo?.lab?.udid : !activeLab.id || record.lab_id === activeLab.id || (activeLab.legacy && !record.lab_id));
     document.querySelector('#evidenceCount').textContent = String(payload.records.length);
+    syncEngagementStepper();
     document.querySelector('#evidenceStatus').textContent = payload.invalid_count ? `${payload.invalid_count} registro(s) com falha de integridade. Exportação bloqueada para esses registros.` : payload.records.length ? 'Capturas locais verificadas por SHA-256. Revise dados sensíveis antes de compartilhar.' : 'Capture a tela do device para registrar sua primeira evidência.';
     const list = document.querySelector('#evidenceTimeline');
     list.replaceChildren();
@@ -1738,6 +1762,7 @@ async function loadEvidence() {
   } catch (error) {
     document.querySelector('#evidenceStatus').textContent = error.message;
     document.querySelector('#evidenceCount').textContent = '—';
+    syncEngagementStepper();
   }
 }
 document.querySelector('#refreshEvidence').addEventListener('click', loadEvidence);
@@ -1870,6 +1895,7 @@ async function restoreReverseWorkspace(packageName, required = false) {
 
 function renderReverseWorkspace(payload) {
   reverseAnalysis = payload;
+  syncEngagementStepper();
   window.dispatchEvent(new CustomEvent('huntmob:reverse', {detail:payload}));
   document.querySelector('#reverseHash').textContent = `SHA256 · ${payload.sha256.slice(0, 8)}…${payload.sha256.slice(-4)}`;
   document.querySelector('#fileName').textContent = 'Selecione um arquivo na árvore';
@@ -2064,3 +2090,4 @@ document.querySelector('#openAndroidCamera').addEventListener('click', async () 
 
 try { const selected = localStorage.getItem('huntmob.activeTool'); const saved = [...tabs].find(item => item.dataset.tab === selected); if (saved) { const open = !analysisPanel.hidden; saved.click(); setAnalysisOpen(open); } } catch {}
 syncActiveToolGroup();
+syncEngagementStepper();

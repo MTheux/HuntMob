@@ -233,3 +233,42 @@ nenhum grupo órfão).
 Fase 2 tocou `app.js` e `ios.js`, que já carregavam WIP não commitado da branch.
 Commitar isolando apenas as mudanças da Fase 2 exige *staging* cirúrgico desses
 dois arquivos.
+
+---
+
+## Adendo — Execução da Fase 4 (Stepper de pentest) — 2026-10-23
+
+**Decisões do usuário:** stepper no **topo do painel de ferramentas**; ordem
+**engagement → estático → dinâmico → evidências** (metodológica, não a literal do
+spec).
+
+**Implementado (aditivo; `data-tab` preservado; fluxos das abas não reescritos):**
+- Stepper global `#engagementStepper` numa 2ª linha do `.toolbox-head` (header do
+  painel passou de altura fixa 52px para `auto`; 1ª faixa do grid do
+  `.analysis-panel` ajustada de `52px`→`auto` nas 4 variantes responsivas).
+- `syncEngagementStepper()` (app.js) lê sinais já rastreados e marca cada passo
+  como `pending`/`current`/`done`:
+  - engagement → `engagementBound` (de `activeLab.engagement` / `data.lab.engagement`)
+  - estático → `reverseAnalysis`
+  - dinâmico → `dastProgressReport` (report DAST, **não** `analysisReady`, que é só
+    disponibilidade do motor)
+  - evidências → `#evidenceCount > 0`
+  - `current` = primeiro passo ainda não concluído.
+- Passos **clicáveis** (`[data-step-tab]` → clica a aba correspondente; engagement
+  → `device-tools`, onde fica "Preparar pentest"). Guarda: não navega se a aba
+  estiver `hidden`/`disabled` (ex.: Dinâmico no iOS).
+- Chamadas de `syncEngagementStepper()` nos pontos de update existentes
+  (carga do lab, deep-dast, REA, report DAST, contagem de evidências, init).
+
+**Validação:** 733 Python + 16 JS verdes; `node --check` em app.js/ios.js.
+Screenshots via CDP: Android (stepper com estados mistos; clique em "Estático"
+navega para a aba reverse) e iOS (stepper renderiza, abas android-only ocultas,
+sem quebra de layout com header de 2 linhas).
+
+**Refinamento futuro (não-bug):** no iOS, o passo "Dinâmico" aparece como
+pendente embora o DAST seja android-only; poderia ser visualmente atenuado. A
+guarda já impede erro ao clicar.
+
+### Status do programa
+Fases 0, 1, 2 e 4 concluídas. Fase 3 (onboarding) e o passe de higiene de dead
+code CSS (`.rail*`, regras `.shell` sobrescritas) permanecem pendentes.

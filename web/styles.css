@@ -627,3 +627,22 @@ dialog{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 @media (max-width:900px){
   .phone-canvas{padding:20px 16px}
 }
+
+/* ============================================================
+   FASE 1 — Clareza de navegação (2026-10-22)
+   CSS aditivo; preserva data-tab e a lógica JS. Vence por ordem
+   de fonte. A nav vertical de ferramentas usa fundo #0d0d10.
+   ============================================================ */
+
+/* Item 3 — rótulos de grupo fixos ao rolar a nav de ferramentas,
+   com divisor sutil, mantendo o contexto do grupo sempre visível. */
+.analysis-tabs{scroll-padding-top:30px}
+.analysis-tabs .tool-group-label{position:sticky;top:0;z-index:2;background:#0d0d10;text-transform:uppercase;margin-top:7px;border-top:1px solid var(--line)}
+.analysis-tabs .tool-group-label:first-child{margin-top:0;border-top:0}
+
+/* Item 2 — toggle de ferramentas mais claro como controle real. */
+.analysis-toggle{border-radius:var(--radius-md);box-shadow:var(--shadow-sm);font-weight:600}
+.analysis-toggle:hover{background:var(--surface-3)}
+
+/* Item 4 — ícone de Evidências na topbar com hover coerente. */
+.top-actions .icon-button:hover{border-color:rgba(231,39,74,.45);color:var(--text)}

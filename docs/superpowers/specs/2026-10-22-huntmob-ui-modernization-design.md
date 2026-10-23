@@ -164,3 +164,38 @@ quebra.
 
 - Fases 1–4 (navegação, abas, onboarding, stepper) — specs próprios.
 - Modo claro, i18n, troca de framework, mudanças de API.
+
+---
+
+## Adendo — Execução da Fase 1 (Navegação) — 2026-10-22
+
+A inspeção da navegação revelou que ela já estava mais limpa que o briefing:
+
+- **Não existe elemento `.rail`** no HTML; os "3 níveis" são apenas topbar +
+  sidebar de dispositivos + nav de abas (já agrupada em LABORATÓRIO /
+  INVESTIGAÇÃO / RESULTADOS).
+- O contrato estável é `data-tab` (valores referenciados no JS: `device-tools`,
+  `reverse`, `dast`, `frida`, `evidence`). **Preservado integralmente.**
+- A cascata de regras `.shell` resolve efetivamente para: `≥1101px →
+  280px 1fr`; `≤1100px → coluna única + sidebar em drawer`. As demais regras
+  `.shell` (base `52px 234px 1fr`, `48px 180px 1fr`, etc.) e todo o CSS `.rail*`
+  estão **sobrescritos/mortos** — não renderizam. Ou seja, **não havia coluna
+  visível desperdiçada**; o "item 1" era dead code, não espaço perdido.
+
+**Implementado (CSS aditivo, sem tocar JS nem `data-tab`):**
+- Item 3 — rótulos de grupo (`.tool-group-label`) agora `position:sticky` com
+  divisor sutil, mantendo o contexto do grupo ao rolar a nav.
+- Item 2 — toggle "Ferramentas" (`.analysis-toggle`) com raio/sombra/peso de
+  controle real.
+- Item 4 — hover coerente no ícone de Evidências da topbar.
+
+**Adiado para passe de higiene separado (sem efeito visual):**
+- Item 1 — remoção do dead code (`.rail*` e regras `.shell` sobrescritas). Alto
+  risco de editar a linha minificada da base para ganho apenas de limpeza;
+  tratado fora da Fase 1.
+
+**Validação:** 733 testes Python + 16 suítes JS verdes; screenshots desktop/iPad
+sem regressão.
+
+**Recomendação:** o maior ganho de "intuitivo" está nas Fases 3 (onboarding) e
+4 (stepper de pentest). A navegação já cumpre bem o papel após a Fase 1.

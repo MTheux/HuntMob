@@ -272,3 +272,33 @@ guarda já impede erro ao clicar.
 ### Status do programa
 Fases 0, 1, 2 e 4 concluídas. Fase 3 (onboarding) e o passe de higiene de dead
 code CSS (`.rail*`, regras `.shell` sobrescritas) permanecem pendentes.
+
+---
+
+## Adendo — Execução da Fase 3 (Onboarding de primeiro uso) — 2026-10-23
+
+**Decisões do usuário:** formato **modal de boas-vindas**; gatilho **primeira
+visita** (flag em localStorage), reabrível.
+
+**Implementado (aditivo; novo módulo autocontido, sem tocar app.js/ios.js):**
+- `#welcomeDialog` (index.html): card de boas-vindas reusando o padrão
+  `<dialog>`/`.dialog-shell`, com introdução + o **fluxo em 4 fases**
+  (Engagement → Estático → Dinâmico → Evidências) espelhando o stepper da
+  Fase 4, criando continuidade.
+- CTA primário **"Criar primeiro laboratório"** → aciona o fluxo existente
+  `#newLab`; secundário **"Explorar a interface"** → dispensa.
+- Controle **"?"** (`#openWelcome`) na topbar reabre o onboarding a qualquer
+  momento.
+- `onboarding.js`: novo módulo. Mostra o modal uma vez
+  (`localStorage huntmob.welcomeSeen`), com guardas try/catch para modo privado,
+  e não disputa com o gate do operador (não abre se já houver `dialog[open]`).
+
+**Validação:** 733 Python + 16 JS verdes; `node --check onboarding.js`.
+Via CDP: primeira visita mostra o modal; CTA fecha o welcome e abre o "Novo
+laboratório" (`welcomeOpen:false, newLabOpen:true`); após dispensar,
+`welcomeSeen=1` e o `Page.reload` no mesmo processo não reabre o modal.
+
+### Status do programa
+Fases 0, 1, 2, 3 e 4 concluídas — as quatro áreas de UX escolhidas estão
+entregues. Resta apenas o passe de higiene opcional de dead code CSS
+(`.rail*`, regras `.shell` sobrescritas).

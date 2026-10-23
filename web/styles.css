@@ -683,3 +683,20 @@ dialog{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 .engagement-stepper li[data-state=done] .step-mark::after{content:"✓";font-size:9px}
 .engagement-stepper li[data-state=done] .step-mark{font-size:0}
 @media(max-width:820px){.engagement-stepper .step-name{display:none}}
+
+/* ============================================================
+   FASE 3 — Onboarding de primeiro uso (2026-10-23)
+   Modal de boas-vindas reusando o padrão <dialog>/.dialog-shell.
+   CSS aditivo.
+   ============================================================ */
+.welcome-dialog{width:min(560px,calc(100% - 28px))}
+.welcome-intro{color:var(--muted);font-size:12px;line-height:1.6;margin:0 0 16px}
+.welcome-flow{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:10px}
+.welcome-flow li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;align-items:start;padding:11px 12px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-2)}
+.welcome-step-mark{width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--red);border-radius:50%;color:var(--red);font:600 11px var(--mono);background:var(--red-dim)}
+.welcome-flow strong{display:block;font-size:13px}
+.welcome-flow small{display:block;margin-top:2px;color:var(--quiet);font-size:11px;line-height:1.5}
+.welcome-hint{margin:0 0 4px;color:var(--quiet);font:10px var(--mono)}
+.welcome-dialog .session-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+#openWelcome svg{width:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+#openWelcome:hover{border-color:rgba(231,39,74,.45);color:var(--text)}

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=runtime-103-stepper">
+  <link rel="stylesheet" href="styles.css?v=runtime-104-onboarding">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
@@ -13,6 +13,9 @@
     <div class="brand"><span>HUNT</span><b>MOB</b></div>
 
     <div class="top-actions"><button type="button" class="outline" id="toggleDeviceList" aria-expanded="false">Dispositivos</button>
+      <button class="icon-button" id="openWelcome" type="button" aria-label="Como começar" title="Como começar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3.5"/><path d="M12 17h.01"/></svg>
+      </button>
       <button class="icon-button" aria-label="Abrir evidências" title="Evidências">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h6"/></svg>
       </button>
@@ -423,6 +426,7 @@
   <dialog id="iosRuntimesDialog"><form class="dialog-shell" method="dialog"><header><div><span class="eyebrow">CATÁLOGO DO WORKER</span><h2>Versões de iOS</h2></div><button aria-label="Fechar" value="cancel">×</button></header><p class="privacy-note" id="iosRuntimesHost"></p><label class="lab-field">Buscar versão<input id="iosRuntimesSearch" type="search" placeholder="Ex.: 18.5 ou 17" autocomplete="off"></label><p class="privacy-note" id="iosRuntimesJob" role="status"></p><div id="iosRuntimesList" class="ios-runtime-list"></div><p class="privacy-note">O download usa os runtimes oficiais da Apple. Versões antigas exigem um worker compatível; listagem não significa runtime instalado. IPA de iPhone físico continua incompatível com Simulator.</p><button class="outline" type="button" id="refreshIosRuntimes">Atualizar catálogo</button></form></dialog>
   <dialog id="rootPairDialog"><div class="dialog-shell"><header><div><span class="eyebrow">PAR DE ANDROIDS</span><h2>Original e companheiro com root</h2></div><button type="button" id="closeRootPair" aria-label="Fechar">×</button></header><p class="privacy-note" id="rootPairPlan"></p><label class="lab-field">Apps para sincronizar<select id="rootPairScope"><option value="all">Todos os apps de usuário</option><option value="selected">Somente o app selecionado</option></select></label><p class="privacy-note">Copia os APKs originais e seus splits, com SHA256 verificado. Contas, sessões, permissões e dados internos continuam separados. Apps que dependem do Google Play podem exigir outro build.</p><p id="rootPairStatus" role="status" aria-live="polite"></p><ul id="rootPairApps" class="root-pair-apps"></ul><p class="privacy-note" id="rootPairNetwork"></p><fieldset id="rootPairService"><legend>Conexão TCP entre apps</legend><p class="privacy-note">Um serviço no companheiro fica acessível por localhost no principal. A conexão não sincroniza sessões ou ações dos apps.</p><div class="dast-app-row"><label class="lab-field">Porta no companheiro<input id="pairServicePort" type="number" min="1024" max="65535" value="9000"></label><label class="lab-field">Porta no principal<input id="pairAccessPort" type="number" min="1024" max="65535" value="19000"></label></div><button type="button" id="pairServiceToggle" class="outline">Ativar conexão TCP</button><p class="privacy-note" id="pairServiceStatus" role="status"></p></fieldset><div class="session-actions"><button type="button" id="startRootPair" class="primary">Criar par e sincronizar</button><button type="button" id="checkRootPairNetwork" class="outline" hidden>Verificar rede</button><button type="button" id="rootPairDast" class="outline" hidden>Usar no DAST</button></div></div></dialog>
   <dialog id="workspaceAgentDialog"><form class="dialog-shell" method="dialog"><header><div><span class="eyebrow">MCP · STDIO LOCAL</span><h2>Conectar agente ao workspace</h2></div><button aria-label="Fechar" value="cancel">×</button></header><p class="privacy-note">Adicione esta configuração ao cliente MCP que roda no worker. O agente poderá listar e capturar os aparelhos deste workspace, criar Androids e iPhones adicionais, desligá-los e retomá-los. As ferramentas da interface continuam vinculadas ao principal. O MCP também oferece inspeções estáticas REA e o contexto Companion do APK selecionado, com execução e SHA256 explícitos.</p><pre id="workspaceAgentConfig" class="workspace-agent-config"></pre><p id="workspaceAgentStatus" role="status"></p><button type="button" id="copyWorkspaceAgent" class="primary full">Copiar configuração MCP</button></form></dialog>
+  <dialog id="welcomeDialog" class="welcome-dialog"><div class="dialog-shell"><header><div><span class="eyebrow">PRIMEIRO USO</span><h2>Bem-vindo ao HuntMob</h2></div><button type="button" id="welcomeClose" aria-label="Fechar">×</button></header><p class="welcome-intro">Workbench portátil e governada de análise de segurança mobile — Android e iOS — com evidências rastreáveis.</p><ol class="welcome-flow" aria-label="Fluxo de trabalho do pentest"><li><span class="welcome-step-mark">1</span><div><strong>Engagement</strong><small>Vincule o pentest autorizado e prepare o aparelho.</small></div></li><li><span class="welcome-step-mark">2</span><div><strong>Estático</strong><small>Analise o APK/IPA sem executar o app (REA).</small></div></li><li><span class="welcome-step-mark">3</span><div><strong>Dinâmico</strong><small>Exercite o app em runtime: DAST, Frida e tráfego.</small></div></li><li><span class="welcome-step-mark">4</span><div><strong>Evidências</strong><small>Capturas e registros reunidos para o laudo.</small></div></li></ol><p class="welcome-hint">Esse fluxo fica sempre visível no topo do painel de ferramentas.</p><div class="session-actions"><button type="button" class="outline" id="welcomeExplore">Explorar a interface</button><button type="button" class="primary" id="welcomeCreateLab">Criar primeiro laboratório</button></div></div></dialog>
   <div class="toast" role="status" aria-live="polite"></div>
   <script src="operator-session.js?v=runtime-99-pentest-ready"></script>
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js" integrity="sha384-vASLsXJSh9FIgw41jM2fwBSF2MoEPlegwV4SO9G3NeyRMcWf7XjSdYvU6MlwOfQl" crossorigin="anonymous"></script>
@@ -446,5 +450,6 @@
   <script src="remote.js?v=runtime-42"></script>
   <script src="viewer.js?v=runtime-42"></script>
   <script src="client-validation.js?v=runtime-42"></script>
+  <script src="onboarding.js?v=runtime-103-onboarding"></script>
 </body>
 </html>

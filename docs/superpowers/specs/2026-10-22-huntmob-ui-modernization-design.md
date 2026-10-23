@@ -302,3 +302,25 @@ laboratório" (`welcomeOpen:false, newLabOpen:true`); após dispensar,
 Fases 0, 1, 2, 3 e 4 concluídas — as quatro áreas de UX escolhidas estão
 entregues. Resta apenas o passe de higiene opcional de dead code CSS
 (`.rail*`, regras `.shell` sobrescritas).
+
+---
+
+## Adendo — Passe de higiene de CSS morto — 2026-10-23
+
+Removido código CSS comprovadamente morto, sem efeito visual:
+- **Todas as regras `.rail*`** (`.rail`, `.rail-spacer`, `.rail-item` e
+  variantes de hover/active/svg/transição/altura): não existe elemento `.rail`
+  no HTML nem referência em JS. Também limpos os seletores combinados
+  (`.viewer-mode .rail`, a lista de `pointer:coarse` e a de reduced-motion),
+  preservando os elementos reais que compartilhavam a regra.
+- **3 variantes mortas de `.shell`** de grid herdadas do layout com rail
+  (`52px 210px`, `48px 180px`, `190px`) — nunca vencem a cascata.
+
+**Verificação empírica:** `getComputedStyle('.shell').gridTemplateColumns`
+medido via CDP em 11 larguras (500→1440) é **idêntico** antes e depois
+(`280px …` em ≥1101px; coluna única em ≤1100px). 733 Python + 16 JS verdes.
+
+**Deixado intencionalmente:** a regra `.shell{…234px…}` (linha com comentário
+"One navigation for tools…", override deliberado recente, apenas sobrescrito por
+`280px`) e as regras `.shell` com propriedades mistas (height/display), para não
+mexer em código intencional nem arriscar a cascata por ganho marginal.

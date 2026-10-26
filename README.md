@@ -18,16 +18,22 @@ HuntMob Control Plane
 
 ## Início rápido
 
-Um comando, sobe usável:
+Clona e sobe — um bloco, cola no terminal:
 
 ```bash
-make up        # UI governada leve em http://127.0.0.1:8090 (sem KVM, qualquer host)
+git clone https://github.com/MTheux/HuntMob.git
+cd HuntMob
+docker compose up -d
 ```
 
-`make up` é um `docker compose up` da imagem leve (~212 MB): roda em
-macOS, Windows e Linux, gera o segredo sozinho e não baixa o SDK Android.
-Pare com `make down`, veja logs com `make logs`, rode `make` sem argumento
-para a lista de comandos.
+O `docker compose up` **constrói a imagem na primeira vez** (não precisa de
+passo de build) e publica a UI em **http://127.0.0.1:8090**. É a imagem leve
+(~212 MB): roda em macOS, Windows e Linux, gera o segredo sozinho e não baixa
+o SDK Android. Só precisa de Docker com Compose v2 instalado.
+
+Parar: `docker compose down`. Logs: `docker compose logs -f ui`.
+Quem prefere atalhos tem o `Makefile`: `make up`, `make down`, `make logs`
+(rode `make` sem argumento para a lista completa).
 
 Para **Android real** você precisa de um worker com acelerador de hardware —
 o emulador não roda dentro do Docker no mac (a virtualização do Docker Desktop

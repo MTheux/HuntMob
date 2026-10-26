@@ -32,9 +32,17 @@ SDK_CANDIDATES = (
 )
 
 
+def _batch_wrap(command):
+    """On Windows a .bat/.cmd (avdmanager, sdkmanager) cannot be launched by
+    CreateProcess directly; route it through cmd.exe. .exe tools run as-is."""
+    if platform.system() == "Windows" and command and str(command[0]).lower().endswith((".bat", ".cmd")):
+        return ["cmd", "/c", *command]
+    return command
+
+
 def _run(command: Sequence[str], timeout: int = 30, input_text: str | None = None, env=None):
     return subprocess.run(
-        command, input=input_text, capture_output=True, text=True,
+        _batch_wrap(command), input=input_text, capture_output=True, text=True,
         timeout=timeout, check=False, env=env,
     )
 

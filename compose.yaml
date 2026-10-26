@@ -1,5 +1,48 @@
+# HuntMob — um `docker compose up` que sobe leve em qualquer host.
+#
+#   docker compose up                 -> UI governada leve (~212MB, sem KVM).
+#                                        Roda em macOS/Windows/Linux. Para o
+#                                        trabalho Android no mac, pareie um
+#                                        worker nativo com `make up`.
+#   docker compose --profile emulator up huntmob-emulator
+#                                     -> Android completo dentro do container.
+#                                        Exige Linux x86_64 com /dev/kvm.
+#
+# Os dois serviços publicam 8090; por isso o emulador fica num profile e é
+# iniciado nominalmente — nunca sobem juntos.
 services:
-  huntmob:
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.control
+    image: huntmob-control:local
+    init: true
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      # Caminho gravável pelo usuário nobody: o gateway cunha um segredo
+      # efêmero aqui quando nenhum worker_secret é montado, então o `up`
+      # sobe sem passo manual em vez de quebrar.
+      - HUNTMOB_GATEWAY_SECRET_PATH=/tmp/worker_secret
+    extra_hosts:
+      # Permite alcançar um worker nativo na porta 8092 do host (Linux/mac/win).
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      # Liveness do gateway em si (ouvindo a porta). Não depende de um worker
+      # nativo pareado, então a UI standalone fica "healthy" por conta própria.
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 8090), 3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  huntmob-emulator:
+    profiles: ["emulator"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -14,7 +57,11 @@ services:
       - huntmob-sdk:/opt/android-sdk
       - huntmob-android:/root/.android
       - huntmob-workspaces:/root/.huntmob
+      - huntmob-proxy-ca:/root/.mitmproxy
     shm_size: 2gb
+    environment:
+      - HUNTMOB_ANDROID_GPU
+      - HUNTMOB_ANDROID_MEMORY_MB
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
@@ -23,3 +70,4 @@ volumes:
   huntmob-sdk:
   huntmob-android:
   huntmob-workspaces:
+  huntmob-proxy-ca:

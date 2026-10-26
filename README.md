@@ -18,13 +18,30 @@ HuntMob Control Plane
 
 ## Início rápido
 
-O caminho Docker completo atual exige Linux x86_64 com KVM. Para a alocação
-planejada em Linux, macOS e Windows, consulte
-[a topologia por plataforma](docs/docker-platform-topology-v1.0-2026-10-20.md).
-O gateway Docker Desktop com worker nativo em macOS/Windows é iniciado pelo
-launcher abaixo; `docker compose up` sozinho não inicia o worker do host.
-O contrato separado de agentes e a validação ponta a ponta em Windows ainda
-estão pendentes.
+Um comando, sobe usável:
+
+```bash
+make up        # UI governada leve em http://127.0.0.1:8090 (sem KVM, qualquer host)
+```
+
+`make up` é um `docker compose up` da imagem leve (~212 MB): roda em
+macOS, Windows e Linux, gera o segredo sozinho e não baixa o SDK Android.
+Pare com `make down`, veja logs com `make logs`, rode `make` sem argumento
+para a lista de comandos.
+
+Para **Android real** você precisa de um worker com acelerador de hardware —
+o emulador não roda dentro do Docker no mac (a virtualização do Docker Desktop
+não expõe aceleração aninhada ao emulador). Escolha conforme o host:
+
+| Host | Comando | O que roda |
+| --- | --- | --- |
+| Qualquer um | `make up` | UI leve (pareie um worker para Android) |
+| macOS/Windows | `make native` | Worker nativo (Android via HVF/WHPX) + gateway, com URL de acesso |
+| Linux x86_64 + `/dev/kvm` | `make emulator` | Android completo dentro do container |
+
+iOS Simulator/virtual exige macOS/Xcode. O contrato separado de agentes e a
+validação ponta a ponta em Windows ainda estão pendentes. Topologia completa:
+[por plataforma](docs/docker-platform-topology-v1.0-2026-10-20.md).
 
 ### Docker Desktop com worker nativo (macOS/Windows)
 

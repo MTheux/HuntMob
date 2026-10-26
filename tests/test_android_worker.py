@@ -3,7 +3,25 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from huntmob.android_worker import AndroidSdk, AndroidWorker
+from huntmob.android_worker import AndroidSdk, AndroidWorker, _batch_wrap
+
+
+class BatchWrapTests(unittest.TestCase):
+    def test_windows_bat_tools_run_through_cmd(self):
+        with patch("huntmob.android_worker.platform.system", return_value="Windows"):
+            wrapped = _batch_wrap([Path("C:/sdk/cmdline-tools/latest/bin/avdmanager.bat"), "create"])
+        self.assertEqual(wrapped[0], "cmd")
+        self.assertEqual(wrapped[1], "/c")
+        self.assertEqual(wrapped[-1], "create")
+
+    def test_windows_exe_tools_run_directly(self):
+        with patch("huntmob.android_worker.platform.system", return_value="Windows"):
+            self.assertEqual(_batch_wrap([Path("C:/sdk/platform-tools/adb.exe"), "devices"]),
+                             [Path("C:/sdk/platform-tools/adb.exe"), "devices"])
+
+    def test_posix_tools_run_directly(self):
+        with patch("huntmob.android_worker.platform.system", return_value="Linux"):
+            self.assertEqual(_batch_wrap(["/sdk/adb", "devices"]), ["/sdk/adb", "devices"])
 
 
 class AndroidWorkerTests(unittest.TestCase):

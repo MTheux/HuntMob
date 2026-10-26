@@ -4,7 +4,12 @@ from http.client import HTTPConnection, HTTPException
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import os
+import secrets
 from urllib.parse import urlsplit
+try:
+    from operator_auth import OperatorSession
+except ModuleNotFoundError:
+    from huntmob.operator_auth import OperatorSession
 
 
 HOP_HEADERS = {
@@ -12,9 +17,30 @@ HOP_HEADERS = {
     "te", "trailer", "transfer-encoding", "upgrade", "expect",
 }
 MAX_UPLOAD = 512 * 1024 * 1024
-SECRET = Path(os.environ.get("HUNTMOB_GATEWAY_SECRET_PATH", "/run/secrets/worker_secret")).read_text(encoding="ascii").strip()
-if not 32 <= len(SECRET) <= 256:
-    raise SystemExit("Invalid worker bridge secret")
+
+
+def load_or_create_secret(path_str):
+    """Read the paired worker secret, or mint an ephemeral one when none is
+    mounted so a bare `docker compose up` boots instead of crashing. A written
+    secret only pairs with a native worker that reads the same file; the
+    minted fallback just lets the governed UI come up standalone."""
+    path = Path(path_str)
+    if path.exists():
+        secret = path.read_text(encoding="ascii").strip()
+    else:
+        secret = secrets.token_urlsafe(48)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(secret, encoding="ascii")
+        except OSError:
+            pass  # read-only filesystem: keep the minted secret in memory only
+    if not 32 <= len(secret) <= 256:
+        raise SystemExit("Invalid worker bridge secret")
+    return secret
+
+
+SECRET = load_or_create_secret(os.environ.get("HUNTMOB_GATEWAY_SECRET_PATH", "/run/secrets/worker_secret"))
+OPERATOR = OperatorSession(SECRET)
 
 
 class Gateway(SimpleHTTPRequestHandler):
@@ -37,6 +63,12 @@ class Gateway(SimpleHTTPRequestHandler):
             self.send_error(403, "Invalid host")
             return
         path = urlsplit(self.path).path
+        origins = self.headers.get_all('Origin') or []
+        if len(origins) > 1 or (origins and origins[0] not in {'http://127.0.0.1:8090', 'http://localhost:8090'}):
+            self.send_error(403, 'Invalid origin')
+            return
+        if not OPERATOR.handle(self):
+            return
         if path.startswith("/api/"):
             self._proxy()
         elif self.command in {"GET", "HEAD"}:

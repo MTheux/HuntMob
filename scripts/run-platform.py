@@ -59,6 +59,29 @@ def wait_gateway(worker: subprocess.Popen) -> None:
     raise RuntimeError("O gateway Docker não conseguiu alcançar o worker nativo")
 
 
+def _confirm_sdk() -> bool:
+    print("O Android SDK não está instalado neste worker.", flush=True)
+    print("Posso baixar as ferramentas oficiais do Google e aceitar as licenças", flush=True)
+    print("do Android SDK para preparar o emulador (download de alguns GB na 1ª vez).", flush=True)
+    try:
+        answer = input("Baixar e aceitar as licenças do Android SDK agora? [s/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"s", "sim", "y", "yes"}
+
+
+def prepare_android_sdk() -> None:
+    """Make the native Android worker ready on first run (one confirmation)."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from huntmob.sdk_bootstrap import provision
+    result = provision(_confirm_sdk)
+    if not result.get("ok"):
+        raise RuntimeError(
+            (result.get("reason") or "Android SDK não preparado")
+            + " Consulte o Início rápido no README."
+        )
+
+
 def run_desktop() -> int:
     if not port_free(8090) or not port_free(8092):
         raise RuntimeError("As portas 8090 e 8092 precisam estar livres")
@@ -68,6 +91,7 @@ def run_desktop() -> int:
     home.mkdir(mode=0o700, exist_ok=True)
     logs = home / "logs"
     logs.mkdir(mode=0o700, exist_ok=True)
+    prepare_android_sdk()
     with tempfile.TemporaryDirectory(prefix="docker-bridge-", dir=home) as temporary:
         secret = secrets.token_urlsafe(48)
         secret_path = Path(temporary) / "worker-secret"
@@ -118,7 +142,7 @@ def main() -> int:
         if platform.system() in {"Darwin", "Windows"}:
             return run_desktop()
         raise RuntimeError("Sistema operacional não suportado")
-    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"HuntMob não iniciado: {error}", file=sys.stderr)
         return 2
 

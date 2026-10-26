@@ -64,6 +64,24 @@ class ControlGatewayTests(unittest.TestCase):
         self.assertEqual(connection.getresponse().status, 200)
         connection.close()
 
+    def test_gateway_generates_secret_when_none_mounted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            secret_file = Path(temporary) / "nested" / "worker_secret"
+            previous = os.environ.get("HUNTMOB_GATEWAY_SECRET_PATH")
+            os.environ["HUNTMOB_GATEWAY_SECRET_PATH"] = str(secret_file)
+            try:
+                spec = importlib.util.spec_from_file_location("huntmob_control_gateway_gen", GATEWAY_FILE)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+            finally:
+                if previous is None:
+                    os.environ.pop("HUNTMOB_GATEWAY_SECRET_PATH", None)
+                else:
+                    os.environ["HUNTMOB_GATEWAY_SECRET_PATH"] = previous
+            self.assertTrue(secret_file.exists())
+            self.assertEqual(secret_file.read_text(encoding="ascii").strip(), module.SECRET)
+            self.assertTrue(32 <= len(module.SECRET) <= 256)
+
     def test_gateway_overwrites_browser_supplied_secret(self):
         with tempfile.TemporaryDirectory() as temporary:
             secret_file = Path(temporary) / "secret"
@@ -85,10 +103,16 @@ class ControlGatewayTests(unittest.TestCase):
             gateway = self.serve(module.Gateway)
             connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
             connection.request("GET", "/api/check?x=1", headers={
-                "Host": "127.0.0.1:8090", "X-HuntMob-Worker-Secret": "attacker-value"})
+                "Host": "127.0.0.1:8090", "X-HuntMob-Worker-Secret": "attacker-value",
+                "Cookie": 'huntmob_operator=' + module.OPERATOR.cookie(),
+                "X-HuntMob-Operator": module.OPERATOR.proof(module.OPERATOR.cookie())})
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
             self.assertEqual(response.read(), b"b" * 48 + b"|/api/check?x=1")
+            connection.close()
+            connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
+            connection.request("GET", "/api/session", headers={"Host":"127.0.0.1:8090"})
+            self.assertEqual(connection.getresponse().status, 401)
             connection.close()
             connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
             connection.request("GET", "/api/check", headers={"Host": "untrusted.example"})

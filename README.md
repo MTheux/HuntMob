@@ -18,13 +18,38 @@ HuntMob Control Plane
 
 ## Início rápido
 
-O caminho Docker completo atual exige Linux x86_64 com KVM. Para a alocação
-planejada em Linux, macOS e Windows, consulte
-[a topologia por plataforma](docs/docker-platform-topology-v1.0-2026-10-20.md).
-O gateway Docker Desktop com worker nativo em macOS/Windows é iniciado pelo
-launcher abaixo; `docker compose up` sozinho não inicia o worker do host.
-O contrato separado de agentes e a validação ponta a ponta em Windows ainda
-estão pendentes.
+Clona e sobe — um bloco, cola no terminal:
+
+```bash
+git clone https://github.com/MTheux/HuntMob.git
+cd HuntMob
+docker compose up -d
+```
+
+O `docker compose up` **constrói a imagem na primeira vez** (não precisa de
+passo de build) e publica a UI em **http://127.0.0.1:8090**. É a imagem leve
+(~212 MB): roda em macOS, Windows e Linux, gera o segredo sozinho e não baixa
+o SDK Android. Só precisa de Docker com Compose v2 instalado.
+
+Parar: `docker compose down`. Logs: `docker compose logs -f ui`.
+Quem prefere atalhos tem o `Makefile`: `make up`, `make down`, `make logs`
+(rode `make` sem argumento para a lista completa).
+
+Para **Android real** você precisa de um worker com acelerador de hardware —
+o emulador não roda dentro do Docker no mac (a virtualização do Docker Desktop
+não expõe aceleração aninhada ao emulador). Escolha conforme o host:
+
+| Host | Comando | O que roda |
+| --- | --- | --- |
+| Qualquer um | `make up` | UI leve (pareie um worker para Android) |
+| macOS/Windows | `make native` | Worker nativo (Android via HVF/WHPX) + gateway; baixa o SDK na 1ª vez com 1 confirmação |
+| Linux x86_64 + `/dev/kvm` | `make emulator` | Android completo dentro do container |
+
+iOS Simulator/virtual exige macOS/Xcode. No Windows, o worker nativo agora
+provisiona o Android SDK sozinho na primeira execução (uma confirmação); a
+validação ponta a ponta em hardware Windows real ainda é recomendada antes de
+produção. Topologia completa:
+[por plataforma](docs/docker-platform-topology-v1.0-2026-10-20.md).
 
 ### Docker Desktop com worker nativo (macOS/Windows)
 
@@ -35,11 +60,21 @@ python3 scripts/run-platform.py
 No Windows, use `py scripts/run-platform.py`. O comando constrói um gateway
 leve em Docker, inicia o worker nativo na porta 8092 com segredo temporário e
 publica a UI em `http://127.0.0.1:8090`. Mantenha o comando aberto; `Ctrl+C`
-encerra gateway e worker. Android usa o acelerador do host (HVF ou WHPX);
-iOS Simulator requer macOS/Xcode. É necessário ter Python com as dependências
-do HuntMob, Docker Desktop e SDKs nativos preparados. O gateway não instala
-SDKs nem transforma o emulador em um processo Docker. A execução em Windows
-e dispositivos físicos ainda precisa de validação ponta a ponta.
+encerra gateway e worker. Android usa o acelerador do host (HVF no macOS,
+WHPX no Windows); iOS Simulator requer macOS/Xcode.
+
+**Primeira execução (provisão automática do Android SDK).** Se o SDK não
+estiver instalado, o launcher baixa as command-line tools oficiais do Google
+(pinadas por sha256), instala emulador, platform-tools e a imagem do sistema,
+e aceita as licenças do Android SDK — tudo após **uma única confirmação sua**
+(`s`). Nada é baixado nem licenciado sem esse aceite. Nas execuções seguintes
+ele detecta o SDK pronto e sobe direto. Só precisa de Python com as
+dependências do HuntMob e Docker Desktop instalados.
+
+Windows roda a mesma imagem x86_64 com WHPX. As chamadas de `sdkmanager` e
+`avdmanager` (`.bat`) são executadas via `cmd` automaticamente. A validação
+ponta a ponta em hardware Windows real ainda é recomendada antes de produção;
+se algo falhar no seu Windows, o launcher imprime o motivo exato.
 
 No Linux x86_64/KVM, o mesmo `run-platform.py` chama o inicializador Docker
 completo descrito abaixo.

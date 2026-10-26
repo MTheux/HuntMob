@@ -34,10 +34,11 @@ def bootstrap_android(*, install: bool = False) -> Dict[str, object]:
     from .analysis_core import EmbeddedAnalysis
     java=EmbeddedAnalysis()
     environment=java.environment() if java.status().get('ready') else None
+    from .android_worker import _run
     try:
-        result = subprocess.run(
+        result = _run(
             (str(sdk.sdkmanager), f"--sdk_root={sdk.root}", "emulator", "platform-tools", 'build-tools;35.0.0', package),
-            capture_output=True, text=True, timeout=1800, check=False,env=environment,
+            timeout=1800, env=environment,
         )
     except (OSError,subprocess.TimeoutExpired):
         return {**before,'ok':False,'blocked':True,'mode':'native','ready':False,'reason':'SDK Manager não concluiu a preparação. Confira conexão, licenças e Java do pacote ou do SDK.'}

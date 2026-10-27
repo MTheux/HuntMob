@@ -839,33 +839,42 @@ async function refreshQuickReaApps() {
 quickReaPackage.addEventListener('change', () => { quickReaStart.disabled = quickReaBusy || !quickReaPackage.value || !analysisReady; });
 document.querySelector('#quickReaRefresh').addEventListener('click', refreshQuickReaApps);
 document.querySelector('[data-tab="device-tools"]').addEventListener('click', refreshQuickReaApps);
+// Static-RE orchestration for the active lab's package: verify REA, bind the app,
+// prepare or restore the workspace, start the inspection and open the Reverse tab.
+// Shared by the device-tools quick action and the sidebar per-lab action.
+async function huntmobStartReaForPackage(selectedPackage, onStatus) {
+  const status = typeof onStatus === 'function' ? onStatus : () => {};
+  const labId = activeLab.id;
+  status('Verificando REA no worker…');
+  const readiness = await fetch('/api/reverse/engines', {cache: 'no-store', signal: AbortSignal.timeout(10000)}).then(response => response.json());
+  if (!readiness.rea_ready) throw new Error(readiness.rea_reason || 'REA indisponível neste worker.');
+  if (labId !== activeLab.id) throw new Error('O laboratório selecionado mudou.');
+  status('Validando app e preparando APK…');
+  if (!await selectApp(selectedPackage, true)) throw new Error('O app não pôde ser vinculado ao laboratório.');
+  if (labId !== activeLab.id || currentSelectedPackage !== selectedPackage || activeLab.package_id !== selectedPackage) throw new Error('O app selecionado mudou.');
+  const targetResponse = await fetch('/api/reverse/target?' + new URLSearchParams({workspace: labId}), {cache: 'no-store'});
+  const target = await targetResponse.json();
+  if (!targetResponse.ok) throw new Error(target.reason || 'Contexto REA indisponível.');
+  if (target.prepared) {
+    await restoreReverseWorkspace(selectedPackage, true);
+  } else {
+    status('Extraindo e preparando o APK para REA…');
+    await prepareReverseWorkspace(selectedPackage);
+  }
+  if (labId !== activeLab.id || currentSelectedPackage !== selectedPackage) throw new Error('O app selecionado mudou.');
+  if (!window.huntmobReaInspectPackage) throw new Error('Módulo REA ainda não carregado.');
+  status('Iniciando inspeção estática REA…');
+  await window.huntmobReaInspectPackage();
+  document.querySelector('[data-tab="reverse"]').click();
+}
+window.huntmobStartReaForPackage = huntmobStartReaForPackage;
 quickReaStart.addEventListener('click', async () => {
   if (quickReaBusy || !quickReaAllowed() || !validPackage(quickReaPackage.value)) return;
   quickReaBusy = true;
   quickReaStart.disabled = true;
-  const labId = activeLab.id, selectedPackage = quickReaPackage.value;
+  const selectedPackage = quickReaPackage.value;
   try {
-    quickReaStatus.textContent = 'Verificando REA no worker…';
-    const readiness = await fetch('/api/reverse/engines', {cache: 'no-store', signal: AbortSignal.timeout(10000)}).then(response => response.json());
-    if (!readiness.rea_ready) throw new Error(readiness.rea_reason || 'REA indisponível neste worker.');
-    if (labId !== activeLab.id || !quickReaAllowed()) throw new Error('O laboratório selecionado mudou.');
-    quickReaStatus.textContent = 'Validando app e preparando APK…';
-    if (!await selectApp(selectedPackage, true)) throw new Error('O app não pôde ser vinculado ao laboratório.');
-    if (labId !== activeLab.id || currentSelectedPackage !== selectedPackage || activeLab.package_id !== selectedPackage) throw new Error('O app selecionado mudou.');
-    const targetResponse = await fetch('/api/reverse/target?' + new URLSearchParams({workspace: labId}), {cache: 'no-store'});
-    const target = await targetResponse.json();
-    if (!targetResponse.ok) throw new Error(target.reason || 'Contexto REA indisponível.');
-    if (target.prepared) {
-      await restoreReverseWorkspace(selectedPackage, true);
-    } else {
-      quickReaStatus.textContent = 'Extraindo e preparando o APK para REA…';
-      await prepareReverseWorkspace(selectedPackage);
-    }
-    if (labId !== activeLab.id || currentSelectedPackage !== selectedPackage) throw new Error('O app selecionado mudou.');
-    if (!window.huntmobReaInspectPackage) throw new Error('Módulo REA ainda não carregado.');
-    quickReaStatus.textContent = 'Iniciando inspeção estática REA…';
-    await window.huntmobReaInspectPackage();
-    document.querySelector('[data-tab="reverse"]').click();
+    await huntmobStartReaForPackage(selectedPackage, message => { quickReaStatus.textContent = message; });
     quickReaStatus.textContent = 'Inspeção REA iniciada. Acompanhe o resultado em Reverse.';
   } catch (error) {
     quickReaStatus.textContent = error.message;

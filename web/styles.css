@@ -289,6 +289,11 @@
 .saved-lab-entry .saved-lab-select[hidden]{display:none}
 .device-list .saved-lab-entry.is-selecting .saved-lab{padding-left:34px}
 .device-list .saved-lab-entry.is-selected .saved-lab{background:var(--red-dim);border-left-color:var(--red)}
+.saved-lab-rea{display:block;width:100%;margin:-2px 0 6px;padding:6px 8px;background:transparent;color:var(--muted);border:1px solid var(--line);border-top:none;border-radius:0 0 4px 4px;text-align:left;font-size:10px;letter-spacing:.3px;cursor:pointer}
+.saved-lab-rea:hover{border-color:var(--red);color:var(--text)}
+.saved-lab-rea:disabled{opacity:.5;cursor:not-allowed}
+.saved-lab-rea[hidden]{display:none}
+.device-list .saved-lab-entry.is-selecting .saved-lab-rea{display:none}
 .saved-lab-selection-footer{flex:none;margin:0 2px;padding:12px 6px 3px;border-top:1px solid var(--line);background:var(--surface)}
 .device-list.selecting-saved-labs .sidebar-worker{display:none}
 .saved-lab-selection-footer p{margin:0 0 8px;color:var(--muted);font-size:10px;line-height:1.5}

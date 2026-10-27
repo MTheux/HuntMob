@@ -105,6 +105,25 @@
     $('#savedLabSelectAll').disabled=labOperationBusy;
     $('#savedLabClearSelection').disabled=labOperationBusy||!count;
   }
+  async function analyzeLabRea(lab,button){
+    const plan=window.huntmobLabRea.labReaPlan(lab,{currentId:state.current});
+    if(!plan.allowed)return notify(plan.reason);
+    if(labOperationBusy)return;
+    if(plan.needsResume&&!window.confirm('Analisar este app exige retomar o lab. O lab atual será desligado e preservado. Continuar?'))return;
+    const previous=button.textContent;button.disabled=true;button.textContent='Analisando…';
+    try{
+      if(plan.needsResume){
+        notify('Retomando o lab para extrair e analisar o APK…');
+        await authorizedPost('/api/device/action',{action:'resume',lab_id:lab.id});
+        await loadRuntime();await loadSavedLabs();
+      }
+      if(devicePlatform!=='android')await switchDevicePlatform('android');
+      closeDrawer();
+      if(!window.huntmobStartReaForPackage)throw new Error('Módulo REA ainda não carregado.');
+      await window.huntmobStartReaForPackage(plan.package,message=>notify(message));
+    }catch(error){notify(error.message);}
+    finally{button.disabled=false;button.textContent=previous;}
+  }
   function renderLabs(){
     const root=$('#savedLabs');root.replaceChildren();const groups=new Map();let visible=0;
     for(const lab of state.labs){
@@ -134,7 +153,9 @@
         function choose(checked){checkbox.checked=checked;if(checked)selectedLabs.add(lab.id);else selectedLabs.delete(lab.id);entry.classList.toggle('is-selected',checked);updateLabSelection();}
         checkbox.addEventListener('change',()=>choose(checkbox.checked));
         button.addEventListener('click',()=>selectingLabs?choose(!checkbox.checked):resumeSavedLab(lab,button));
-        entry.append(checkbox,button);group.append(entry);
+        entry.append(checkbox,button);
+        if(lab.package_id){const rea=label('button','saved-lab-rea','Analisar app (RE)');rea.type='button';rea.hidden=selectingLabs;rea.title=`Engenharia reversa de ${labTitle(lab)}`;rea.addEventListener('click',event=>{event.stopPropagation();analyzeLabRea(lab,rea);});entry.append(rea);}
+        group.append(entry);
       }
       root.append(group);
     }

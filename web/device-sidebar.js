@@ -1,7 +1,8 @@
 // Sidebar presentation reuses observed inventory; it never starts a device.
 (() => {
   const state={android:null,androidError:false,ios:null,companions:[],workspace:'',labs:[],current:'',query:'',presentation:{devices:{}}};
-  const companionRows=new Map(),openGroups=new Map(),resumeErrors=new Map();
+  const companionRows=new Map(),openGroups=new Map(),resumeErrors=new Map(),selectedLabs=new Set();
+  let selectingLabs=false,labOperationBusy=false,stopRequest=null;
   const $=selector=>document.querySelector(selector);
   const normalize=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const matches=value=>normalize(value).includes(normalize(state.query));
@@ -93,6 +94,17 @@
     $('#runtimeCount').textContent=state.android?`${online} online`:'—';
     $('#runtimeCount').dataset.online=String(online>0);
   }
+  function labTitle(lab){return lab.package_id||(lab.legacy?'Laboratório anterior':'Sem aplicativo');}
+  function labMatches(lab){return matches([labTitle(lab),lab.id,`API ${lab.android_api||35}`,profile(lab),lab.id===state.current?'atual':''].join(' '));}
+  function updateLabSelection(){
+    const count=selectedLabs.size;
+    $('#savedLabSelectionStatus').textContent=!count?'Nenhum lab selecionado.':`${count} lab(s) selecionado(s).`;
+    $('#savedLabStopSelected').disabled=labOperationBusy||!count;
+    $('#savedLabDeleteSelected').disabled=labOperationBusy||!count;
+    $('#savedLabSelectMode').disabled=labOperationBusy;
+    $('#savedLabSelectAll').disabled=labOperationBusy;
+    $('#savedLabClearSelection').disabled=labOperationBusy||!count;
+  }
   function renderLabs(){
     const root=$('#savedLabs');root.replaceChildren();const groups=new Map();let visible=0;
     for(const lab of state.labs){
@@ -102,7 +114,7 @@
     const sorted=[...groups.entries()].sort(([,a],[,b])=>Number(b.some(l=>l.id===state.current))-Number(a.some(l=>l.id===state.current)));
     for(const [key,labs] of sorted){
       const title=key==='empty'?'Sem aplicativo':key==='legacy'?'Laboratório anterior':key;
-      const filtered=labs.filter(lab=>matches([title,lab.id,`API ${lab.android_api||35}`,profile(lab),lab.id===state.current?'atual':''].join(' ')));
+      const filtered=labs.filter(labMatches);
       if(!filtered.length)continue;visible+=filtered.length;
       const group=document.createElement('details');group.className='saved-lab-group';
       group.open=state.query?true:(openGroups.get(key)??labs.some(l=>l.id===state.current));
@@ -115,12 +127,20 @@
         const heading=label('span','saved-lab-heading','');heading.append(label('strong','',`API ${lab.android_api||35}`),label('span','lab-profile',profile(lab)));
         if(current)heading.append(label('span','current-lab-tag','Atual'));
         button.append(heading,label('small','saved-lab-id',`ID · ${shortId(lab.id)}`));
-        button.addEventListener('click',()=>resumeSavedLab(lab,button));group.append(button);
+        const entry=document.createElement('div');entry.className='saved-lab-entry';
+        entry.classList.toggle('is-selecting',selectingLabs);entry.classList.toggle('is-selected',selectedLabs.has(lab.id));
+        const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.className='saved-lab-select';checkbox.hidden=!selectingLabs;
+        checkbox.checked=selectedLabs.has(lab.id);checkbox.setAttribute('aria-label',`Selecionar lab ${title}, API ${lab.android_api||35}, ID ${shortId(lab.id)}`);
+        function choose(checked){checkbox.checked=checked;if(checked)selectedLabs.add(lab.id);else selectedLabs.delete(lab.id);entry.classList.toggle('is-selected',checked);updateLabSelection();}
+        checkbox.addEventListener('change',()=>choose(checkbox.checked));
+        button.addEventListener('click',()=>selectingLabs?choose(!checkbox.checked):resumeSavedLab(lab,button));
+        entry.append(checkbox,button);group.append(entry);
       }
       root.append(group);
     }
     $('#savedLabCount').textContent=state.query?`${visible}/${state.labs.length}`:String(state.labs.length);
     if(!state.labs.length)root.append(label('p','runtime-empty','Seus laboratórios aparecerão aqui.'));
+    updateLabSelection();
     return visible;
   }
   function filterSections(){
@@ -130,17 +150,87 @@
     $('#savedLabSection').hidden=querying&&!$('#savedLabs').querySelector('.saved-lab');
     $('#sidebarSearchEmpty').hidden=!querying||[$('#workspaceDeviceSection'),$('#workerDeviceSection'),$('#savedLabSection')].some(section=>!section.hidden);
   }
-  function sync(){renderPrimary();renderIos();renderCount();filterSections();}
+  function sync(){renderPrimary();renderIos();renderCount();filterSections();updateLabSelection();}
   window.huntmobSidebar={
     runtime(payload){state.android=payload;state.androidError=false;if(state.workspace!==payload.lab?.id){state.workspace=payload.lab?.id||'';state.companions=[];renderCompanions();}},
     runtimeError(){state.androidError=true;},
     ios(info){state.ios=info;sync();},
     companions(payload){if(payload.workspace_id!==state.workspace)return;state.companions=payload.devices||[];state.presentation=payload.presentation||{devices:{}};renderCompanions();sync();},
-    labs(payload){state.labs=payload.labs||[];state.current=payload.current?.id||'';renderLabs();filterSections();},
+    labs(payload){state.labs=payload.labs||[];state.current=payload.current?.id||'';const valid=new Set(state.labs.map(lab=>lab.id));for(const id of selectedLabs)if(!valid.has(id))selectedLabs.delete(id);renderLabs();filterSections();},
     presentation(value){state.presentation=value;renderCompanions();sync();},
     sync,
   };
-  $('#deviceSearch').addEventListener('input',event=>{state.query=event.target.value.trim();renderPrimary();renderIos();renderCompanions();renderLabs();filterSections();});
+  $('#deviceSearch').addEventListener('input',event=>{state.query=event.target.value.trim();selectedLabs.clear();renderPrimary();renderIos();renderCompanions();renderLabs();filterSections();});
+  $('#savedLabSelectMode').addEventListener('click',()=>{
+    if(labOperationBusy)return;
+    selectingLabs=!selectingLabs;selectedLabs.clear();
+    $('#savedLabSelectMode').textContent=selectingLabs?'Concluir':'Selecionar';
+    $('#savedLabSelectMode').setAttribute('aria-pressed',String(selectingLabs));
+    $('#savedLabSelectActions').hidden=!selectingLabs;$('#savedLabSelectionFooter').hidden=!selectingLabs;
+    document.querySelector('.device-list').classList.toggle('selecting-saved-labs',selectingLabs);
+    renderLabs();
+  });
+  $('#savedLabSelectAll').addEventListener('click',()=>{if(labOperationBusy)return;for(const lab of state.labs.filter(labMatches))selectedLabs.add(lab.id);renderLabs();});
+  $('#savedLabClearSelection').addEventListener('click',()=>{if(labOperationBusy)return;selectedLabs.clear();renderLabs();});
+  const stopDialog=$('#savedLabStopDialog');
+  const closeStopDialog=()=>{if(!labOperationBusy){stopDialog.close();stopRequest=null;}};
+  $('#savedLabStopClose').addEventListener('click',closeStopDialog);
+  $('#savedLabStopCancel').addEventListener('click',closeStopDialog);
+  stopDialog.addEventListener('cancel',event=>{if(labOperationBusy)event.preventDefault();else stopRequest=null;});
+  $('#savedLabStopSelected').addEventListener('click',()=>{
+    if(labOperationBusy||!selectedLabs.size)return;
+    stopRequest={ids:[...selectedLabs],current:state.current};
+    $('#savedLabStopSummary').textContent=`${stopRequest.ids.length} lab(s) selecionado(s). O HuntMob verificará o Android principal e os aparelhos adicionais desses labs. Apenas os que estiverem ligados serão desligados.`;
+    $('#savedLabStopError').hidden=true;stopDialog.showModal();
+  });
+  $('#savedLabStopConfirm').addEventListener('click',async()=>{
+    if(labOperationBusy||!stopRequest)return;
+    if(stopRequest.current!==state.current){$('#savedLabStopError').textContent='O lab atual mudou. Atualize a lista.';$('#savedLabStopError').hidden=false;return;}
+    labOperationBusy=true;updateLabSelection();$('#savedLabStopConfirm').disabled=true;$('#savedLabStopConfirm').textContent='Desligando…';$('#savedLabStopCancel').disabled=true;stopDialog.setAttribute('aria-busy','true');
+    try{
+      const request=stopRequest;
+      const result=await authorizedPost('/api/device/action',{action:'stop-saved-labs',lab_ids:request.ids,expected_current_id:request.current});
+      stopDialog.close();stopRequest=null;selectedLabs.clear();
+      for(const item of result.results||[])if(item.state==='failed')selectedLabs.add(item.lab_id);
+      if(devicePlatform==='android'&&result.results?.some(item=>item.lab_id===request.current&&item.state==='stopped'))stopDeviceScreen();
+      await loadRuntime();await Promise.all([loadSavedLabs(),loadWorkspaceDevices()]);
+      $('#savedLabSelectionStatus').textContent=result.failed
+        ?`${result.stopped} desligado(s), ${result.inactive} inativo(s), ${result.failed} pendente(s). Confira os selecionados.`
+        :`${result.stopped} desligado(s), ${result.inactive} já inativo(s). Dados preservados.`;
+      notify(result.failed?'Alguns aparelhos não desligaram; confira os labs selecionados.':result.stopped?'Aparelhos desligados. Os labs continuam salvos em disco.':'Aparelhos já desligados. Para remover os labs e liberar espaço, use Excluir.');
+    }catch(error){$('#savedLabStopError').textContent=error.message;$('#savedLabStopError').hidden=false;}
+    finally{labOperationBusy=false;$('#savedLabStopConfirm').disabled=false;$('#savedLabStopConfirm').textContent='Desligar aparelhos ligados';$('#savedLabStopCancel').disabled=false;stopDialog.removeAttribute('aria-busy');updateLabSelection();}
+  });
+  const deleteDialog=$('#savedLabDeleteDialog');let deleteRequest;
+  const closeDeleteDialog=()=>{if(!labOperationBusy){deleteDialog.close();deleteRequest=undefined;}};
+  $('#savedLabDeleteClose').addEventListener('click',closeDeleteDialog);
+  $('#savedLabDeleteCancel').addEventListener('click',closeDeleteDialog);
+  deleteDialog.addEventListener('cancel',event=>{if(labOperationBusy)event.preventDefault();else deleteRequest=undefined;});
+  $('#savedLabDeleteApproval').addEventListener('change',()=>{$('#savedLabDeleteConfirm').disabled=labOperationBusy||!$('#savedLabDeleteApproval').checked;});
+  $('#savedLabDeleteSelected').addEventListener('click',()=>{
+    if(labOperationBusy||!selectedLabs.size)return;
+    deleteRequest={ids:[...selectedLabs],current:state.current};
+    $('#savedLabDeleteSummary').textContent=`${deleteRequest.ids.length} lab(s) serão removidos da lista e do armazenamento deste worker.`;
+    const list=$('#savedLabDeleteList');list.replaceChildren();
+    for(const lab of state.labs.filter(item=>selectedLabs.has(item.id)))list.append(label('li','',`${labTitle(lab)} · API ${lab.android_api||35} · ${shortId(lab.id)}`));
+    $('#savedLabDeleteApproval').checked=false;$('#savedLabDeleteConfirm').disabled=true;$('#savedLabDeleteError').hidden=true;
+    deleteDialog.showModal();
+  });
+  $('#savedLabDeleteConfirm').addEventListener('click',async()=>{
+    if(labOperationBusy||!deleteRequest||!$('#savedLabDeleteApproval').checked)return;
+    if(deleteRequest.current!==state.current){$('#savedLabDeleteError').textContent='O lab atual mudou. Feche esta janela e selecione novamente.';$('#savedLabDeleteError').hidden=false;return;}
+    labOperationBusy=true;updateLabSelection();$('#savedLabDeleteConfirm').disabled=true;$('#savedLabDeleteConfirm').textContent='Excluindo…';$('#savedLabDeleteCancel').disabled=true;$('#savedLabDeleteApproval').disabled=true;deleteDialog.setAttribute('aria-busy','true');
+    try{
+      const request=deleteRequest;
+      const result=await authorizedPost('/api/device/action',{action:'delete-saved-labs',lab_ids:request.ids,expected_current_id:request.current,delete_data:true});
+      deleteDialog.close();deleteRequest=undefined;selectedLabs.clear();
+      for(const item of result.results||[])if(item.state==='failed')selectedLabs.add(item.lab_id);
+      if(devicePlatform==='android'&&result.results?.some(item=>item.lab_id===request.current&&item.state==='deleted'))stopDeviceScreen();
+      await loadRuntime();await Promise.all([loadSavedLabs(),loadWorkspaceDevices()]);
+      notify(result.failed?`${result.deleted} lab(s) excluído(s); ${result.failed} pendente(s). Os pendentes continuam selecionados.`:`${result.deleted} lab(s) excluído(s). Apps e dados removidos.`);
+    }catch(error){$('#savedLabDeleteError').textContent=error.message;$('#savedLabDeleteError').hidden=false;}
+    finally{labOperationBusy=false;$('#savedLabDeleteConfirm').disabled=!$('#savedLabDeleteApproval').checked;$('#savedLabDeleteConfirm').textContent='Excluir definitivamente';$('#savedLabDeleteCancel').disabled=false;$('#savedLabDeleteApproval').disabled=false;deleteDialog.removeAttribute('aria-busy');updateLabSelection();}
+  });
   $('#sidebarNewLab').addEventListener('click',()=>{$('#newLab').click();closeDrawer();});
   for(const id of ['runtimeDevice','iosDevice'])$('#'+id).addEventListener('click',closeDrawer);
   $('#runtimeDevice').addEventListener('click',async()=>{if(state.android?.devices?.[0]?.state==='on')return;try{await deviceAction('start');await loadRuntime();await loadWorkspaceDevices();}catch(error){notify(error.message);}});

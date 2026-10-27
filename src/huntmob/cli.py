@@ -37,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     ui.add_argument("--port", default=8090, type=int)
     ui.add_argument("--authorized-remote", action="store_true")
     ui.add_argument("--worker-secret-file", help="require the Docker bridge secret on every request")
+    ui.add_argument("--trusted-origin", action="append", default=[], help="exact http(s) origin for an authorized remote UI")
+    ui.add_argument("--public-port", type=int, help="operator gateway port advertised to local MCP clients")
     runtime_plan = commands.add_parser(
         "runtime-plan", help="plan an owned HuntMob Android device without creating it"
     )
@@ -82,7 +84,7 @@ def main() -> int:
         return 0
     if args.command == "ui":
         serve(args.bind, args.port, authorized_remote=args.authorized_remote,
-              worker_secret_file=args.worker_secret_file)
+              worker_secret_file=args.worker_secret_file, allowed_origins=args.trusted_origin, public_port=args.public_port)
         return 0
     if args.command == "runtime-plan":
         result = provision_plan(

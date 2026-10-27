@@ -7,12 +7,30 @@ import unittest
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
+from unittest.mock import Mock
+import os
 
 from huntmob import reverse_engines as engines
 from huntmob import reverse_workspace
 
 
 class ReverseEngineTests(unittest.TestCase):
+    def test_large_apk_has_bounded_heap_and_invalid_overrides_never_launch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            apk=Path(folder)/'base.apk'
+            config={'java_home':'/jdk','jadx_jar':'/jadx.jar'}
+            for size,expected in ((1024,'768'),(197*1024**2,'2048')):
+                with apk.open('wb') as source:source.truncate(size)
+                def launch(*args,**kwargs):
+                    self.assertEqual(kwargs['env']['REA_JADX_HEAP_MIB'],expected)
+                    kwargs['stdout'].write(json.dumps({'evidence_id':'ev_fixture'}).encode());kwargs['stdout'].flush()
+                    return Mock(returncode=0)
+                with patch.dict(os.environ,{},clear=True),patch('huntmob.reverse_engines.subprocess.Popen',side_effect=launch):
+                    self.assertEqual(engines.execute(['node','rea','package',str(apk)],config)['evidence_id'],'ev_fixture')
+            for value in ('0','4097','oops','-1'):
+                with patch.dict(os.environ,{'HUNTMOB_REA_HEAP_MIB':value}),patch('huntmob.reverse_engines.subprocess.Popen') as process:
+                    with self.assertRaises(ValueError):engines.execute(['node','rea','package',str(apk)],config)
+                    process.assert_not_called()
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.home = Path(self.temp.name)
         self.home_patch = patch('pathlib.Path.home', return_value=self.home); self.home_patch.start()

@@ -15,6 +15,7 @@ import threading
 import time
 import zipfile
 from pathlib import Path, PurePosixPath
+from uuid import UUID
 from .android_worker import _run, PACKAGE_ID
 from .dynamic_runtime import private_json
 from .screen_relay import ScreenRelay
@@ -40,7 +41,7 @@ def inventory():
         runtimes=[r for r in runtimes if r.get('isAvailable') and r.get('platform')=='iOS']
         record=saved();devices=json.loads(sim('list','devices','--json',timeout=8).stdout).get('devices',{})
         device=next((d for group in devices.values() for d in group if d.get('udid')==record.get('udid') and d.get('name','').startswith('HuntMob iOS')),None)
-        return {'ok':True,'ready':bool(runtimes),'state':'on' if device and device['state']=='Booted' else 'off','device':device,'lab':record,'runtimes':[{'name':r['name'],'id':r['identifier']} for r in runtimes],'input_ready':client_path().is_file() and bool(shutil.which('idb_companion')),'limitations':['Build .app para Simulator; IPA de iPhone físico não é compatível.','Frida, DAST Android e root não são oferecidos neste perfil iOS.']}
+        return {'ok':True,'ready':bool(runtimes),'state':'on' if device and device['state']=='Booted' else 'off','device':device,'lab':record,'runtimes':[{'name':r['name'],'id':r['identifier']} for r in runtimes],'input_ready':client_path().is_file() and bool(shutil.which('idb_companion')),'limitations':['Build .app para Simulator; IPA de iPhone físico não é compatível.','Frida Simmy é experimental; DAST Android e root não são oferecidos neste perfil iOS.']}
     except (OSError,ValueError,subprocess.TimeoutExpired): return {'ok':False,'ready':False,'state':'unavailable','reason':'Inventário Apple indisponível. Verifique Xcode e CoreSimulator.'}
 
 def owned():
@@ -81,7 +82,7 @@ def lab_catalog():
     return {'ok':True,'runtimes':info['runtimes'],'models':models,'jailbreak_supported':False}
 
 
-def new_lab(runtime, model, access='stock', engagement=''):
+def new_lab(runtime, model, access='stock', engagement='', *, previous_udid=None):
     from .lab_sessions import engagement_name
     engagement=engagement_name(engagement)
     # Validate before touching the existing lab. No jailbreak is synthesized.
@@ -99,11 +100,75 @@ def new_lab(runtime, model, access='stock', engagement=''):
         created=sim('create',name,model,runtime)
         if created.returncode: raise ValueError('Modelo incompatível com a versão selecionada; lab atual preservado.')
         record={'udid':created.stdout.strip(),'name':name,'runtime':runtime,'model':model,'platform':'ios','access':'stock','engagement':engagement}
+        try:
+            UUID(record['udid'])
+        except (ValueError, TypeError) as error:
+            raise ValueError('O Simulator não retornou um UUID válido; lab atual preservado.') from error
+        if previous_udid:
+            if record['udid'].lower()==previous_udid.lower():
+                raise ValueError('O Simulator retornou a identidade anterior; reset não concluído.')
+            record['previous_udid']=previous_udid
         previous=inventory()
         if previous.get('device'):
             private_json(folder()/('lab-'+previous['lab']['udid']+'.json'),previous['lab'])
-        if previous.get('state')=='on': shutdown()
+        if previous.get('state')=='on' and not shutdown().get('ok'):
+            raise ValueError('O iOS atual não desligou; sua identidade foi preservada.')
         private_json(folder()/('lab-'+record['udid']+'.json'),record)
+        private_json(folder()/'current.json',record)
+        return start()
+
+
+def _identity_lab(expected_udid):
+    try:
+        if not isinstance(expected_udid, str) or str(UUID(expected_udid)).lower()!=expected_udid.lower():
+            raise ValueError()
+    except (ValueError, TypeError, AttributeError) as error:
+        raise ValueError('UUID do Simulator inválido.') from error
+    info=inventory()
+    record=info.get('lab', {})
+    if record.get('udid')!=expected_udid or not info.get('device'):
+        raise ValueError('O Simulator selecionado mudou ou não está disponível. Atualize o laboratório.')
+    return info,record
+
+
+def reset_identity(expected_udid):
+    """Create a clean Simulator identity, keeping the previous device and lab intact."""
+    from . import ios_proxy
+    # Match proxy.start's lock order while closing capture for this identity only.
+    with ios_proxy.LOCK, IOS_LOCK:
+        info,record=_identity_lab(expected_udid)
+        model=record.get('model') or info['device'].get('deviceTypeIdentifier')
+        if not model or not record.get('runtime'):
+            raise ValueError('Modelo ou versão do iOS não identificado. Use Novo lab para escolher o perfil.')
+        if ios_proxy.TARGET==expected_udid:
+            ios_proxy.stop()
+        result=new_lab(record['runtime'],model,engagement=record.get('engagement',''),previous_udid=expected_udid)
+        return {**result,'previous_udid':expected_udid,'reason':'Novo UUID criado. O lab anterior permanece salvo; este iOS começa sem apps ou dados.'}
+
+
+def restore_previous_identity(expected_udid):
+    """Resume only the archived predecessor of the selected Simulator."""
+    from . import ios_proxy
+    with ios_proxy.LOCK, IOS_LOCK:
+        info,active=_identity_lab(expected_udid)
+        previous=active.get('previous_udid')
+        try:
+            if not isinstance(previous,str) or str(UUID(previous)).lower()!=previous.lower() or previous==expected_udid:
+                raise ValueError()
+            record=json.loads((folder()/('lab-'+previous+'.json')).read_text())
+        except (ValueError, OSError, TypeError, AttributeError) as error:
+            raise ValueError('Lab anterior não encontrado; o atual foi preservado.') from error
+        devices=json.loads(sim('list','devices','--json',timeout=8).stdout).get('devices',{})
+        if record.get('udid')!=previous or not record.get('name','').startswith('HuntMob iOS') or not any(
+            device.get('udid')==previous and device.get('name')==record['name']
+            for group in devices.values() for device in group
+        ):
+            raise ValueError('Identidade do lab anterior não confirmada; o atual foi preservado.')
+        if ios_proxy.TARGET==expected_udid:
+            ios_proxy.stop()
+        private_json(folder()/('lab-'+expected_udid+'.json'),active)
+        if info.get('state')=='on' and not shutdown().get('ok'):
+            raise ValueError('O iOS atual não desligou; tente novamente.')
         private_json(folder()/'current.json',record)
         return start()
 

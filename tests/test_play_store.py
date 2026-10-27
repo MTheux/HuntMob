@@ -21,6 +21,14 @@ class StoreTests(unittest.TestCase):
    self.assertIn('market://details?id=com.huntmob.lab',run.call_args.args[0]);self.assertIn('com.android.vending',run.call_args.args[0])
 
 class PlayLabTests(unittest.TestCase):
+ def setUp(self):
+  # Unit tests must not read or depend on the operator's real active lab.
+  self.current_patch=patch('huntmob.lab_sessions.current',return_value={})
+  self.current_patch.start();self.addCleanup(self.current_patch.stop)
+ def test_unsaved_active_lab_never_prepares_or_switches(self):
+  with patch('huntmob.lab_sessions.current',return_value={'id':'huntmob_lab_'+'b'*32,'saved_at':None}),patch('huntmob.android_worker.AndroidWorker') as factory,patch('huntmob.lab_sessions.create_lab') as create:
+   result=create_play_lab(MagicMock())
+   self.assertEqual(result['error_code'],'unsaved_lab');factory.assert_not_called();create.assert_not_called()
  def test_invalid_request_never_prepares_or_switches_lab(self):
   worker=MagicMock()
   with patch('huntmob.lab_sessions.create_lab') as create,patch.object(AndroidWorker,'prepare_profile') as prepare:

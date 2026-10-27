@@ -104,7 +104,7 @@ def run_desktop() -> int:
         )
         environment["HUNTMOB_WORKER_SECRET_FILE"] = str(secret_path)
         command = [sys.executable, "-m", "huntmob.cli", "ui", "--bind", "127.0.0.1",
-                   "--port", "8092", "--worker-secret-file", str(secret_path)]
+                   "--port", "8092", "--worker-secret-file", str(secret_path), "--public-port", "8090"]
         started = False
         worker = None
         try:
@@ -116,7 +116,12 @@ def run_desktop() -> int:
             started = True
             subprocess.run(COMPOSE + ["up", "-d", "--build"], cwd=ROOT, env=environment, check=True)
             wait_gateway(worker)
+            sys.path.insert(0, str(ROOT / 'src'))
+            from huntmob.operator_auth import OperatorSession, write_access_url
+            operator = OperatorSession(secret)
+            access = write_access_url(operator, 'http://127.0.0.1:8090')
             print("HuntMob Docker: http://127.0.0.1:8090", flush=True)
+            print(f"Endereço privado do operador: {access}", flush=True)
             print("Worker nativo conectado. Ctrl+C encerra os dois processos.", flush=True)
             while worker.poll() is None:
                 time.sleep(0.5)

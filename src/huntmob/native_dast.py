@@ -107,17 +107,21 @@ def analyze(source):
 
 def generate(runtime):
     source = json.loads(runtime.export())
-    lab = current()
+    lab = runtime.context() if hasattr(runtime, 'context') else current()
     receipt = source.get('receipt', {})
     if receipt.get('lab_id') != lab.get('id') or receipt.get('apk_sha256') != lab.get('apk_sha256'):
         raise ValueError('Sessão não corresponde ao laboratório atual.')
     report = analyze(source)
+    report['limitations'].extend(source.get('limitations', []))
+    report['workspace_id'] = receipt.get('workspace_id', receipt.get('lab_id'))
+    report['device_id'] = receipt.get('device_id', receipt.get('lab_id'))
+    report['serial'] = receipt.get('serial')
     private_json(root() / lab['id'] / 'native-dast-report.json', report)
     return report
 
 
-def latest():
-    lab = current()
+def latest(lab=None):
+    lab = current() if lab is None else lab
     try:
         report = json.loads((root() / lab['id'] / 'native-dast-report.json').read_text())
         if report.get('lab_id') != lab['id'] or report.get('apk_sha256') != lab.get('apk_sha256'): raise ValueError('Report scope mismatch')

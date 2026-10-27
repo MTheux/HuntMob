@@ -77,6 +77,9 @@ class Gateway(BaseHTTPRequestHandler):
         try:
             headers={k:v for k,v in self.headers.items() if k.lower() not in HOP|{'host','content-length','expect'} and not k.lower().startswith('tailscale-')}
             headers['Host']=f'127.0.0.1:{self.server.worker_port}'
+            # The remote origin/owner were checked above. Upstream remains a
+            # separate loopback origin, with operator cookie authentication.
+            headers['Origin']=f'http://127.0.0.1:{self.server.worker_port}'
             headers['Connection']='close'
             if self.command=='POST':headers['Content-Length']=str(length)
             connection.putrequest(self.command,self.path,skip_host=True,skip_accept_encoding=True)
@@ -89,7 +92,7 @@ class Gateway(BaseHTTPRequestHandler):
                 connection.send(chunk);remaining-=len(chunk)
             response=connection.getresponse();self.send_response(response.status);responded=True
             for key,value in response.getheaders():
-                if key.lower() not in HOP:self.send_header(key,value)
+                if key.lower() not in HOP:self.send_header(key,value + '; Secure' if key.lower()=='set-cookie' and '; secure' not in value.lower() else value)
             if not response.getheader('Cache-Control'):self.send_header('Cache-Control','no-store')
             self.send_header('X-Content-Type-Options','nosniff');self.end_headers()
             if self.command!='HEAD':
@@ -114,8 +117,8 @@ def serve_remote(worker_port=8090,gateway_port=8091,https_port=8443):
         raise ValueError('Porta Tailscale já configurada; o serviço existente não será alterado.')
     probe=http.client.HTTPConnection('127.0.0.1',worker_port,timeout=5)
     try:
-        probe.request('GET','/api/session');response=probe.getresponse()
-        if response.status!=200 or 'csrf_token' not in json.loads(response.read(4096)):raise ValueError('Inicie a UI local do HuntMob primeiro.')
+        probe.request('GET','/api/client/ping');response=probe.getresponse()
+        if response.status!=200 or json.loads(response.read(4096)).get('ok') is not True:raise ValueError('Inicie a UI local do HuntMob primeiro.')
     finally:probe.close()
     with ThreadingHTTPServer(('127.0.0.1',gateway_port),Gateway) as server:
         server.owner=owner;server.worker_port=worker_port;server.origin=f'https://{dns}:{https_port}'

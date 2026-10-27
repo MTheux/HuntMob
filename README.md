@@ -76,6 +76,19 @@ Windows roda a mesma imagem x86_64 com WHPX. As chamadas de `sdkmanager` e
 ponta a ponta em hardware Windows real ainda é recomendada antes de produção;
 se algo falhar no seu Windows, o launcher imprime o motivo exato.
 
+O Android usa GPU do host em macOS/Windows e seleção automática no Linux.
+O perfil Google Play recebe 4096 MB de RAM; AOSP recebe 3072 MB.
+Para hosts com restrições gráficas, configure `HUNTMOB_ANDROID_GPU=software`
+antes de iniciar o launcher. `HUNTMOB_ANDROID_MEMORY_MB` permite ajustar a RAM
+entre 1024 e 16384 MB. Essas opções entram no próximo boot do aparelho,
+sem recriar o AVD ou apagar apps. O vídeo mantém até 60 fps com o lado maior
+limitado a 1280 pixels; capturas de evidência continuam na resolução do device.
+
+Em DAST, **Verificar Frida** consulta os requisitos sem iniciar instrumentação.
+Google Play sem root exige um build de teste com Gadget carregado e sua porta
+local disponível. AOSP usa ADB root e um runtime Frida compatível; **Root apps**
+é o controle separado de Magisk, indisponível nas imagens Google Play stock.
+
 No Linux x86_64/KVM, o mesmo `run-platform.py` chama o inicializador Docker
 completo descrito abaixo.
 
@@ -247,3 +260,17 @@ JEV não controla a tela Android baseada em vídeo/canvas. A organização por f
 e gates foi informada pelo projeto MIT
 [Johnmelo/mobile-sec](https://github.com/Johnmelo/mobile-sec), sem incorporar seu
 código ou transformar saída de AI em finding confirmado.
+
+O companheiro com root também oferece correlação profunda: a sessão dinâmica
+pertence ao aparelho selecionado, enquanto o REA reutiliza somente a evidência
+do mesmo SHA256. **Preparar REA deste APK** extrai o APK e inspeciona o pacote
+sem exigir a reconstrução Java completa. O engagement pode ser registrado no
+próprio painel DAST. Em **Dispositivo → Preparar pentest**, confira os requisitos
+do aparelho e as limitações de Android/iOS antes de iniciar.
+
+O painel exige sessão local de operador. O launcher grava o endereço privado
+em `~/.huntmob/operator-access-url.txt` e o atalho `operator-access.html`, ambos
+privados. Abra o atalho no navegador; não compartilhe a URL. No Docker Linux,
+consulte o arquivo dentro do container com `docker compose exec -T huntmob cat
+/root/.huntmob/operator-access-url.txt`. O agente MCP lê o arquivo privado
+automaticamente no worker local. Veja [implementação, validação e limites](docs/pentest-readiness-v1.0-2026-10-22.md).

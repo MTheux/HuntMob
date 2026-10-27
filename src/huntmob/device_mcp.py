@@ -9,9 +9,12 @@ import argparse
 import base64
 import json
 import sys
+from pathlib import Path
+from http.cookiejar import CookieJar
+from urllib.parse import urlsplit, parse_qs
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
+from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler, HTTPCookieProcessor
 
 from .lab_sessions import LAB_NAME
 
@@ -51,15 +54,38 @@ class WorkerClient:
             raise ValueError('Invalid local worker or workspace')
         self.origin = f'http://127.0.0.1:{port}'
         self.workspace = workspace
-        self.opener = build_opener(ProxyHandler({}), NoRedirect())
+        self.operator_proof = None
+        self.opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPCookieProcessor(CookieJar()))
 
-    def request(self, path, payload=None):
+    def _authenticate(self):
+        path = Path.home() / '.huntmob/operator-access-url.txt'
+        if path.is_symlink() or path.stat().st_size > 512:
+            raise ValueError('Invalid local operator access file')
+        import os, stat
+        if os.name != 'nt' and (path.stat().st_uid != os.getuid() or stat.S_IMODE(path.stat().st_mode) & 0o077):
+            raise ValueError('Operator access file must be owner-only')
+        url = urlsplit(path.read_text().strip())
+        if url.scheme + '://' + url.netloc != self.origin or url.path != '/' or url.query:
+            raise ValueError('Operator access file belongs to a different worker')
+        tokens = parse_qs(url.fragment).get('operator', [])
+        if len(tokens) != 1 or len(tokens[0]) != 64:
+            raise ValueError('Invalid operator access value')
+        request = Request(self.origin + '/api/auth/bootstrap', data=json.dumps({'token': tokens[0]}).encode(), headers={'Content-Type':'application/json', 'Origin':self.origin})
+        with self.opener.open(request, timeout=5) as response:
+            data = json.loads(response.read(1024))
+            if response.status != 200 or not data.get('authenticated') or not data.get('proof'):
+                raise ValueError('Operator bootstrap was refused')
+            self.operator_proof = data['proof']
+
+    def request(self, path, payload=None, _retried=False):
         if not path.startswith(('/api/workspace/', '/api/session', '/api/reverse/')) and path!='/api/ios/catalog':
             raise ValueError('Unknown worker operation')
         headers = {}
         if payload is not None:
             token = self.request('/api/session')['csrf_token']
             headers = {'Content-Type': 'application/json', 'X-HuntMob-CSRF': token}
+        if self.operator_proof:
+            headers['X-HuntMob-Operator'] = self.operator_proof
         request = Request(self.origin + path, data=json.dumps(payload).encode() if payload is not None else None, headers=headers)
         try:
             with self.opener.open(request, timeout=240 if payload else 15) as response:
@@ -67,7 +93,13 @@ class WorkerClient:
                 if len(data) > 8 * 1024 * 1024:
                     raise ValueError('Worker response exceeds limit')
                 return data if response.headers.get_content_type() == 'image/png' else json.loads(data)
-        except HTTPError:
+        except HTTPError as error:
+            if error.code == 401 and not _retried:
+                error.close()
+                try: self._authenticate()
+                except (OSError, ValueError): raise ValueError('Conecte o operador no launcher local antes de usar o agente.') from None
+                return self.request(path, payload, _retried=True)
+            error.close()
             raise ValueError('Worker refused the device operation. Refresh devices_list.') from None
 
     def call(self, name, arguments):

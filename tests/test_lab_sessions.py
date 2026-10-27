@@ -1,5 +1,6 @@
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -51,6 +52,155 @@ class LabSessionTests(unittest.TestCase):
         self.assertFalse(result['ok'])
         worker.stop.assert_not_called()
         worker.destroy.assert_not_called()
+
+    def test_batch_stop_rejects_stale_or_missing_selection_before_touching_device(self):
+        active = 'huntmob_lab_' + 'a'*32
+        missing = 'huntmob_lab_' + 'b'*32
+        lab_sessions.save({'id': active, 'saved_at': '2026-10-20T00:00:00Z'})
+        worker = MagicMock(avd_name=active)
+        with patch('huntmob.lab_sessions.close_current_lab') as close:
+            self.assertFalse(lab_sessions.stop_saved_labs(worker, [active, missing], active)['ok'])
+            self.assertFalse(lab_sessions.stop_saved_labs(worker, [active], missing)['ok'])
+            self.assertFalse(lab_sessions.stop_saved_labs(worker, [active, active], active)['ok'])
+            close.assert_not_called()
+        worker.status.assert_not_called()
+
+    def test_batch_stop_preserves_inactive_labs_and_stops_only_selected_current(self):
+        inactive = 'huntmob_lab_' + 'a'*32
+        active = 'huntmob_lab_' + 'b'*32
+        lab_sessions.save({'id': inactive, 'saved_at': '2026-10-20T00:00:00Z'})
+        lab_sessions.save({'id': active, 'saved_at': '2026-10-20T00:00:00Z'})
+        worker = MagicMock(avd_name=active)
+        worker.status.side_effect = [{'state': 'device', 'attached': True, 'ownership_verified': True}, {'state': 'offline', 'attached': False}]
+        worker.stop.return_value = {'ok': True}
+        with patch('huntmob.workspace_devices.records', return_value=[]), patch('huntmob.runtime_cleanup.cleanup_primary_session') as cleanup:
+            only_inactive = lab_sessions.stop_saved_labs(worker, [inactive], active)
+            self.assertEqual((only_inactive['stopped'], only_inactive['inactive']), (0, 1))
+            worker.stop.assert_not_called()
+            selected = lab_sessions.stop_saved_labs(worker, [inactive, active], active)
+            self.assertEqual((selected['stopped'], selected['inactive']), (1, 1))
+            worker.stop.assert_called_once()
+            cleanup.assert_called_once_with(active)
+        self.assertEqual(len(lab_sessions.inventory()['labs']), 2)
+        worker.destroy.assert_not_called()
+
+    def test_batch_stop_skips_native_shutdown_for_offline_primary_and_companions(self):
+        active = 'huntmob_lab_' + 'a'*32
+        lab_sessions.save({'id': active, 'saved_at': '2026-10-20T00:00:00Z'})
+        record = {'id': 'huntmob_lab_' + 'b'*32, 'workspace_id': active}
+        worker = MagicMock(avd_name=active)
+        target = MagicMock()
+        for item in (worker, target):
+            item.status.return_value = {'state': 'offline', 'attached': False}
+        with patch('huntmob.workspace_devices.records', return_value=[record]), patch('huntmob.workspace_devices.worker', return_value=target), patch('huntmob.workspace_devices.relay') as relay, patch('huntmob.runtime_cleanup.cleanup_primary_session') as cleanup:
+            result = lab_sessions.stop_saved_labs(worker, [active], active)
+        self.assertEqual((result['stopped'], result['inactive'], result['failed']), (0, 1, 0))
+        worker.stop.assert_not_called(); target.stop.assert_not_called()
+        worker.clear_proxy.assert_not_called(); relay.assert_not_called()
+        cleanup.assert_called_once_with(active)
+
+    def test_batch_preflight_and_shutdown_overlap_with_four_device_limit(self):
+        identifiers = ['huntmob_lab_' + format(i, '032x') for i in range(1, 9)]
+        for identifier in identifiers:
+            lab_sessions.save({'id': identifier, 'saved_at': '2026-10-20T00:00:00Z'})
+        (lab_sessions.root() / 'current.json').unlink()
+        records = [{'id': 'huntmob_lab_' + format(i+100, '032x'), 'workspace_id': identifier} for i, identifier in enumerate(identifiers)]
+        lock = threading.Lock()
+        preflight_barrier = threading.Barrier(4)
+        shutdown_barrier = threading.Barrier(4)
+        inspected = set()
+        counts = {'stopping': 0, 'peak': 0}
+
+        class Target:
+            def __init__(self, identifier):
+                self.identifier, self.running = identifier, True
+
+            def status(self):
+                if self.running:
+                    preflight_barrier.wait(timeout=3)
+                    with lock: inspected.add(self.identifier)
+                    return {'state': 'device', 'ownership_verified': True}
+                return {'state': 'offline', 'attached': False}
+
+            def stop(self):
+                with lock:
+                    if len(inspected) != len(records):
+                        raise AssertionError('Shutdown started before preflight completed')
+                    counts['stopping'] += 1
+                    counts['peak'] = max(counts['peak'], counts['stopping'])
+                shutdown_barrier.wait(timeout=3)
+                with lock: counts['stopping'] -= 1
+                self.running = False
+                return {'ok': True}
+
+        targets = {record['id']: Target(record['id']) for record in records}
+        with patch('huntmob.workspace_devices.records', return_value=records), patch('huntmob.workspace_devices.worker', side_effect=lambda record: targets[record['id']]), patch('huntmob.workspace_devices.relay'):
+            result = lab_sessions.stop_saved_labs(MagicMock(), identifiers, '')
+        self.assertEqual((result['stopped'], result['failed']), (8, 0))
+        self.assertEqual(counts['peak'], 4)
+
+    def test_batch_stop_reports_partial_failure_without_touching_other_workspaces(self):
+        identifiers = ['huntmob_lab_' + c*32 for c in 'abc']
+        for identifier in identifiers:
+            lab_sessions.save({'id': identifier, 'saved_at': '2026-10-20T00:00:00Z'})
+        records = [{'id': 'huntmob_lab_' + c*32, 'workspace_id': identifier} for c, identifier in zip('def', identifiers)]
+        targets = [MagicMock() for _ in records]
+        targets[0].status.side_effect = [{'state': 'device', 'ownership_verified': True}, {'state': 'offline', 'attached': False}]
+        targets[0].stop.return_value = {'ok': True}
+        targets[1].status.return_value = {'state': 'device', 'ownership_verified': True}
+        targets[1].stop.return_value = {'ok': False}
+        lookup = dict(zip((record['id'] for record in records), targets))
+        with patch('huntmob.workspace_devices.records', return_value=records), patch('huntmob.workspace_devices.worker', side_effect=lambda record: lookup[record['id']]), patch('huntmob.workspace_devices.relay'):
+            result = lab_sessions.stop_saved_labs(MagicMock(), identifiers[:2], identifiers[2])
+        self.assertEqual((result['stopped'], result['failed']), (1, 1))
+        self.assertEqual([item['lab_id'] for item in result['results']], identifiers[:2])
+        targets[2].status.assert_not_called(); targets[2].stop.assert_not_called()
+        self.assertEqual(len(lab_sessions.inventory()['labs']), 3)
+
+    def test_batch_stop_reaches_additional_device_in_inactive_saved_lab(self):
+        inactive = 'huntmob_lab_' + 'a'*32
+        active = 'huntmob_lab_' + 'b'*32
+        companion = 'huntmob_lab_' + 'c'*32
+        lab_sessions.save({'id': inactive, 'saved_at': '2026-10-20T00:00:00Z'})
+        lab_sessions.save({'id': active, 'saved_at': '2026-10-20T00:00:00Z'})
+        record = {'id': companion, 'workspace_id': inactive}
+        target = MagicMock()
+        target.status.side_effect = [{'state': 'device', 'ownership_verified': True}, {'state': 'offline', 'attached': False}]
+        target.stop.return_value = {'ok': True}
+        worker = MagicMock(avd_name=active)
+        with patch('huntmob.workspace_devices.records', return_value=[record]), patch('huntmob.workspace_devices.worker', return_value=target), patch('huntmob.workspace_devices.relay') as relay:
+            result = lab_sessions.stop_saved_labs(worker, [inactive], active)
+        self.assertEqual((result['stopped'], result['failed']), (1, 0))
+        target.stop.assert_called_once()
+        relay.return_value.restart.assert_called_once()
+        worker.status.assert_not_called()
+
+    def test_batch_stop_preflight_refuses_unknown_companion_without_stopping_any_lab(self):
+        inactive = 'huntmob_lab_' + 'a'*32
+        active = 'huntmob_lab_' + 'b'*32
+        lab_sessions.save({'id': inactive, 'saved_at': '2026-10-20T00:00:00Z'})
+        lab_sessions.save({'id': active, 'saved_at': '2026-10-20T00:00:00Z'})
+        target = MagicMock()
+        target.status.return_value = {'state': 'error', 'ownership_verified': False}
+        record = {'id': 'huntmob_lab_' + 'c'*32, 'workspace_id': inactive}
+        worker = MagicMock(avd_name=active)
+        with patch('huntmob.workspace_devices.records', return_value=[record]), patch('huntmob.workspace_devices.worker', return_value=target), patch('huntmob.lab_sessions.close_current_lab') as close:
+            result = lab_sessions.stop_saved_labs(worker, [inactive, active], active)
+        self.assertFalse(result['ok'])
+        target.stop.assert_not_called()
+        worker.stop.assert_not_called()
+        close.assert_not_called()
+
+    def test_batch_stop_accepts_saved_labs_when_no_current_lab_exists(self):
+        identifier = 'huntmob_lab_' + 'a'*32
+        lab_sessions.save({'id': identifier, 'saved_at': '2026-10-20T00:00:00Z'})
+        (lab_sessions.root() / 'current.json').unlink()
+        worker = MagicMock()
+        with patch('huntmob.workspace_devices.records', return_value=[]):
+            result = lab_sessions.stop_saved_labs(worker, [identifier], '')
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['inactive'], 1)
+        worker.status.assert_not_called()
 
     def test_save_and_stop_keeps_only_current_lab_resumable(self):
         old = {'id': 'huntmob_lab_' + 'a'*32, 'saved_at': '2026-10-20T00:00:00Z'}

@@ -5,7 +5,7 @@ function setup(){
  const screen={hidden:true,naturalWidth:603,naturalHeight:1311,dataset:{}},status={},timers=[];
  let calls=0;const c={fitPhoneFrame:()=>{},screenGeneration:4,devicePlatform:'ios',runtimeDevice:{state:'on'},screenRetries:0,
  document:{querySelector:selector=>selector==='#deviceScreen'?screen:selector==='#screenConnection'?status:{}},
- window:{setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length;}},startDeviceScreen:()=>calls++};
+ window:{huntmobOperator:{mediaUrl:()=>Promise.resolve('/api/ios/stream?_operator_ticket=fixture')},setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length;}},startDeviceScreen:()=>calls++};
  vm.createContext(c);vm.runInContext(start,c);return {c,screen,status,timers,calls:()=>calls};
 }
 test('iOS video retries failed startup with bounded backoff',()=>{

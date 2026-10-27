@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 
 LAB_NAME = re.compile(r'^(?:huntmob_lab_[a-f0-9]{32}|huntmob_api35_arm64)$')
 LAB_LOCK = threading.RLock()
@@ -286,6 +287,98 @@ def close_current_lab(worker, expected_lab_id, *, preserve):
         if lab_folder.is_dir() and not lab_folder.is_symlink():
             shutil.rmtree(lab_folder)
         return {'ok': True, 'discarded': True, 'stopped': True, 'lab_id': expected_lab_id}
+    finally:
+        LAB_LOCK.release()
+
+
+def stop_saved_labs(worker, identifiers, expected_current_id):
+    """Stop running devices in selected saved labs without discarding their data."""
+    if not isinstance(identifiers, list) or not 1 <= len(identifiers) <= 30 or not all(
+        isinstance(identifier, str) and LAB_NAME.fullmatch(identifier) for identifier in identifiers
+    ) or len(set(identifiers)) != len(identifiers):
+        return {'ok': False, 'reason': 'Seleção de laboratórios inválida.'}
+    if not isinstance(expected_current_id, str) or (expected_current_id and not LAB_NAME.fullmatch(expected_current_id)):
+        return {'ok': False, 'reason': 'Identidade do laboratório atual inválida.'}
+    if not LAB_LOCK.acquire(blocking=False):
+        return {'ok': False, 'reason': 'Outra operação de laboratório está em andamento.'}
+    try:
+        active = current()
+        if (active.get('id') or '') != expected_current_id:
+            return {'ok': False, 'reason': 'O laboratório atual mudou. Atualize a lista antes de desligar.'}
+        saved = {item['id'] for item in inventory()['labs']}
+        if not set(identifiers).issubset(saved):
+            return {'ok': False, 'reason': 'A seleção inclui um lab que não está mais salvo. Atualize a lista.'}
+        from . import workspace_devices
+        from .android_worker import AndroidWorker
+        selected = set(identifiers)
+        try:
+            devices = [(record['workspace_id'], record, workspace_devices.worker(record))
+                       for record in workspace_devices.records() if record['workspace_id'] in selected]
+            if expected_current_id in selected:
+                if worker.avd_name != expected_current_id:
+                    raise ValueError('Identidade do Android atual divergente.')
+                devices.append((expected_current_id, None, worker))
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+            return {'ok': False, 'reason': 'Não foi possível verificar todos os aparelhos selecionados. Nenhum desligamento foi iniciado.'}
+
+        def shutdown_status(target):
+            # Keep exact AVD ownership checks; Android version/ABI are irrelevant here.
+            return target.status(include_properties=False) if isinstance(target, AndroidWorker) else target.status()
+
+        def inspect_device(device):
+            status = shutdown_status(device[2])
+            if status.get('state') == 'offline' and not status.get('attached'):
+                return (*device, False)
+            if status.get('state') == 'device' and status.get('ownership_verified') is True:
+                return (*device, True)
+            raise ValueError('Identidade de aparelho não confirmada.')
+
+        def stop_device(device):
+            identifier, record, target, running = device
+            try:
+                if record is None and not running:
+                    # An offline Android can still have proxy/video handles left
+                    # from an interrupted session; close them without stopping it again.
+                    from .runtime_cleanup import cleanup_primary_session
+                    cleanup_primary_session(identifier)
+                    return identifier, True
+                if record is None:
+                    target.clear_proxy()
+                else:
+                    workspace_devices.relay(record).restart()
+                if not target.stop().get('ok'):
+                    return identifier, False
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    status = shutdown_status(target)
+                    if status.get('state') == 'offline' and not status.get('attached'):
+                        if record is None:
+                            from .runtime_cleanup import cleanup_primary_session
+                            cleanup_primary_session(identifier)
+                        return identifier, True
+                    time.sleep(.25)
+                return identifier, False
+            except (OSError, ValueError, TypeError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+                return identifier, False
+
+        # Complete the entire preflight before any shutdown. The main thread
+        # keeps LAB_LOCK; worker threads perform only addressed native I/O.
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix='lab-stop') as pool:
+            try:
+                inspected = list(pool.map(inspect_device, devices))
+            except (OSError, ValueError, TypeError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+                return {'ok': False, 'reason': 'Não foi possível verificar todos os aparelhos selecionados. Nenhum desligamento foi iniciado.'}
+            pending = [device for device in inspected if device[3] or device[1] is None]
+            outcomes = list(pool.map(stop_device, pending))
+        active_labs = {device[0] for device in inspected if device[3]}
+        failed_labs = {identifier for identifier, ok in outcomes if not ok}
+        results = [{'lab_id': identifier,
+                    'state': 'failed' if identifier in failed_labs else 'stopped' if identifier in active_labs else 'inactive',
+                    'reason': 'Confira os aparelhos deste lab e tente novamente.' if identifier in failed_labs else ''}
+                   for identifier in identifiers]
+        return {'ok': True, 'results': results, 'stopped': sum(item['state'] == 'stopped' for item in results),
+                'inactive': sum(item['state'] == 'inactive' for item in results),
+                'failed': sum(item['state'] == 'failed' for item in results)}
     finally:
         LAB_LOCK.release()
 

@@ -28,6 +28,20 @@ class AndroidWorkerTests(unittest.TestCase):
     def setUp(self):
         self.sdk = AndroidSdk(Path("/sdk"), Path("/sdk/emulator/emulator"), Path("/sdk/adb"), Path("/sdk/avdmanager"), Path("/sdk/sdkmanager"))
 
+    def test_desktop_graphics_and_stock_memory_do_not_inherit_disabled_avd_gpu(self):
+        for system, gpu in [('Darwin', 'host'), ('Windows', 'host'), ('Linux', 'auto')]:
+            with self.subTest(system=system), patch.dict('os.environ', {}, clear=True), patch('huntmob.android_worker.platform.system', return_value=system):
+                options = AndroidWorker(self.sdk, root_mode='stock').emulator_options()
+                self.assertEqual(options, ('-gpu', gpu, '-memory', '4096'))
+
+    def test_graphics_fallback_and_memory_are_explicit_and_bounded(self):
+        worker = AndroidWorker(self.sdk, root_mode='root')
+        with patch.dict('os.environ', {'HUNTMOB_ANDROID_GPU': 'software', 'HUNTMOB_ANDROID_MEMORY_MB': '2048'}):
+            self.assertEqual(worker.emulator_options(), ('-gpu', 'software', '-memory', '2048'))
+        for key, value in [('HUNTMOB_ANDROID_GPU', 'arbitrary'), ('HUNTMOB_ANDROID_MEMORY_MB', '0'), ('HUNTMOB_ANDROID_MEMORY_MB', '999999'), ('HUNTMOB_ANDROID_MEMORY_MB', '4G')]:
+            with self.subTest(key=key, value=value), patch.dict('os.environ', {key: value}):
+                with self.assertRaises(ValueError): worker.emulator_options()
+
     def test_stop_waits_for_console_port_before_resume(self):
         from unittest.mock import MagicMock
         worker = AndroidWorker(self.sdk)
@@ -56,6 +70,22 @@ class AndroidWorkerTests(unittest.TestCase):
         status = AndroidWorker(self.sdk).status()
         self.assertEqual(status["state"], "device")
         self.assertEqual(status["properties"]["sys.boot_completed"], "1")
+
+    @patch("huntmob.android_worker._run")
+    def test_shutdown_checks_ownership_without_querying_android_properties(self, run):
+        run.side_effect = [
+            subprocess.CompletedProcess([], 0, 'List of devices attached\nemulator-5556\tdevice\n', ''),
+            subprocess.CompletedProcess([], 0, 'huntmob_api35_arm64\nOK\n', ''),
+            subprocess.CompletedProcess([], 0, '', ''),
+            subprocess.CompletedProcess([], 0, 'List of devices attached\n', ''),
+        ]
+        with patch('huntmob.android_worker.socket.create_connection', side_effect=ConnectionRefusedError):
+            result = AndroidWorker(self.sdk).stop()
+        self.assertTrue(result['ok'])
+        self.assertEqual(len(run.call_args_list), 4)
+        self.assertEqual(run.call_args_list[1].args[0][-3:], ('emu', 'avd', 'name'))
+        self.assertEqual(run.call_args_list[2].args[0][-2:], ('emu', 'kill'))
+        self.assertFalse(any('getprop' in call.args[0] for call in run.call_args_list))
 
     @patch("huntmob.android_worker._run", side_effect=subprocess.TimeoutExpired("adb", 5))
     def test_adb_timeout_returns_explicit_error(self, run):

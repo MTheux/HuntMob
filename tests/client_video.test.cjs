@@ -19,3 +19,27 @@ test('recovery never starts on a replaced lab, iOS, or offline device',()=>{
 test('screen teardown cancels pending recovery',()=>{
  const {c,timers}=context();c.scheduleDirectVideoRetry(7);c.stopDirectVideo();assert.equal(timers.size,0);
 });
+function rendererContext(){
+ const {c}=context(),callbacks=new Map(),painted=[],closed=[],signal={aborted:false};let next=0,frames=0,geometry=0;
+ c.window.requestAnimationFrame=fn=>{callbacks.set(++next,fn);return next;};
+ c.window.cancelAnimationFrame=id=>callbacks.delete(id);
+ c.fitPhoneFrame=()=>geometry++;
+ const canvas={width:0,height:0,dataset:{},getContext:()=>({drawImage:frame=>painted.push(frame.id)})};
+ const renderer=c.androidFrameRenderer(canvas,{signal,onFrame:()=>frames++});
+ return {renderer,canvas,callbacks,painted,closed,signal,frames:()=>frames,geometry:()=>geometry,
+  frame:id=>({id,displayWidth:576,displayHeight:1280,close:()=>closed.push(id)}),
+  paint(){const entries=[...callbacks];callbacks.clear();entries.forEach(([,fn])=>fn());}};
+}
+test('decoded frame bursts paint the latest frame once and release every buffer',()=>{
+ const r=rendererContext();[1,2,3].forEach(id=>r.renderer.push(r.frame(id)));
+ assert.equal(r.callbacks.size,1);assert.deepEqual(r.closed,[1,2]);r.paint();
+ assert.deepEqual(r.painted,[3]);assert.deepEqual(r.closed,[1,2,3]);assert.equal(r.frames(),1);
+ assert.equal(r.canvas.dataset.droppedRenderFrames,'2');
+ r.renderer.push(r.frame(4));r.paint();assert.equal(r.geometry(),1);
+});
+test('stream teardown and abort release frames without painting a replaced screen',()=>{
+ const r=rendererContext();r.renderer.push(r.frame(1));r.renderer.clear();
+ assert.equal(r.callbacks.size,0);assert.deepEqual(r.closed,[1]);
+ r.renderer.push(r.frame(2));r.signal.aborted=true;r.paint();r.renderer.push(r.frame(3));
+ assert.deepEqual(r.closed,[1,2,3]);assert.deepEqual(r.painted,[]);assert.equal(r.callbacks.size,0);
+});

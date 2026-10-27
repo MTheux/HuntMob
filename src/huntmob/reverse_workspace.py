@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import re
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -25,6 +26,17 @@ def latest(package, avd):
     if record.get('package_id') != package or not RUN.fullmatch(record.get('run_id', '')):
         raise ValueError('Invalid analysis record')
     return record
+
+
+def prepare_workspace(package, avd):
+    """Make APK/source storage private even for direct native CLI with umask 022."""
+    destination = workspace(package, avd)
+    for path in (Path.home() / '.huntmob', destination.parents[1], destination.parents[0], destination):
+        if path.is_symlink():
+            raise ValueError('O workspace privado não pode ser um link simbólico.')
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(path, 0o700)
+    return destination
 
 
 def artifact(package, avd, run_id, filename, record=None):

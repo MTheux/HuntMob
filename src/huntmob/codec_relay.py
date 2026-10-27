@@ -21,6 +21,9 @@ SESSION=1 << 63
 CONFIG=1 << 62
 KEY=1 << 61
 PORT=27184
+MAX_SIZE=1280
+MAX_FPS=60
+BIT_RATE=6000000
 
 
 def read_exact(connection, size):
@@ -107,6 +110,7 @@ class CodecRelay:
         with self.condition:
             age=round(time.monotonic()-self.last_frame_at,3) if self.last_frame_at else None
             return {'transport':'h264-webcodecs','state':'error' if self.error else 'running' if self.control else 'idle','width':self.width,'height':self.height,'frames':self.frames,'error':self.error,'gop_packets':len(self.packets),'generation':self.generation,'input_ready':bool(self.control),
+                    'capture':{'max_size':MAX_SIZE,'max_fps':MAX_FPS,'bit_rate':BIT_RATE},
                     'telemetry':{'connection_attempts':self.connection_attempts,'reconnect_count':self.reconnect_count,'stall_count':self.stall_count,'first_frame_ms':self.first_frame_ms,'last_frame_age_seconds':age,'queue_bytes':self.queue_bytes,'queue_limit_bytes':MAX_CODEC_QUEUE_BYTES}}
 
     def input(self,payload):
@@ -157,7 +161,9 @@ class CodecRelay:
             if _run(base+('push',str(path),remote),timeout=15).returncode: raise OSError('Video push failed')
             scid=0x48554e54
             if _run(base+('forward',f'tcp:{self.forward_port}',f'localabstract:scrcpy_{scid:08x}'),timeout=5).returncode: raise OSError('Video forward failed')
-            process=subprocess.Popen(base+('shell',f'CLASSPATH={remote}','app_process','/','com.genymobile.scrcpy.Server',VERSION,f'scid={scid:08x}','tunnel_forward=true','audio=false','control=true','clipboard_autosync=false','send_device_meta=false','send_dummy_byte=false','max_size=1440','max_fps=60','video_bit_rate=8000000','video_codec=h264','video_codec_options=i-frame-interval=1','power_on=false','cleanup=true'),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            # API 30 uses a software H.264 encoder. Bound the pixel workload
+            # while retaining 60 fps and the full display, including system bars.
+            process=subprocess.Popen(base+('shell',f'CLASSPATH={remote}','app_process','/','com.genymobile.scrcpy.Server',VERSION,f'scid={scid:08x}','tunnel_forward=true','audio=false','control=true','clipboard_autosync=false','send_device_meta=false','send_dummy_byte=false',f'max_size={MAX_SIZE}',f'max_fps={MAX_FPS}',f'video_bit_rate={BIT_RATE}','video_codec=h264','video_codec_options=i-frame-interval=1','power_on=false','cleanup=true'),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             deadline=time.monotonic()+8
             while True:
                 try:
@@ -173,6 +179,7 @@ class CodecRelay:
                     if process.poll() is not None or time.monotonic()>deadline: raise OSError('H264 server did not connect')
                     time.sleep(.1)
             video.settimeout(3);control.settimeout(2)
+            control.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             with self.condition: self.control=control;self.started=time.monotonic();self.frames=0
             # Device messages are deliberately discarded: clipboard forwarding is disabled.
             def drain():

@@ -41,8 +41,11 @@ def capabilities(platform, *, primary=False, root_mode=None):
         "apps": {"install": True, "open_store": android and root_mode == "stock"},
         "security": {
             "rea_static": True,
-            "rea_dynamic_evidence": True,
+            "rea_dynamic_evidence": android,
             "frida": android,
+            "frida_experimental": not android,
+            "deep_dast": android,
+            "physical_device": False,
             "root_profile": android and root_mode == "root",
         },
     }

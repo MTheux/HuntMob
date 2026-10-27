@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from . import native_dast, reverse_engines, reverse_workspace
+from . import dynamic_runtime, native_dast, reverse_engines, reverse_workspace
 from .dynamic_runtime import private_json
 from .lab_sessions import current, root
 
@@ -86,31 +86,41 @@ def _dynamic_evidence_ready(dast, lab):
     return True, "Sessão DAST concluída, atribuída e com cobertura observada."
 
 
-def prerequisites():
-    lab = current()
+def _context(workspace_id=None, device_id=None):
+    return current() if workspace_id is None and device_id is None else dynamic_runtime.target_context(workspace_id, device_id)
+
+
+def prerequisites(workspace_id=None, device_id=None):
+    lab = _context(workspace_id, device_id)
+    owner = lab.get('workspace_id') or lab.get('id')
     gates = []
 
     def gate(identifier, passed, detail):
         gates.append({"id": identifier, "passed": bool(passed), "detail": detail})
 
-    gate("authorized-scope", bool(lab.get("id") and lab.get("engagement")),
-         "Engagement e laboratório selecionados." if lab.get("engagement") else "Engagement autorizado não registrado no lab.")
+    # Gate "authorized-scope" (engagement obrigatório) removido a pedido do operador:
+    # o engagement permanece opcional e não bloqueia mais a análise profunda.
     gate("selected-app", bool(lab.get("package_id") and lab.get("apk_sha256")),
          "App e SHA256 vinculados ao lab." if lab.get("apk_sha256") else "Selecione um app com APK identificado.")
-    dast = native_dast.latest() if lab.get("id") else None
+    dast = native_dast.latest(lab) if lab.get("id") else None
     dynamic_ready, dynamic_detail = _dynamic_evidence_ready(dast, lab)
+    if dynamic_ready:
+        receipt = dynamic_runtime.runtime_for(workspace_id, device_id).snapshot().get('receipt', {})
+        if receipt.get('id') != dast.get('job_id') or receipt.get('state') != 'stopped':
+            dynamic_ready, dynamic_detail = False, 'Encerre e analise a sessão atual deste aparelho; o relatório anterior não pode substituí-la.'
     gate("dynamic-evidence", dynamic_ready, dynamic_detail)
     record = None
     rea_jobs = []
     if lab.get("id") and lab.get("package_id"):
         try:
-            record = reverse_workspace.latest(lab["package_id"], lab["id"])
+            record = reverse_workspace.latest(lab["package_id"], owner)
             if record.get("sha256") != lab.get("apk_sha256"):
                 record = None
             if record:
                 rea_jobs = [job for job in reverse_engines.jobs(
-                    lab["package_id"], lab["id"], record["run_id"], record["sha256"]
-                )["jobs"] if job.get("state") == "complete" and job.get("evidence")]
+                    lab["package_id"], owner, record["run_id"], record["sha256"]
+                )["jobs"] if job.get("state") == "complete" and isinstance(job.get('evidence'), dict)
+                    and job['evidence'].get('subject', {}).get('digest', {}).get('sha256') == lab.get('apk_sha256')]
         except (OSError, ValueError, KeyError, TypeError):
             record = None
     gate("rea-evidence", bool(record and rea_jobs),
@@ -119,6 +129,7 @@ def prerequisites():
     gate("local-ai", model.get("model_connected"),
          f"Modelo local {model.get('model_name')} disponível." if model.get("model_connected") else "Ollama/modelo local indisponível.")
     return {"ok": True, "lab": lab, "dast": dast, "reverse": record, "rea_jobs": rea_jobs,
+            "workspace_id": owner, "device_id": lab.get('id'), "rea_workspace_id": owner,
             "model": model, "gates": gates, "ready": all(item["passed"] for item in gates)}
 
 
@@ -180,7 +191,9 @@ def _run(job, context):
             {"id": "rea", "state": "complete", "observable": "REA evidence subject matches the same APK SHA256", "evidence_sha256": _digest([item["evidence_id"] for item in rea])},
         ]
         prompt = {
-            "identity": {"lab_id": lab["id"], "package_id": lab["package_id"], "apk_sha256": lab["apk_sha256"]},
+            "identity": {"lab_id": lab["id"], "workspace_id": context.get('workspace_id', lab['id']),
+                         "rea_workspace_id": context.get('rea_workspace_id', lab['id']),
+                         "dynamic_job_id": dast.get('job_id'), "package_id": lab["package_id"], "apk_sha256": lab["apk_sha256"]},
             "allowed_evidence_ids": sorted(evidence_ids),
             "dynamic_evidence_id": dynamic_id,
             "dynamic_json_excerpt": _bounded_evidence(dast, 26000),
@@ -210,8 +223,8 @@ def _run(job, context):
             BUSY.discard(lab["id"])
 
 
-def start():
-    context = prerequisites()
+def start(workspace_id=None, device_id=None):
+    context = prerequisites(workspace_id, device_id)
     lab = context["lab"]
     if not context["ready"]:
         return {"ok": False, "state": "blocked", "reason": "Pré-requisitos da análise profunda não atendidos.", "gates": context["gates"]}
@@ -222,18 +235,27 @@ def start():
     job = {"ok": True, "state": "running", "job_id": "deep_" + uuid4().hex,
            "created_at": datetime.now(timezone.utc).isoformat(), "lab_id": lab["id"],
            "package_id": lab["package_id"], "apk_sha256": lab["apk_sha256"],
-           "engine": "huntmob-deep-dast", "version": 1, "gates": context["gates"]}
+           "workspace_id": context['workspace_id'], "device_id": lab['id'],
+           "rea_workspace_id": context['rea_workspace_id'], "dynamic_job_id": context['dast']['job_id'],
+           "engine": "huntmob-deep-dast", "version": 2, "gates": context["gates"]}
     private_json(_path(lab["id"]), job)
     threading.Thread(target=_run, args=(job, context), daemon=True).start()
     return job.copy()
 
 
-def status():
-    lab = current()
-    base = prerequisites()
+def status(workspace_id=None, device_id=None):
+    context = prerequisites(workspace_id, device_id)
+    lab = context['lab']
+    # Poll only the controls and identity, never retransmit entire REA/code trees.
+    base = {key: context[key] for key in ('ok', 'workspace_id', 'device_id', 'rea_workspace_id', 'gates', 'ready', 'model')}
+    base['lab'] = {key: lab.get(key) for key in ('id', 'workspace_id', 'package_id', 'apk_sha256', 'engagement')}
+    from . import deep_preparation
+    base['preparation'] = deep_preparation.status(lab)
     try:
         job = json.loads(_path(lab["id"]).read_text())
-        if job.get("lab_id") != lab.get("id") or job.get("apk_sha256") != lab.get("apk_sha256"):
+        if (job.get("lab_id") != lab.get("id") or job.get("apk_sha256") != lab.get("apk_sha256")
+                or job.get('package_id') != lab.get('package_id')
+                or job.get('dynamic_job_id') != (context.get('dast') or {}).get('job_id')):
             raise ValueError("stale")
         if job.get("state") == "running" and lab.get("id") not in BUSY:
             job.update(ok=False, state="interrupted", reason="Worker reiniciado durante a análise profunda.")

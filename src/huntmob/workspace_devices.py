@@ -110,6 +110,11 @@ def snapshot(workspace_id):
             online = state['state'] == 'device' and state.get('properties', {}).get('sys.boot_completed') == '1' and state.get('ownership_verified') is True
             item = {**record, 'serial': serial, 'state': state['state'], 'online': online,
                     'ownership_verified': state.get('ownership_verified', False)}
+            if record.get('link', {}).get('kind') == 'root-companion':
+                from .workspace_pairs import JOBS
+                item['link'] = {**record['link'], 'operation_active': record['id'] in JOBS}
+                if record['id'] not in JOBS and record['link'].get('state') not in {'ready', 'partial', 'failed'}:
+                    item['link'].update(state='failed', message='Operação interrompida. Sincronize novamente para continuar.')
             item['session_generation'] = relay(record).snapshot().get('generation')
             items.append(item)
             contracts.append(describe(item, state, relay(record).snapshot()))
@@ -202,11 +207,19 @@ def stop_many(workspace_id, identities):
     if not LAB_LOCK.acquire(blocking=False): return {'ok': False, 'reason': 'Aguarde a operação de laboratório em andamento.'}
     try:
         members = _members(workspace_id, identities)
+        from .workspace_pairs import JOBS
+        if any(record and record['id'] in JOBS for record in members):
+            return {'ok': False, 'reason': 'Aguarde a criação ou sincronização do par antes de desligar.'}
         results = []
         for identifier, record in zip(identities, members):
             try:
                 target = worker(record) if record else AndroidWorker(avd_name=workspace_id)
-                if record: relay(record).restart()
+                if record:
+                    from .dynamic_runtime import stop_device
+                    from .workspace_pairs import release_bridge
+                    stop_device(record['id'])
+                    release_bridge(record)
+                    relay(record).restart()
                 else:
                     from .runtime_cleanup import cleanup_primary_session
                     cleanup_primary_session(workspace_id)
@@ -321,6 +334,13 @@ def action(payload):
     """Fixed device-management verbs only; identity is required on every action."""
     try:
         workspace_id, device_id = payload.get('workspace_id'), payload.get('device_id')
+        if payload.get('action') in {'create-root-pair', 'sync-pair', 'check-pair-network'}:
+            from .workspace_pairs import start
+            return start(workspace_id, payload.get('app_scope', 'selected'), device_id,
+                         network_only=payload.get('action') == 'check-pair-network')
+        if payload.get('action') == 'pair-service':
+            from .workspace_pairs import service_bridge
+            return service_bridge(workspace_id, device_id, payload.get('service_port', 9000), payload.get('access_port', 19000), payload.get('enabled', True))
         if payload.get('action') == 'presentation': return update_presentation(workspace_id, payload.get('items'))
         if payload.get('action') == 'stop-many': return stop_many(workspace_id, payload.get('device_ids'))
         if payload.get('action') == 'create':
@@ -328,6 +348,10 @@ def action(payload):
         record = owned(workspace_id, device_id)
         target = worker(record)
         verb = payload.get('action')
+        from .workspace_pairs import JOBS, LOCK
+        with LOCK:
+            if record['id'] in JOBS and verb in {'stop', 'start', 'control'}:
+                return {'ok': False, 'reason': 'Aguarde a criação ou sincronização deste par.'}
         if verb == 'control':
             if current().get('id') != workspace_id: raise ValueError('Workspace selecionado mudou.')
             control = payload.get('control', {})
@@ -344,6 +368,10 @@ def action(payload):
                     return {'ok': False, 'reason': 'Desligue outro aparelho antes de retomar este. Limite de quatro aparelhos ativos.'}
                 return target.start()
         if verb == 'stop':
+            from .workspace_pairs import release_bridge
+            release_bridge(record)
+            from .dynamic_runtime import stop_device
+            stop_device(record['id'])
             relay(record).restart()
             return target.stop()
         if verb == 'input':
@@ -365,7 +393,28 @@ def action(payload):
         return {'ok': False, 'reason': 'Operação recusada. Confira identidade, estado e capacidade do aparelho.'}
 
 
+def forget(record):
+    """Release cached handles only after this registered device has been deleted."""
+    if record.get('platform')=='ios':
+        from .ios_workspace import SESSIONS, SESSION_LOCK
+        with SESSION_LOCK:
+            target=SESSIONS.pop(record['id'],None)
+        if target:
+            target.video.shutdown();target.close_input()
+    else:
+        with RELAY_LOCK:
+            video=RELAYS.pop(record['id'],None)
+        if video:
+            video.shutdown()
+
+
 def shutdown():
+    from .dynamic_runtime import shutdown_companions
+    shutdown_companions()
+    from .workspace_pairs import release_bridge
+    for record in records():
+        try: release_bridge(record)
+        except (OSError, ValueError, KeyError, subprocess.TimeoutExpired): pass
     with RELAY_LOCK:
         values = list(RELAYS.values())
     for value in values:

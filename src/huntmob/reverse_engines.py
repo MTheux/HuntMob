@@ -184,8 +184,16 @@ def execute(args, config):
     # Private files bound output size without retaining environment/secret dumps.
     environment = {key: value for key, value in os.environ.items()
                    if key not in {'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'NODE_OPTIONS', 'CLASSPATH'}}
+    # Modern APKs include large DEX and native bundles. The former fixed 768 MB
+    # heap failed on the observed 197 MB test APK before producing any evidence.
+    configured_heap = os.environ.get('HUNTMOB_REA_HEAP_MIB')
+    if configured_heap is not None and not configured_heap.isdigit():
+        raise ValueError('HUNTMOB_REA_HEAP_MIB deve ser um número entre 512 e 4096 MB.')
+    heap = int(configured_heap) if configured_heap is not None else (2048 if Path(args[3]).stat().st_size >= 128 * 1024**2 else 768)
+    if not 512 <= heap <= 4096:
+        raise ValueError('HUNTMOB_REA_HEAP_MIB deve estar entre 512 e 4096 MB.')
     environment.update(JAVA_HOME=config['java_home'], REA_JADX_MCP_JAR=config['jadx_jar'],
-                       REA_JADX_HEAP_MIB='768', REA_JADX_ACTIVE_PROCESSOR_COUNT='2')
+                       REA_JADX_HEAP_MIB=str(heap), REA_JADX_ACTIVE_PROCESSOR_COUNT='2')
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=output, stderr=errors,
                                    env=environment, start_new_session=True)
@@ -202,6 +210,8 @@ def execute(args, config):
         try: evidence = json.loads(raw)
         except (ValueError, UnicodeDecodeError): raise ValueError('REA não devolveu uma evidência JSON completa.') from None
         if process.returncode != 0 or not isinstance(evidence, dict) or not evidence.get('evidence_id'):
+            if 'java heap space' in json.dumps(evidence).lower():
+                raise ValueError('Memória Java insuficiente para este APK. Configure HUNTMOB_REA_HEAP_MIB (512–4096 MB) no worker e prepare o REA novamente.')
             raise ValueError('REA não concluiu a inspeção. Confira JDK e provider; nenhum resultado foi marcado como concluído.')
         return evidence
 

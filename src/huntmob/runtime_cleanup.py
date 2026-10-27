@@ -14,12 +14,15 @@ def _step(results, name, operation):
 def cleanup_primary_session(lab_id: str, *, shutdown: bool = False) -> dict:
     """Close resources owned by one primary lab without exposing exception text."""
     from .codec_relay import CODEC_RELAY
-    from .dynamic_runtime import DYNAMIC
+    from .dynamic_runtime import DYNAMIC, stop_workspace
+    from .workspace_pairs import release_workspace
     from .managed_proxy import stop_for_lab
     from .screen_relay import SCREEN_RELAY
 
     results = []
     _step(results, "analysis", DYNAMIC.stop)
+    _step(results, "companion-analysis", lambda: stop_workspace(lab_id))
+    _step(results, "companion-connections", lambda: release_workspace(lab_id))
     _step(results, "h264", CODEC_RELAY.shutdown if shutdown else CODEC_RELAY.restart)
     _step(results, "mjpeg", SCREEN_RELAY.shutdown if shutdown else SCREEN_RELAY.restart)
     _step(results, "proxy", lambda: stop_for_lab(lab_id))

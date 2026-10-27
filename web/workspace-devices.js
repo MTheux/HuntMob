@@ -8,6 +8,7 @@ function syncWorkspaceButtons(){
   const available=devicePlatform==='android'&&!!activeLab.id;
   document.querySelector('#addWorkspaceDevice').disabled=!available||workspaceDeviceBusy||companionTiles.size>=3;
   document.querySelector('#connectWorkspaceAgent').disabled=!available;
+  document.querySelector('#createRootCompanion').disabled=!available||runtimeDevice?.state!=='on'||workspaceDeviceBusy;
   document.querySelector('#primaryDeviceSerial').textContent=available?document.querySelector('#stageSerial').textContent:'';
   if(devicePlatform==='android')document.querySelector('#runtimeCount').textContent=String((runtimeDevice?.state==='on'?1:0)+window.huntmobAdditionalOnline());
   window.huntmobSidebar?.sync();
@@ -37,14 +38,14 @@ function companionTile(device,workspace){
   }
   const point=event=>{const r=canvas.getBoundingClientRect();return {x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))};};
   function cancel(){if(pointer!==undefined){sendTouch({phase:'cancel',...lastPoint});pointer=undefined;}}
-  canvas.addEventListener('pointerdown',event=>{event.preventDefault();if(!connected||pointer!==undefined)return;canvas.focus();pointer=event.pointerId;canvas.setPointerCapture(pointer);lastPoint=point(event);sendTouch({phase:'down',...lastPoint});});
+  canvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();if(!connected||pointer!==undefined)return;canvas.focus({preventScroll:true});pointer=event.pointerId;canvas.setPointerCapture(pointer);lastPoint=point(event);sendTouch({phase:'down',...lastPoint});});
   canvas.addEventListener('pointermove',event=>{if(event.pointerId===pointer){lastPoint=point(event);sendTouch({phase:'move',...lastPoint});}});
   canvas.addEventListener('pointerup',event=>{if(event.pointerId===pointer){lastPoint=point(event);pointer=undefined;sendTouch({phase:'up',...lastPoint});}});
   canvas.addEventListener('pointercancel',cancel);canvas.addEventListener('lostpointercapture',cancel);window.addEventListener('blur',cancel);
-  canvas.addEventListener('keydown',async event=>{
-    const action=event.key==='Escape'?(ios?'home':'back'):['Backspace','Enter','Tab','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key)?'key':event.key.length===1&&!event.ctrlKey&&!event.metaKey?'text':undefined;
-    if(!action||!connected)return;event.preventDefault();
-    try{await post('input',{input:{action,key:event.key,text:event.key}});}catch(error){status.textContent=error.message;}
+  const keyboard=window.huntmobInteraction.inputQueue(input=>post('input',{input}),generation=>!disposed&&connected&&device.session_generation===generation,error=>{status.textContent=error.message;});
+  canvas.addEventListener('keydown',event=>{
+    const input=window.huntmobInteraction.keyboardAction(event,{platform:ios?'ios':'android',mode:ios?'ascii':'unicode'});
+    if(!input||!connected)return;event.preventDefault();void keyboard.push(input,device.session_generation);
   });
   async function video(){
     if(disposed||abort)return;abort=new AbortController();const session=abort;
@@ -68,7 +69,7 @@ function companionTile(device,workspace){
   function update(next){
     device=next;start.hidden=device.online;stop.hidden=!device.online;
     if(device.online){if(!connected)status.textContent='Conectando vídeo…';video();}
-    else{cancel();window.clearTimeout(retry);abort?.abort();canvas.hidden=true;placeholder.hidden=false;placeholder.textContent=device.state==='device'?'Aparelho iniciando…':'Aparelho desligado · dados preservados';status.textContent=device.state==='device'?'INICIANDO':'DESLIGADO';status.dataset.online='false';}
+    else{cancel();window.clearTimeout(retry);abort?.abort();canvas.hidden=true;placeholder.hidden=false;placeholder.textContent=device.link&& device.link.operation_active===true?device.link.message:device.state==='device'?'Aparelho iniciando…':'Aparelho desligado · dados preservados';status.textContent=device.state==='device'?'INICIANDO':'DESLIGADO';status.dataset.online='false';}
   }
   function dispose(){disposed=true;cancel();window.clearTimeout(retry);abort?.abort();window.removeEventListener('blur',cancel);tile.remove();}
   update(device);return {update,dispose,online:()=>device.online};
@@ -88,7 +89,8 @@ async function refreshWorkspaceDevices(){
     const response=await fetch('/api/workspace/devices?'+new URLSearchParams({workspace}),{cache:'no-store',signal:AbortSignal.timeout(10000)});
     const data=await response.json();if(!response.ok||!data.ok||devicePlatform!=='android'||activeLab.id!==workspace)return;
     window.huntmobSidebar?.companions(data);
-    const visible=data.devices.filter(d=>d.state!=='offline');
+    window.huntmobWorkspaceInventory=data;window.huntmobDastDevices?.sync(data);window.huntmobRootPair?.sync(data);
+    const visible=data.devices.filter(d=>d.state!=='offline'||d.link?.kind==='root-companion');
     const ids=new Set(visible.map(d=>d.id));
     for(const [id,tile] of companionTiles)if(!ids.has(id)){tile.dispose();companionTiles.delete(id);}
     for(const device of visible){if(companionTiles.has(device.id))companionTiles.get(device.id).update(device);else companionTiles.set(device.id,companionTile(device,workspace));}
@@ -145,3 +147,42 @@ document.querySelector('#connectWorkspaceAgent').addEventListener('click',async(
 });
 document.querySelector('#copyWorkspaceAgent').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(workspaceAgentConfig);document.querySelector('#workspaceAgentStatus').textContent='Configuração copiada.';}catch{document.querySelector('#workspaceAgentStatus').textContent='Selecione e copie a configuração acima.';}});
 window.setInterval(loadWorkspaceDevices,5000);window.setInterval(syncWorkspaceButtons,1000);loadWorkspaceDevices();
+
+// Pair controls use stable workspace/device identities and background job progress.
+(() => {
+  const dialog=document.querySelector('#rootPairDialog'),start=document.querySelector('#startRootPair');
+  let inventory,pairId,dialogWorkspace,busy=false,lastError='',serviceError='';
+  const pair=()=>inventory?.workspace_id===activeLab.id?inventory.devices.find(d=>pairId?d.id===pairId:d.link?.kind==='root-companion'):null;
+  const running=d=>d?.link?.operation_active===true;
+  function render(){
+    if(!dialog.open)return;
+    if(dialogWorkspace!==activeLab.id){dialog.close();return;}
+    const d=pair();
+    document.querySelector('#rootPairPlan').textContent=`Principal API ${activeLab.android_api||'—'} preservado → AOSP API 35 com ADB root, sem Play Store. A versão Android também muda neste par.`;
+    document.querySelector('#rootPairStatus').textContent=lastError||d?.link?.message||'Crie o companheiro para comparar os dois ambientes lado a lado.';
+    const list=document.querySelector('#rootPairApps');list.replaceChildren();
+    for(const app of d?.link?.apps||[]){const item=document.createElement('li'),name=document.createElement('strong'),status=document.createElement('small');name.textContent=app.package_id;status.textContent=app.state==='verified'?`${app.files.length} APK(s) · SHA256 verificado`:app.reason||'Pendente';item.dataset.state=app.state;item.append(name,status);list.append(item);}
+    document.querySelector('#rootPairNetwork').textContent=d?.link?.network?d.link.network.reason+(d.link.network.transport==='shared-emulator-wifi'?' A rede Wi-Fi virtual é compartilhada pelos emuladores do host.':' A verificação não deixa portas de teste abertas.'):'A rede será verificada com uma conexão TCP temporária entre os aparelhos.';
+    start.textContent=running(d)?'Operação em andamento…':d?'Sincronizar apps novamente':'Criar par e sincronizar';start.disabled=busy||running(d);
+    document.querySelector('#rootPairScope').disabled=busy||running(d);
+    const net=document.querySelector('#checkRootPairNetwork');net.hidden=!d;net.disabled=busy||running(d)||!d?.online;
+    const service=d?.link?.service,serviceToggle=document.querySelector('#pairServiceToggle');document.querySelector('#rootPairService').hidden=!d;serviceToggle.disabled=busy||running(d)||!d?.online;serviceToggle.textContent=service?.enabled?'Desativar conexão TCP':'Ativar conexão TCP';
+    for(const [id,value]of [['pairServicePort',service?.service_port],['pairAccessPort',service?.access_port]]){const input=document.querySelector('#'+id);input.disabled=busy||running(d)||!!service?.enabled;if(value)input.value=value;}
+    document.querySelector('#pairServiceStatus').textContent=serviceError||(service?.enabled?`Principal 127.0.0.1:${service.access_port} → companheiro:${service.service_port} · TCP`:'Conexão desativada. Ative quando houver um serviço para conectar.');
+    const dast=document.querySelector('#rootPairDast');dast.hidden=!d;dast.disabled=busy||running(d)||!d?.online||!d?.apk_sha256;
+  }
+  function open(id){inventory=window.huntmobWorkspaceInventory;pairId=id;lastError=serviceError='';dialogWorkspace=activeLab.id;dialog.showModal();render();}
+  document.querySelector('#createRootCompanion').addEventListener('click',()=>open());
+  document.querySelector('#closeRootPair').addEventListener('click',()=>dialog.close());
+  async function run(action){
+    if(busy||dialogWorkspace!==activeLab.id)return;busy=true;lastError='';render();
+    try{const d=pair(),result=await authorizedPost('/api/workspace/device/action',{action,workspace_id:dialogWorkspace,...(d?{device_id:d.id}:{}),app_scope:document.querySelector('#rootPairScope').value});pairId=result.device?.id;await loadWorkspaceDevices();}
+    catch(error){lastError=error.message;}
+    finally{busy=false;render();}
+  }
+  start.addEventListener('click',()=>run(pair()?'sync-pair':'create-root-pair'));
+  document.querySelector('#checkRootPairNetwork').addEventListener('click',()=>run('check-pair-network'));
+  document.querySelector('#pairServiceToggle').addEventListener('click',async()=>{if(busy||dialogWorkspace!==activeLab.id)return;const d=pair();if(!d)return;busy=true;serviceError='';render();try{const result=await authorizedPost('/api/workspace/device/action',{action:'pair-service',workspace_id:dialogWorkspace,device_id:d.id,service_port:Number(document.querySelector('#pairServicePort').value),access_port:Number(document.querySelector('#pairAccessPort').value),enabled:!d.link?.service?.enabled});notify(result.reason);await loadWorkspaceDevices();}catch(error){serviceError=error.message;}finally{busy=false;render();}});
+  document.querySelector('#rootPairDast').addEventListener('click',()=>{const d=pair();if(d){dialog.close();window.huntmobDastDevices.select(d.id);}});
+  window.huntmobRootPair={open,sync(data){inventory=data;render();}};
+})();

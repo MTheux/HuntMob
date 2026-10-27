@@ -7,22 +7,42 @@
   const id=()=>extra()?selected:devicePlatform==='ios'?iosInfo?.lab?.udid:activeLab.id;
   async function control(payload){if(extra())return authorizedPost('/api/workspace/device/action',{action:'control',workspace_id:inventory.workspace_id,device_id:selected,control:payload});if(isIos())return authorizedPost('/api/ios/action',{...payload,action:'device-control',control:payload.action});return authorizedPost('/api/device/control',{...payload,expected_device_id:activeLab.id});}
   function capabilities(){const ios=isIos(),on=online();document.querySelector('#toolsDeviceIdentity').textContent=(extra()?window.huntmobCanvas?.label(selected):'Principal')+' · '+(extra()?target()?.serial:document.querySelector('#stageSerial').textContent)+' · '+(on?'Online':'Desligado');
-    for(const b of document.querySelectorAll('#tab-device-tools .device-controls button')){const panel=b.dataset.controlPanel;const allowed=!ios||['location','battery','rotation','system'].includes(panel)||b.dataset.panel==='biometric'||['home','recents'].includes(b.dataset.deviceKey)||b.dataset.toolShortcut||b.id==='quickScreenshot';b.disabled=!on||!allowed||(extra()&&b.id==='quickScreenshot');}
-    document.querySelector('#toolsBackDevice').disabled=!on||ios;document.querySelector('#toolsStopDevice').disabled=!on;const stock=extra()?target()?.root_mode==='stock':activeLab.root_mode==='stock';document.querySelector('#toolsStoreDevice').hidden=ios||!stock;
+    for(const b of document.querySelectorAll('#tab-device-tools .device-controls button')){const support=window.huntmobToolSupport.control(b,ios);b.hidden=support.state==='android';b.disabled=!on||support.state==='android'||(extra()&&b.id==='quickScreenshot');}
+    document.querySelector('#iosToolsNote').hidden=!ios;
+    document.querySelector('#iosUnavailableControls').hidden=!ios;
+    document.querySelector('.tools-analysis-shortcuts').hidden=ios;
+    document.querySelector('#quickRootHelp').hidden=ios;
+    document.querySelector('#toolsBackDevice').hidden=ios;document.querySelector('#toolsBackDevice').disabled=!on||ios;document.querySelector('#toolsStopDevice').disabled=!on;const stock=extra()?target()?.root_mode==='stock':activeLab.root_mode==='stock';document.querySelector('#toolsStoreDevice').hidden=ios||!stock;
     const rootButton=document.querySelector('#quickRoot'),state=rootScope===id()?rootState:null;
+    const rootCapability=window.huntmobToolSupport.appRoot(state,stock);
     document.querySelector('#quickRootLabel').textContent=ios?'Jailbreak':rootBusy?(rootPending?'Ativando root…':'Desativando root…'):state?.enabled?'Root apps · ativo':state&&!state.available?'Root apps · indisponível':state?'Root apps · inativo':'Root apps · verificando';
     rootButton.setAttribute('aria-pressed',String(!ios&&!!state?.enabled));
-    rootButton.disabled=!on||ios||rootBusy||!state;
+    rootButton.disabled=!on||ios||rootBusy||rootCapability.disabled;
     select.disabled=rootBusy;
     const progress=document.querySelector('#rootProgress');progress.hidden=!rootBusy||extra()||ios;document.querySelector('#rootProgressTitle').textContent=rootPending?'Ativando Magisk no mesmo Android':'Desativando Magisk';
-    const reason=ios?'Jailbreak indisponível no Apple Simulator.':!state?'Consultando Magisk neste Android…':state.enabled?'Magisk ativo no mesmo AVD. Cada app pede autorização individual ao Magisk. Clique para desativar.':state.available?'Ativa Magisk temporário neste mesmo AVD. O Android reinicia seus processos e cada app pede autorização individual.':'Esta imagem não permite Magisk temporário no mesmo AVD.';
+    const reason=ios?'Jailbreak indisponível no Apple Simulator.':rootCapability.reason;
     rootButton.title=reason;document.querySelector('#quickRootHelp').textContent=rootMessage||reason;
 
   }
   function sync(data){if(data?.workspace_id)inventory=data;const previous=selected;select.replaceChildren(new Option('Principal'+(devicePlatform==='ios'?' · iOS':' · Android'),'primary'));
     if(devicePlatform==='android')for(const d of inventory?.devices||[])if(d.online)select.add(new Option(window.huntmobCanvas?.label(d.id)||d.serial,d.id));selected=[...select.options].some(o=>o.value===previous)?previous:'primary';select.value=selected;capabilities();}
   select.addEventListener('change',()=>{selected=select.value;rootState=undefined;rootScope=undefined;rootMessage='';document.querySelector('#automaticBiometric').checked=false;autoCount=0;capabilities();refreshRoot();});
-  window.huntmobTools={extra,isIos,control,sync,rootChanging:()=>rootBusy&&!extra()?rootScope:undefined,refreshRoot:()=>{if(rootScope!==id())refreshRoot();},select(deviceId){selected=deviceId===activeLab.id?'primary':deviceId;sync(inventory);refreshRoot();document.querySelector('[data-tab="device-tools"]').click();}};
+  window.huntmobTools={extra,isIos,control,sync,refreshCapabilities:capabilities,rootChanging:()=>rootBusy&&!extra()?rootScope:undefined,refreshRoot:()=>{if(rootScope!==id())refreshRoot();},select(deviceId){selected=deviceId===activeLab.id?'primary':deviceId;sync(inventory);refreshRoot();document.querySelector('[data-tab="device-tools"]').click();}};
+  document.querySelector('#checkPentestReadiness').addEventListener('click',async event=>{
+    const scope=id(),button=event.currentTarget,status=document.querySelector('#pentestReadinessStatus'),checks=document.querySelector('#pentestReadinessChecks');
+    button.disabled=true;status.textContent='Conferindo requisitos deste aparelho…';checks.replaceChildren();
+    const query=new URLSearchParams({platform:isIos()?'ios':'android'});
+    if(extra())query.set('workspace',inventory.workspace_id),query.set('device',selected);
+    try{
+      const response=await fetch('/api/pentest/readiness?'+query,{cache:'no-store',signal:AbortSignal.timeout(30000)}),data=await response.json();
+      if(scope!==id())return;
+      if(!response.ok||!data.ok)throw new Error(data.reason||'Diagnóstico indisponível.');
+      status.textContent='Requisitos conferidos · '+new Date(data.checked_at).toLocaleTimeString('pt-BR');
+      for(const item of data.checks){const row=document.createElement('div');row.dataset.state=item.state==='ready'?'passed':'blocked';const marker=document.createElement('span');marker.textContent={ready:'OK',blocked:'BLOCK',pending:'PEND',experimental:'BETA',unsupported:'LIMITE'}[item.state]||item.state;const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');title.textContent=item.label;detail.textContent=item.detail;copy.append(title,detail);row.append(marker,copy);checks.append(row);}
+    }catch(error){if(scope===id())status.textContent=error.name==='TimeoutError'?'A verificação demorou. Confira a conexão e tente novamente.':error.message;}
+    finally{button.disabled=false;}
+  });
+  select.addEventListener('change',()=>{document.querySelector('#pentestReadinessChecks').replaceChildren();document.querySelector('#pentestReadinessStatus').textContent='Aparelho alterado. Verifique os requisitos novamente.';});
   document.querySelector('#toolsBackDevice').addEventListener('click',()=>applyDeviceControl({action:'back'}));
   document.querySelector('#toolsStopDevice').addEventListener('click',async()=>{if(devicePlatform==='android'){if(!extra())return openLabShutdown();return window.huntmobCanvas?.stop([id()]);}try{await authorizedPost('/api/ios/action',{action:'stop'});await loadIosRuntime();}catch(error){notify(error.message);}});
   document.querySelector('#toolsStoreDevice').addEventListener('click',async()=>{try{if(extra())await authorizedPost('/api/workspace/device/action',{workspace_id:inventory.workspace_id,device_id:selected,action:'open-store'});else await deviceAction('open-play-store');}catch(error){notify(error.message);}});

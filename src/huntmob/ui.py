@@ -25,6 +25,7 @@ from .device_controls import execute as device_control
 from .codec_relay import CODEC_RELAY
 from . import ios_worker, ios_static, ios_native_readiness
 from .ios_identity import simulator_identity
+from .lab_cleanup import delete_saved_labs
 from .dynamic_runtime import DYNAMIC
 from . import native_dast, deep_dast
 from .network_capture import clear_capture, visible_snapshot
@@ -33,7 +34,7 @@ from .screen_relay import SCREEN_RELAY
 from .analysis_core import EmbeddedAnalysis
 from . import reverse_workspace
 from . import reverse_engines
-from .lab_sessions import inventory as lab_inventory, create_lab, create_play_lab, resume_lab, network_store, current as current_lab, change_root_profile, close_current_lab, save_current_lab, front_camera_status, set_front_camera
+from .lab_sessions import inventory as lab_inventory, create_lab, create_play_lab, resume_lab, network_store, current as current_lab, change_root_profile, close_current_lab, stop_saved_labs, save_current_lab, front_camera_status, set_front_camera
 from .android_worker import PACKAGE_ID
 from . import workspace_devices
 from .runtime_limits import CapacityExceeded, upload_slot
@@ -42,6 +43,19 @@ from .runtime_limits import CapacityExceeded, upload_slot
 LOOPBACKS = {"127.0.0.1", "::1", "localhost"}
 SESSION_TOKEN = secrets.token_urlsafe(32)
 VIDEO_SLOTS = threading.BoundedSemaphore(2)
+
+
+def trusted_origins(values):
+    result = set()
+    for value in values:
+        parsed = urlparse(value)
+        if (parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password
+                or parsed.path or parsed.params or parsed.query or parsed.fragment):
+            raise ValueError('Trusted origin must be an exact http(s) origin without path or credentials')
+        try: parsed.port
+        except ValueError: raise ValueError('Invalid trusted origin port') from None
+        result.add(value)
+    return result
 
 
 def receive_upload(handler, path: Path, length: int, *, maximum: int, deadline_seconds: int = 120) -> None:
@@ -96,6 +110,28 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             if not authorized:
                 self.send_error(403, "Worker bridge authentication required")
                 return False
+            return True
+        # Loopback binding alone does not stop browser DNS rebinding. Validate
+        # authority before exposing the session token, files or device actions.
+        port = self.server.server_port
+        authorities = {f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}'}
+        origins = {f'http://{value}' for value in authorities}
+        configured = getattr(self.server, 'trusted_origins', set())
+        origins.update(configured)
+        authorities.update(urlparse(value).netloc for value in configured)
+        bound_host = self.server.server_address[0]
+        if bound_host not in {'0.0.0.0', '::', ''}:
+            authorities.add(f'[{bound_host}]:{port}' if ':' in bound_host else f'{bound_host}:{port}')
+            origins.add('http://' + (f'[{bound_host}]:{port}' if ':' in bound_host else f'{bound_host}:{port}'))
+        hosts = self.headers.get_all('Host') or []
+        request_origins = self.headers.get_all('Origin') or []
+        if (len(hosts) != 1 or hosts[0] not in authorities or len(request_origins) > 1
+                or (request_origins and request_origins[0] not in origins)):
+            self.send_error(403, 'Invalid request host or origin')
+            return False
+        operator = getattr(self.server, 'operator_session', None)
+        if operator is not None and not operator.handle(self):
+            return False
         return True
 
     def __init__(self, *args, directory: str | None = None, **kwargs) -> None:
@@ -107,13 +143,20 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
         if getattr(self.server, "worker_secret", None) is not None:
             return  # Paths may contain client evidence; Docker bridge logs no requests.
         try:
-            super().log_message(format, *args)
+            # Never log signed download tickets or query strings from evidence.
+            super().log_message('%s %s', self.command, urlparse(self.path).path)
         except (OSError, ValueError):
             pass
 
     def do_GET(self) -> None:  # noqa: N802 - inherited HTTP API name
         parsed = urlparse(self.path)
         route = parsed.path
+        if route == '/api/auth/status' and getattr(self.server, 'operator_session', None) is None:
+            # Gate disabled on loopback: tell the client no operator session is
+            # required so the connect screen never appears.
+            body = b'{"ok":true,"authenticated":true,"operator":false}'
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
         if route == '/api/ios/runtime-catalog':
             from .ios_runtimes import catalog
             self.workspace_json(catalog())
@@ -128,8 +171,28 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
         if route == '/api/reverse/engines':
             self.workspace_json(reverse_engines.status())
             return
+        if route == '/api/pentest/readiness':
+            from .pentest_readiness import snapshot
+            query = parse_qs(parsed.query)
+            try: self.workspace_json(snapshot(query.get('platform', ['android'])[0], query.get('workspace', [None])[0], query.get('device', [None])[0]))
+            except (OSError, ValueError, subprocess.SubprocessError): self.workspace_json({'ok': False, 'reason': 'Não foi possível verificar este aparelho. Atualize o lab e tente novamente.'}, 409)
+            return
         if route == '/api/dynamic/deep':
-            self.workspace_json(deep_dast.status())
+            query = parse_qs(parsed.query)
+            try: self.workspace_json(deep_dast.status(query.get('workspace', [None])[0], query.get('device', [None])[0]))
+            except (OSError, ValueError): self.workspace_json({'ok': False, 'reason': 'Aparelho indisponível neste workspace.'}, 409)
+            return
+        if route == '/api/dynamic/readiness':
+            from .dynamic_runtime import connection_readiness
+            query = parse_qs(parsed.query)
+            try: self.workspace_json(connection_readiness(query.get('workspace', [None])[0], query.get('device', [None])[0]))
+            except (OSError, ValueError): self.workspace_json({'ok': False, 'ready': False, 'reason': 'Aparelho não pertence ao workspace selecionado.'}, 409)
+            return
+        if route == '/api/dynamic/apps':
+            from .dynamic_runtime import target_context, target_worker
+            query = parse_qs(parsed.query)
+            try: self.workspace_json(target_worker(target_context(query.get('workspace', [None])[0], query.get('device', [None])[0])).installed_apps())
+            except (OSError, ValueError): self.workspace_json({'ok': False, 'reason': 'Aparelho indisponível neste workspace.'}, 409)
             return
         if route == '/api/reverse/target':
             try: self.workspace_json(reverse_engines.target(parse_qs(parsed.query).get('workspace', [''])[0]))
@@ -360,14 +423,17 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             return
         if route in {'/api/dynamic/status', '/api/dynamic/export', '/api/dynamic/report', '/api/dynamic/report.json', '/api/dynamic/report.html'}:
             try:
+                from .dynamic_runtime import runtime_for
+                query = parse_qs(parsed.query)
+                dynamic = runtime_for(query.get('workspace', [None])[0], query.get('device', [None])[0])
                 if route == '/api/dynamic/status':
-                    body = json.dumps(DYNAMIC.snapshot()).encode()
+                    body = json.dumps(dynamic.snapshot()).encode()
                 elif route.startswith('/api/dynamic/report'):
-                    report = native_dast.latest()
+                    report = native_dast.latest(dynamic.context())
                     if report is None: raise ValueError('Native report unavailable')
                     body = native_dast.render_html(report) if route.endswith('.html') else json.dumps(report, ensure_ascii=False).encode()
                 else:
-                    body = DYNAMIC.export()
+                    body = dynamic.export()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8' if route.endswith('.html') else 'application/json')
                 self.send_header('Cache-Control', 'no-store')
@@ -452,7 +518,7 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             if route == '/api/workspace/agent':
                 import sys
                 config = {'mcpServers': {'huntmob-devices': {'command': sys.executable,
-                          'args': ['-m', 'huntmob.device_mcp', '--port', str(self.server.server_port), '--workspace', workspace_id],
+                          'args': ['-m', 'huntmob.device_mcp', '--port', str(getattr(self.server, 'public_port', self.server.server_port)), '--workspace', workspace_id],
                           'env': {'PYTHONPATH': str(Path(__file__).resolve().parents[1])}}}}
                 self.workspace_json({'ok': True, 'config': config, 'workspace_id': workspace_id})
                 return
@@ -595,6 +661,8 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                 try:
                     action = payload.get('action')
                     if action == 'start': result = ios_worker.start()
+                    elif action == 'reset-identity': result=ios_worker.reset_identity(payload.get('expected_udid'))
+                    elif action == 'restore-identity': result=ios_worker.restore_previous_identity(payload.get('expected_udid'))
                     elif action == 'install-runtime':
                         from .ios_runtimes import install
                         result=install(payload.get('version'))
@@ -632,21 +700,23 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                         result, status = {"ok": False, "reason": "Screenshot could not be saved; check device and local storage"}, 409
             elif route == '/api/dynamic':
                 try:
+                    from .dynamic_runtime import runtime_for, target_worker
+                    dynamic = runtime_for(payload.get('workspace_id'), payload.get('device_id'))
+                    worker = target_worker(dynamic.context())
                     action = payload.get('action')
-                    if action == 'prepare': result = DYNAMIC.prepare()
+                    if action == 'prepare': result = dynamic.prepare()
                     elif action == 'start':
-                        result = DYNAMIC.start(payload)
+                        result = dynamic.start(payload)
                         if result.get('ok') and payload.get('include_proxy'):
-                            result['proxy'] = worker.start_managed_proxy()
+                            result['proxy'] = {'ok': False, 'reason': 'Proxy do principal não atribuído ao companheiro.'} if dynamic.workspace_id else worker.start_managed_proxy()
                     elif action == 'stop':
-                        result = DYNAMIC.stop()
-                        if DYNAMIC.snapshot().get('receipt'):
-                            result['report'] = native_dast.generate(DYNAMIC)
+                        result = dynamic.stop()
+                        if dynamic.snapshot().get('receipt'):
+                            result['report'] = native_dast.generate(dynamic)
                     elif action == 'analyze':
-                        result = {'ok': True, 'report': native_dast.generate(DYNAMIC)}
+                        result = {'ok': True, 'report': native_dast.generate(dynamic)}
                     elif action == 'capture':
-                        from .dynamic_runtime import scope
-                        lab = scope(payload.get('package_id'))
+                        lab = dynamic.scoped_lab(payload.get('package_id'))
                         record = EvidenceStore().capture(worker.screenshot(), serial=worker.serial, selected_package=lab['package_id'], lab_id=lab['id'])
                         result = {'ok': True, 'record': record}
                     else: result = {'ok': False, 'reason': 'Operação DAST desconhecida.'}
@@ -655,7 +725,17 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                 status = 200 if result.get('ok') else 409
             elif route == '/api/dynamic/deep':
                 try:
-                    result = deep_dast.start()
+                    from . import deep_preparation
+                    from .dynamic_runtime import scope
+                    action = payload.get('action')
+                    if action == 'prepare-rea': result = deep_preparation.start(payload)
+                    elif action == 'set-engagement': result = deep_preparation.register_engagement(payload)
+                    elif action == 'start':
+                        target = scope(payload.get('package_id'), payload.get('workspace_id'), payload.get('device_id'))
+                        if target.get('apk_sha256') != payload.get('apk_sha256'):
+                            raise ValueError('O APK selecionado mudou.')
+                        result = deep_dast.start(payload.get('workspace_id'), payload.get('device_id'))
+                    else: result = {'ok': False, 'reason': 'Operação de correlação desconhecida.'}
                 except (ValueError, OSError, TypeError, KeyError):
                     result = {'ok': False, 'reason': 'Análise profunda não iniciada. Confira autorização, DAST, REA e modelo local.'}
                 status = 200 if result.get('ok') else 409
@@ -713,8 +793,9 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                     result = {"ok": False, "reason": "unknown proxy action"}
                 status = 200 if result.get("ok") else 409
             else:
-                actions = {"select-target": lambda: worker.select_target(payload.get("package_id")), "open-play-store": lambda: worker.open_play_store(payload.get("package_id", "")), "start": worker.start, "stop": worker.stop, "reboot": worker.reboot, "destroy": worker.destroy, "save-lab": lambda: save_current_lab(payload.get('lab_id')), "save-stop": lambda: close_current_lab(worker, payload.get('lab_id'), preserve=True), "discard-lab": lambda: close_current_lab(worker, payload.get('lab_id'), preserve=False), "prepare-root-profile": lambda: worker.prepare_profile(payload.get("root_mode")), "root-profile": lambda: change_root_profile(worker, payload.get("root_mode"), expected_lab_id=payload.get("lab_id")), "new-lab": lambda: create_lab(worker, root_mode=payload.get("root_mode", "root"), android_api=payload.get("android_api",35), engagement=payload.get("engagement","")), "resume": lambda: resume_lab(worker, payload.get("lab_id"))}
+                actions = {"select-target": lambda: worker.select_target(payload.get("package_id")), "open-play-store": lambda: worker.open_play_store(payload.get("package_id", "")), "start": worker.start, "stop": worker.stop, "reboot": worker.reboot, "destroy": worker.destroy, "save-lab": lambda: save_current_lab(payload.get('lab_id')), "save-stop": lambda: close_current_lab(worker, payload.get('lab_id'), preserve=True), "stop-saved-labs": lambda: stop_saved_labs(worker, payload.get('lab_ids'), payload.get('expected_current_id')), "discard-lab": lambda: close_current_lab(worker, payload.get('lab_id'), preserve=False), "prepare-root-profile": lambda: worker.prepare_profile(payload.get("root_mode")), "root-profile": lambda: change_root_profile(worker, payload.get("root_mode"), expected_lab_id=payload.get("lab_id")), "new-lab": lambda: create_lab(worker, root_mode=payload.get("root_mode", "root"), android_api=payload.get("android_api",35), engagement=payload.get("engagement","")), "resume": lambda: resume_lab(worker, payload.get("lab_id"))}
                 actions['new-play-lab'] = lambda: create_play_lab(worker, payload.get('package_id', ''), android_api=payload.get('android_api', 35))
+                actions['delete-saved-labs'] = lambda: delete_saved_labs(worker, payload.get('lab_ids'), payload.get('expected_current_id'), delete_data=payload.get('delete_data'))
                 actions['front-camera-status'] = lambda: front_camera_status(worker, payload.get('lab_id'))
                 actions['front-camera-source'] = lambda: set_front_camera(worker, payload.get('lab_id'), use_webcam=payload.get('use_webcam'))
                 action = actions.get(str(payload.get("action", "")))
@@ -743,9 +824,14 @@ def serve(
     *,
     authorized_remote: bool = False,
     worker_secret_file: str | None = None,
+    allowed_origins=(),
+    public_port=None,
     server_class: Type[ThreadingHTTPServer] = ThreadingHTTPServer,
 ) -> None:
     validate_bind(host, authorized_remote)
+    origin_allowlist = trusted_origins(allowed_origins)
+    if origin_allowlist and not authorized_remote:
+        raise ValueError('Trusted remote origins require --authorized-remote')
     worker_secret = None
     if worker_secret_file is not None:
         worker_secret = Path(worker_secret_file).read_text(encoding="ascii").strip()
@@ -756,6 +842,18 @@ def serve(
     )
     with server_class((host, port), handler) as server:
         server.worker_secret = worker_secret
+        server.public_port = public_port or server.server_port
+        server.trusted_origins = origin_allowlist
+        if worker_secret is None and authorized_remote:
+            from .operator_auth import OperatorSession, local_key, write_access_url
+            server.operator_session = OperatorSession(local_key())
+            access = write_access_url(server.operator_session, f'http://127.0.0.1:{server.server_port}')
+            print(f'Endereço privado do operador: {access}')
+        elif worker_secret is None:
+            # Local loopback access is trusted: the operator session gate is off,
+            # so the workbench opens without the "Conectar ao HuntMob" screen.
+            server.operator_session = None
+            print('Sessão de operador desativada no acesso local (loopback).')
         print(f"HuntMob UI: http://{host}:{port}")
         old_handler = None
         if threading.current_thread() is threading.main_thread():

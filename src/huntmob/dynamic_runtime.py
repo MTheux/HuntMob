@@ -33,13 +33,13 @@ def frida_compatibility(android_api, android_abi, client_version):
     return {'ok': True}
 
 
-def frida_server_ready(command, frida_module):
+def frida_server_ready(command, frida_module, forward_port=FORWARD_PORT):
     """Probe the Frida protocol; Android's pidof may hide long process names."""
-    forwarded = _run(command + ('forward', f'tcp:{FORWARD_PORT}', 'tcp:27042'), timeout=5)
+    forwarded = _run(command + ('forward', f'tcp:{forward_port}', 'tcp:27042'), timeout=5)
     if forwarded.returncode:
         return False
     try:
-        device = frida_module.get_device_manager().add_remote_device(f'127.0.0.1:{FORWARD_PORT}')
+        device = frida_module.get_device_manager().add_remote_device(f'127.0.0.1:{forward_port}')
         device.enumerate_processes()
         return True
     except Exception as error:
@@ -57,15 +57,92 @@ def private_json(path, value):
     temporary.replace(path)
 
 
-def scope(package):
+def target_context(workspace_id=None, device_id=None):
     lab = current()
+    if workspace_id is None and device_id is None:
+        return lab
+    if not workspace_id or not device_id or lab.get('id') != workspace_id:
+        raise ValueError('Workspace selecionado mudou.')
+    if device_id == workspace_id:
+        return lab
+    from .workspace_devices import owned
+    record = owned(workspace_id, device_id)
+    if record.get('platform') != 'android' or record.get('link', {}).get('kind') != 'root-companion':
+        raise ValueError('Selecione um companheiro Android vinculado a este lab.')
+    # A failed/replaced synchronization cannot reuse the original device's evidence identity.
+    matched = all(record.get(key) and record.get(key) == lab.get(key) for key in ('package_id', 'apk_sha256'))
+    return {**record, 'package_id': record.get('package_id') if matched else None,
+            'apk_sha256': record.get('apk_sha256') if matched else None, 'engagement': lab.get('engagement')}
+
+
+def target_worker(lab):
+    if lab.get('workspace_id'):
+        from .workspace_devices import owned, worker
+        return worker(owned(lab['workspace_id'], lab['id']))
+    return AndroidWorker()
+
+
+def scope(package, workspace_id=None, device_id=None):
+    lab = target_context(workspace_id, device_id)
     if not lab.get('id') or not lab.get('apk_sha256') or package != lab.get('package_id'):
         raise ValueError('Selecione o app vinculado ao laboratório autorizado.')
     return lab
 
 
+def connection_readiness(workspace_id=None, device_id=None):
+    """Read owned-lab prerequisites without preparing root or attaching to an app."""
+    lab=target_context(workspace_id, device_id)
+    result={'ok':True,'ready':False,'lab_id':lab.get('id'),'package_id':lab.get('package_id'),
+            'apk_sha256':lab.get('apk_sha256'),'root_mode':lab.get('root_mode'),
+            'transport':'gadget' if lab.get('root_mode')=='stock' else 'server'}
+    def blocked(code, reason):
+        return {**result,'error_code':code,'reason':reason}
+    if not lab.get('id') or not lab.get('package_id') or not lab.get('apk_sha256'):
+        return blocked('selected_app_required','Selecione o aplicativo e identifique o APK antes de verificar o Frida.')
+    if lab.get('workspace_id') and lab.get('link', {}).get('state') not in {'ready', 'partial'}:
+        return blocked('pair_sync_pending', 'Conclua a sincronização do companheiro antes de iniciar o DAST.')
+    try:
+        import frida
+        worker=target_worker(lab)
+        if worker.avd_name!=lab['id']:
+            return blocked('lab_changed','O laboratório selecionado mudou. Atualize a conexão.')
+        status=worker.status()
+        if status.get('state')!='device' or status.get('ownership_verified') is False:
+            return blocked('android_offline','O Android principal não está online e identificado.')
+        command=(str(worker.sdk.adb),'-s',worker.serial)
+        if lab.get('root_mode')=='stock':
+            running=_run(command+('shell','pidof',lab['package_id']),timeout=5)
+            if running.returncode or not running.stdout.split():
+                return blocked('gadget_app_not_running','Abra o build de teste com Frida Gadget no Android e clique em Verificar Frida.')
+            ports=_run(command+('shell','ss','-ltn'),timeout=5)
+            if ports.returncode:
+                return blocked('gadget_check_unavailable','Não foi possível verificar a porta do Gadget neste Android. Nenhuma conexão foi iniciada.')
+            listening=any(len(fields)>=4 and fields[0]=='LISTEN' and fields[3].rsplit(':',1)[-1]=='27042'
+                          for fields in (line.split() for line in ports.stdout.splitlines()))
+            if not listening:
+                return blocked('gadget_not_listening','Google Play sem root: o app está aberto, mas não há canal Frida na porta 27042. Use um build de teste com Frida Gadget carregado e clique em Verificar Frida. Root apps/Magisk não está disponível nesta imagem.')
+            reason='Porta do Gadget disponível. A identidade do processo e a conexão serão verificadas ao iniciar a sessão.'
+        else:
+            properties=status.get('properties',{})
+            compatible=frida_compatibility(int(properties.get('ro.build.version.sdk','0')),properties.get('ro.product.cpu.abi',''),frida.__version__)
+            if not compatible['ok']:
+                return blocked(compatible['error_code'],compatible['reason'])
+            if not worker.root_status().get('root_available'):
+                return blocked('adb_root_unavailable','O servidor Frida precisa de ADB root no perfil AOSP. Root para apps/Magisk é um controle separado.')
+            reason='ADB root disponível para preparar o servidor Frida. Magisk para apps não é necessário para esta conexão.'
+        fresh=target_context(workspace_id, device_id)
+        if any(fresh.get(key)!=lab.get(key) for key in ('id','package_id','apk_sha256')):
+            return blocked('lab_changed','O app ou laboratório mudou durante a verificação. Verifique novamente.')
+        return {**result,'ready':True,'error_code':'','reason':reason}
+    except ImportError:
+        return blocked('frida_missing','Frida não está instalado no worker local.')
+    except (OSError,ValueError,subprocess.TimeoutExpired):
+        return blocked('frida_check_failed','Não foi possível verificar o Frida. Confira a conexão do Android e tente novamente.')
+
+
 class DynamicRuntime:
-    def __init__(self):
+    def __init__(self, workspace_id=None, device_id=None, forward_port=FORWARD_PORT):
+        self.workspace_id, self.device_id, self.forward_port = workspace_id, device_id, forward_port
         self.lock = threading.RLock()
         self.session = self.agent = self.device = None
         self.receipt = None
@@ -75,19 +152,28 @@ class DynamicRuntime:
         self.preparing = False
         self.ready = threading.Event()
 
+    def context(self):
+        return target_context(self.workspace_id, self.device_id)
+
+    def scoped_lab(self, package):
+        return scope(package, self.workspace_id, self.device_id)
+
+    def readiness(self):
+        return connection_readiness(self.workspace_id, self.device_id)
+
     def snapshot(self):
         with self.lock:
             receipt = self.receipt
-            if receipt and receipt['lab_id'] != current().get('id'):
+            if receipt and receipt['lab_id'] != self.context().get('id'):
                 receipt = None
             if receipt:
                 return {'ok': True, 'state': receipt['state'], 'receipt': receipt, 'events': self.events[-250:]}
             try:
-                saved = json.loads((root() / current()['id'] / 'dynamic.json').read_text())
+                saved = json.loads((root() / self.context()['id'] / 'dynamic.json').read_text())
                 if saved.get('state') in {'running', 'starting'}:
                     saved['state'] = 'interrupted'
                 if not re.fullmatch(r'dyn_[a-f0-9]{32}', saved.get('id', '')): raise ValueError('Invalid job')
-                path = root() / current()['id'] / (saved['id'] + '.jsonl')
+                path = root() / self.context()['id'] / (saved['id'] + '.jsonl')
                 events = [json.loads(line) for line in path.read_text().splitlines()[-250:]] if path.exists() else []
                 return {'ok': True, 'state': saved['state'], 'receipt': saved, 'events': events}
             except (OSError, ValueError, KeyError):
@@ -130,8 +216,8 @@ class DynamicRuntime:
 
     def _prepare(self):
         import frida
-        worker = AndroidWorker()
-        lab = scope(current().get('package_id'))
+        lab = self.scoped_lab(self.context().get('package_id'))
+        worker = target_worker(lab)
         if lab.get('root_mode', 'root') != 'root' or not worker.root_status().get('root_available'):
             return {'ok': False, 'reason': 'Sem root: use um build de teste do app com Frida Gadget integrado. Não alteramos o APK automaticamente.'}
         properties = worker.status().get('properties', {})
@@ -160,7 +246,7 @@ class DynamicRuntime:
             return {'ok': False, 'reason': 'Cache Frida com hash ou arquitetura divergente. Prepare o runtime novamente.'}
         command = (str(worker.sdk.adb), '-s', worker.serial)
         remote = '/data/local/tmp/huntmob-frida-server'
-        if frida_server_ready(command, frida):
+        if frida_server_ready(command, frida, self.forward_port):
             check = _run(command + ('shell', remote, '--version'), timeout=5)
             if check.stdout.strip() == version:
                 return {'ok': True, 'version': version, 'architecture': arch, 'transport': 'server'}
@@ -179,7 +265,7 @@ class DynamicRuntime:
             return {'ok': False, 'reason': 'Servidor Frida não iniciou; outro worker pode estar usando a porta 27042.'}
         # `--daemonize` may return success even when the child crashes during startup.
         for _ in range(5):
-            if frida_server_ready(command, frida):
+            if frida_server_ready(command, frida, self.forward_port):
                 break
             time.sleep(0.2)
         else:
@@ -209,11 +295,23 @@ class DynamicRuntime:
             if self.receipt and self.receipt['state'] in {'running', 'starting'}:
                 return {'ok': False, 'reason': 'Pare a sessão atual antes de iniciar outra.'}
             package = payload.get('package_id')
-            lab = scope(package)
+            lab = self.scoped_lab(package)
+            if lab.get('workspace_id'):
+                from .workspace_pairs import apk_paths, remote_digest
+                worker = target_worker(lab)
+                files = apk_paths(worker, package)
+                recorded = next((a for a in lab.get('link', {}).get('apps', []) if a.get('package_id') == package and a.get('state') == 'verified'), {})
+                if sorted(remote_digest(worker, path) for path in files) != sorted(item['sha256'] for item in recorded.get('files', [])):
+                    return {'ok': False, 'reason': 'APKs do companheiro mudaram. Sincronize o par novamente.'}
             selected = payload.get('script_ids', [])
             if not isinstance(selected, list) or not selected or any(not isinstance(item, str) or item not in OBSERVERS for item in selected):
                 return {'ok': False, 'reason': 'Selecione monitores de observação implementados.'}
-            worker = AndroidWorker()
+            readiness=self.readiness()
+            if not readiness['ready']:
+                return {**readiness,'ok':False,'blocked':True}
+            if any(readiness.get(key)!=lab.get(key) for key in ('package_id','apk_sha256')) or readiness.get('lab_id')!=lab['id']:
+                return {'ok':False,'blocked':True,'error_code':'lab_changed','reason':'O app ou laboratório mudou. Verifique a conexão novamente.'}
+            worker = target_worker(lab)
             if worker.status().get('state') != 'device': return {'ok': False, 'reason': 'Android offline.'}
             bridge_spec = __import__('importlib.util', fromlist=['find_spec']).find_spec('frida_tools')
             bridge = Path(bridge_spec.origin).parent / 'bridges/java.js' if bridge_spec else None
@@ -222,6 +320,7 @@ class DynamicRuntime:
             properties = worker.status().get('properties', {})
             root_mode = lab.get('root_mode', 'root')
             self.receipt = {'id': 'dyn_' + uuid4().hex, 'lab_id': lab['id'], 'package_id': package, 'apk_sha256': lab['apk_sha256'], 'scripts': selected, 'root_mode': root_mode, 'frida_version': frida.__version__, 'frida_transport': 'server' if root_mode == 'root' else 'gadget', 'android_api': int(properties.get('ro.build.version.sdk', '0')), 'android_abi': properties.get('ro.product.cpu.abi', ''), 'started_at': datetime.now(timezone.utc).isoformat(), 'started_epoch': time.time(), 'state': 'starting', 'phase': 'preflight', 'finding_status': 'not_assessed'}
+            self.receipt.update({'workspace_id': lab.get('workspace_id', lab['id']), 'device_id': lab['id'], 'serial': worker.serial})
             self.events = []; self.event_bytes = 0; self.ready.clear(); self.persist()
             if root_mode == 'root':
                 result = self.prepare()
@@ -229,7 +328,7 @@ class DynamicRuntime:
                     self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = 'preflight'; self.receipt['error_type'] = result.get('error_code', 'FridaPrepareError'); self.persist()
                     return result
                 self.receipt['frida_server_version'] = result['version']; self.persist()
-            forwarded = _run(command + ('forward', f'tcp:{FORWARD_PORT}', 'tcp:27042'), timeout=10)
+            forwarded = _run(command + ('forward', f'tcp:{self.forward_port}', 'tcp:27042'), timeout=10)
             if forwarded.returncode:
                 self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = 'forward'; self.receipt['error_type'] = 'AdbForwardError'; self.persist()
                 return {'ok': False, 'reason': 'Forward Frida indisponível.'}
@@ -237,7 +336,7 @@ class DynamicRuntime:
             spawned = False
             try:
                 self.receipt['phase'] = 'connect'; self.persist()
-                self.device = frida.get_device_manager().add_remote_device(f'127.0.0.1:{FORWARD_PORT}')
+                self.device = frida.get_device_manager().add_remote_device(f'127.0.0.1:{self.forward_port}')
                 if lab.get('root_mode', 'root') == 'stock' or payload.get('mode') == 'attach':
                     self.receipt['phase'] = 'attach_lookup'; self.persist()
                     found = _run(command + ('shell', 'pidof', package), timeout=5).stdout.split()
@@ -268,8 +367,11 @@ class DynamicRuntime:
                 if self.session:
                     try: self.session.detach()
                     except Exception: pass
-                self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = self.receipt.get('phase', 'unknown'); self.receipt['error_type'] = type(error).__name__; self.persist()
-                return {'ok': False, 'reason': 'Frida não conectou ao app. Verifique root/servidor ou Gadget no perfil sem root.', 'error_type': type(error).__name__}
+                self.receipt['state'] = 'failed'; self.receipt['failure_phase'] = self.receipt.get('phase', 'unknown'); self.receipt['error_type'] = type(error).__name__
+                reason=('O canal Frida Gadget não confirmou a conexão com este app. Verifique se o Gadget está carregado no build de teste aberto; Magisk não é compatível com esta imagem Google Play.'
+                        if root_mode=='stock' else 'O servidor Frida não confirmou a conexão. Verifique ADB root, versão do servidor e compatibilidade do runtime; Magisk para apps é um controle separado.')
+                self.receipt['failure_reason']=reason;self.persist()
+                return {'ok': False, 'reason': reason, 'error_code':'gadget_connection_failed' if root_mode=='stock' else 'frida_connection_failed','error_type': type(error).__name__}
 
     def message(self, message, data):
         if message.get('type') == 'send' and isinstance(message.get('payload'), dict): self.record(message['payload'])
@@ -298,22 +400,56 @@ class DynamicRuntime:
 
     def export(self):
         with self.lock:
-            if not self.receipt or self.receipt['lab_id'] != current().get('id'):
+            if not self.receipt or self.receipt['lab_id'] != self.context().get('id'):
                 saved = self.snapshot()
                 if not saved.get('receipt'): raise ValueError('Nenhuma sessão neste laboratório.')
                 receipt = saved['receipt']
-                event_file = root() / current()['id'] / (receipt['id'] + '.jsonl')
+                event_file = root() / self.context()['id'] / (receipt['id'] + '.jsonl')
                 events = [json.loads(line) for line in event_file.read_text().splitlines()] if event_file.exists() else []
             else:
                 receipt, events = self.receipt, list(self.events)
             from .lab_sessions import network_store
-            try: flows = visible_snapshot(network_store())['flows']
+            try: flows = visible_snapshot(network_store())['flows'] if not self.workspace_id else []
             except (OSError, ValueError): flows = []
             flows = [flow for flow in flows if receipt.get('started_epoch', 0) <= flow.get('started_at', 0) <= receipt.get('ended_epoch', time.time())]
             from .evidence import EvidenceStore
             screenshots = [item for item in EvidenceStore().inventory().get('records', []) if item.get('lab_id') == receipt['lab_id'] and receipt['started_at'] <= item.get('created_at', '') <= receipt.get('ended_at', datetime.now(timezone.utc).isoformat())]
-            payload = {'version': 1, 'receipt': receipt, 'events': events, 'network': flows, 'screenshots': screenshots, 'finding_status': 'not_assessed'}
+            payload = {'version': 1, 'receipt': receipt, 'events': events, 'network': flows, 'screenshots': screenshots, 'finding_status': 'not_assessed', 'limitations': ['Captura de proxy do principal excluída: rede do companheiro não atribuída.'] if self.workspace_id else []}
             return json.dumps(payload, ensure_ascii=False, indent=2).encode()
 
 
 DYNAMIC = DynamicRuntime()
+RUNTIMES = {}
+RUNTIME_LOCK = threading.Lock()
+
+
+def runtime_for(workspace_id=None, device_id=None):
+    lab = target_context(workspace_id, device_id)
+    if not lab.get('workspace_id'):
+        return DYNAMIC
+    key = (workspace_id, device_id)
+    with RUNTIME_LOCK:
+        if key not in RUNTIMES:
+            RUNTIMES[key] = DynamicRuntime(workspace_id, device_id, 29000 + lab['port'])
+        return RUNTIMES[key]
+
+
+def stop_device(device_id):
+    with RUNTIME_LOCK:
+        values = [value for (_, identifier), value in RUNTIMES.items() if identifier == device_id]
+    for value in values:
+        value.stop()
+
+
+def stop_workspace(workspace_id):
+    with RUNTIME_LOCK:
+        values = [value for (owner, _), value in RUNTIMES.items() if owner == workspace_id]
+    for value in values:
+        value.stop()
+
+
+def shutdown_companions():
+    with RUNTIME_LOCK:
+        values = list(RUNTIMES.values())
+    for value in values:
+        value.stop()

@@ -254,7 +254,7 @@ class AndroidWorker:
         )
         return {"ok": result.returncode == 0, "created": result.returncode == 0, "avd": self.avd_name, "error": result.stderr.strip()}
 
-    def status(self) -> Dict[str, object]:
+    def status(self, *, include_properties: bool = True) -> Dict[str, object]:
         if not self.sdk:
             return {"state": "unavailable", "serial": self.serial}
         try:
@@ -279,6 +279,8 @@ class AndroidWorker:
             if identity.returncode or observed != self.avd_name:
                 return {**payload, "state":"error", "ownership_verified":False, "reason":"O serial ADB pertence a outro AVD. Reconecte o laboratório selecionado."}
             payload["ownership_verified"] = True
+            if not include_properties:
+                return payload
             props = {}
             for key in ("ro.build.version.release", "ro.build.version.sdk", "ro.product.cpu.abi", "sys.boot_completed"):
                 try:
@@ -300,12 +302,27 @@ class AndroidWorker:
         finally:
             START_LOCK.release()
 
+    def emulator_options(self) -> tuple[str, ...]:
+        """Use desktop GPU acceleration without requiring a GPU in Linux Docker."""
+        default_gpu = 'host' if platform.system() in {'Darwin', 'Windows'} else 'auto'
+        gpu = os.environ.get('HUNTMOB_ANDROID_GPU', default_gpu)
+        memory = os.environ.get('HUNTMOB_ANDROID_MEMORY_MB', '4096' if self.root_mode == 'stock' else '3072')
+        if gpu not in {'auto', 'host', 'software', 'swiftshader', 'swangle', 'lavapipe'}:
+            raise ValueError('HUNTMOB_ANDROID_GPU inválido. Use auto, host ou software.')
+        if not memory.isascii() or not memory.isdecimal() or not 1024 <= int(memory) <= 16384:
+            raise ValueError('HUNTMOB_ANDROID_MEMORY_MB deve estar entre 1024 e 16384.')
+        return ('-gpu', gpu, '-memory', str(int(memory)))
+
     def _start(self, timeout: int) -> Dict[str, object]:
         existing = self.status()
         if existing["state"] == "device" and existing.get("properties", {}).get("sys.boot_completed") == "1":
             return {"ok": True, "started": False, **existing}
         if existing["state"] in {"error", "unauthorized"}:
             return {"ok": False, "blocked": True, "reason": existing.get("reason", "Device authorization is required")}
+        try:
+            performance = self.emulator_options()
+        except ValueError as error:
+            return {'ok': False, 'blocked': True, 'reason': str(error)}
         created = self.create()
         if not created["ok"]:
             return created
@@ -319,7 +336,7 @@ class AndroidWorker:
         camera = ('-camera-front', 'webcam0') if lab.get('id') == self.avd_name and lab.get('camera_front') == 'webcam0' else ()
         command = (
             str(self.sdk.emulator), f"@{self.avd_name}", *(("-writable-system",) if self.android_api == 30 else ()), "-no-window", "-no-audio",
-            "-no-boot-anim", "-port", self.port, "-no-snapshot-save", *camera,
+            "-no-boot-anim", "-port", self.port, "-no-snapshot-save", *performance, *camera,
         )
         # A device already visible to ADB may still be booting; never launch it twice.
         process = None
@@ -351,7 +368,7 @@ class AndroidWorker:
     def stop(self) -> Dict[str, object]:
         if not self.sdk:
             return {"ok": False, "reason": "Android SDK unavailable"}
-        status=self.status()
+        status=self.status(include_properties=False)
         if not status.get('attached') and status.get('state')=='offline':return {'ok':True,'state':'stopped'}
         if status.get('ownership_verified') is not True:return {'ok':False,'blocked':True,'reason':'Não foi possível confirmar o AVD selecionado; nenhum device foi desligado.'}
         result = _run((str(self.sdk.adb), "-s", self.serial, "emu", "kill"))
@@ -361,7 +378,7 @@ class AndroidWorker:
         # An immediate Resume would otherwise start a second process on that port.
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
-            detached = self.status().get('attached') is False
+            detached = self.status(include_properties=False).get('attached') is False
             try:
                 with socket.create_connection(('127.0.0.1', int(self.port)), timeout=0.25):
                     port_free = False
@@ -723,7 +740,7 @@ class AndroidWorker:
 
     def clear_proxy(self) -> Dict[str, object]:
         self.clear_local_app_capture()
-        if not self.sdk or self.status()["state"] != "device":
+        if not self.sdk or self.status(include_properties=False)["state"] != "device":
             return {"ok": False, "blocked": True, "reason": "device is not online"}
         result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "settings", "put", "global", "http_proxy", ":0"))
         return {"ok": result.returncode == 0, "device_proxy": ":0"}
@@ -797,12 +814,13 @@ class AndroidWorker:
         engine_status = engine.status()
         if not engine_status['ready']:
             return {"ok": False, "blocked": True, "reason": engine_status['reason']}
-        workspace = Path.home() / ".huntmob" / "workspaces" / self.avd_name / package_id
-        workspace.mkdir(parents=True, exist_ok=True)
+        from .reverse_workspace import prepare_workspace
+        workspace = prepare_workspace(package_id, self.avd_name)
         base_apk = workspace / "base.apk"
         pulled = _run((str(self.sdk.adb), "-s", self.serial, "pull", apk_paths[0], str(base_apk)), timeout=180)
         if pulled.returncode != 0 or not base_apk.is_file():
             return {"ok": False, "blocked": True, "reason": "APK pull failed"}
+        base_apk.chmod(0o600)
         # Each run has fresh output; earlier files must not hide a failed run.
         output = workspace / "jadx-runs" / uuid4().hex
         output.parent.mkdir(parents=True, exist_ok=True)

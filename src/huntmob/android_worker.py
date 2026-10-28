@@ -47,6 +47,26 @@ def _run(command: Sequence[str], timeout: int = 30, input_text: str | None = Non
     )
 
 
+# `adb devices` é consultado a cada tick de polling pelo status() do worker. Um
+# cache curto (TTL) evita refazer a listagem várias vezes dentro da mesma
+# janela. O cache é por worker (atributo de instância) — sem estado global,
+# para não vazar entre chamadas/testes. now/run/cache são injetáveis; run cai no
+# _run do módulo em call-time (respeita patch).
+_DEVICES_TTL = 0.4
+
+
+def _adb_devices(adb_path, *, now=time.monotonic, run=None, cache):
+    runner = run or _run
+    key = str(adb_path)
+    entry = cache.get(key)
+    moment = now()
+    if entry and entry[0] > moment:
+        return entry[1]
+    result = runner((adb_path, "devices"), timeout=5)
+    cache[key] = (moment + _DEVICES_TTL, result)
+    return result
+
+
 @dataclass(frozen=True)
 class AndroidSdk:
     root: Path
@@ -83,6 +103,7 @@ class AndroidWorker:
     def __init__(self, sdk: AndroidSdk | None = None, *, avd_name: str | None = None, root_mode: str | None = None, android_api: int | None = None, port: int | None = None) -> None:
         from .lab_sessions import current, LAB_NAME
         self.sdk = sdk or AndroidSdk.discover()
+        self._devices_cache: dict = {}
         if port is not None:
             if type(port) is not int or port < 5558 or port > 5680 or port % 2:
                 raise ValueError('Porta do emulador inválida')
@@ -258,7 +279,7 @@ class AndroidWorker:
         if not self.sdk:
             return {"state": "unavailable", "serial": self.serial}
         try:
-            result = _run((str(self.sdk.adb), "devices"), timeout=5)
+            result = _adb_devices(str(self.sdk.adb), cache=self._devices_cache)
         except (OSError, subprocess.TimeoutExpired):
             return {"state": "error", "serial": self.serial, "reason": "ADB did not respond; check the local worker"}
         if result.returncode != 0:
@@ -374,6 +395,9 @@ class AndroidWorker:
         result = _run((str(self.sdk.adb), "-s", self.serial, "emu", "kill"))
         if result.returncode:
             return {"ok": False, "state": "stopping", "error": result.stderr.strip()}
+        # O kill muda o estado que o cache de `adb devices` guardou; a
+        # verificação de detach abaixo precisa ler fresh.
+        self._devices_cache.clear()
         # ADB acknowledges `emu kill` before QEMU releases its console port.
         # An immediate Resume would otherwise start a second process on that port.
         deadline = time.monotonic() + 45

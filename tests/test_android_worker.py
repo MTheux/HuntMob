@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from huntmob.android_worker import AndroidSdk, AndroidWorker, _batch_wrap
+from huntmob.android_worker import AndroidSdk, AndroidWorker, _batch_wrap, _adb_devices
 
 
 class BatchWrapTests(unittest.TestCase):
@@ -349,3 +349,23 @@ class InstalledTargetTests(AndroidOwnershipTests):
         with patch('huntmob.lab_sessions.current',return_value={'id':'huntmob_api35_arm64','package_id':''}),patch.object(AndroidWorker,'status',return_value={'state':'device'}),patch('huntmob.android_worker._run',return_value=subprocess.CompletedProcess([],0,'','')),patch('huntmob.lab_sessions.save') as save:
             self.assertFalse(self.worker().select_target('com.lab.app')['ok'])
             save.assert_not_called()
+
+
+class AdbDevicesCacheTests(unittest.TestCase):
+    def test_adb_devices_cache_coalesces_within_ttl(self):
+        calls = []
+        clock = [100.0]
+        cache = {}
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "List of devices\n", "")
+
+        now = lambda: clock[0]
+        first = _adb_devices("/sdk/adb", now=now, run=fake_run, cache=cache)
+        second = _adb_devices("/sdk/adb", now=now, run=fake_run, cache=cache)
+        self.assertEqual(len(calls), 1)  # coalesced within TTL
+        self.assertIs(first, second)
+        clock[0] += 1.0  # past the 0.4s TTL
+        _adb_devices("/sdk/adb", now=now, run=fake_run, cache=cache)
+        self.assertEqual(len(calls), 2)

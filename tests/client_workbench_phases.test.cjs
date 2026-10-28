@@ -30,29 +30,70 @@ function classList(init){const s=new Set(init);return{add:x=>s.add(x),remove:x=>
 function makeDoc(hidden=[]){
  const tabs=['device-tools','files','reverse','dast','frida','proxy','evidence'];
  const phases=['engagement','estatico','dinamico','evidencias'].map(p=>({dataset:{phase:p},classList:classList(),setAttribute(){}}));
- const nav={},panel={};const extra={'#phaseEmpty':{hidden:false}};
- tabs.forEach(id=>{nav[id]={dataset:{tab:id},hidden:hidden.includes(id),disabled:false};panel[id]={id:'tab-'+id,classList:classList()};});
- return {phases,panel,extra,
-  querySelectorAll(sel){if(sel==='.phase-spine .phase')return phases;if(sel==='.tab-content')return tabs.map(id=>panel[id]);return[];},
+ const nav={},panel={};const router={hidden:true};const extra={'#phaseEmpty':{hidden:false},'.tool-router':router};
+ // Os botões da sub-nav são os mesmos nós consultados por [data-tab="id"]: um
+ // só objeto por aba, com classList/setAttribute para off-phase/active/aria.
+ tabs.forEach(id=>{nav[id]={dataset:{tab:id},hidden:hidden.includes(id),disabled:false,classList:classList(),aria:{},setAttribute(k,v){this.aria[k]=v;}};panel[id]={id:'tab-'+id,classList:classList()};});
+ return {phases,nav,panel,router,extra,
+  querySelectorAll(sel){if(sel==='.phase-spine .phase')return phases;if(sel==='.tab-content')return tabs.map(id=>panel[id]);if(sel==='.tool-router [data-tab]')return tabs.map(id=>nav[id]);return[];},
   querySelector(sel){let m;if((m=sel.match(/^\[data-tab="(.+)"\]$/)))return nav[m[1]]||null;if((m=sel.match(/^#tab-(.+)$/)))return panel[m[1]]||null;return extra[sel]||null;}};
 }
 function makeChipDoc(){const el=()=>({textContent:'',hidden:false,classList:classList()});const n={'#workbenchDeviceDot':el(),'#workbenchDeviceChip':el(),'#workbenchDeviceBadge':el()};return{n,querySelector:s=>n[s]||null};}
-test('revealPhase revela o conjunto de abas da fase e marca a fase ativa',()=>{
+
+test('revealPhase mostra só a aba ativa (default = primeira) e devolve {available,active}',()=>{
  const {revealPhase}=load();const doc=makeDoc();
- assert.deepEqual(revealPhase('dinamico',doc),['dast','frida','proxy']);
+ assert.deepEqual(revealPhase('dinamico',doc),{available:['dast','frida','proxy'],active:'dast'});
  assert.ok(doc.panel['dast'].classList.contains('active'));
- assert.ok(doc.panel['proxy'].classList.contains('active'));
- assert.ok(!doc.panel['device-tools'].classList.contains('active'));
+ assert.ok(!doc.panel['frida'].classList.contains('active'));
+ assert.ok(!doc.panel['proxy'].classList.contains('active'));
  assert.ok(doc.phases.find(p=>p.dataset.phase==='dinamico').classList.contains('active'));
 });
-test('revealPhase devolve [] quando todas as abas da fase estao indisponiveis',()=>{
+test('revealPhase marca a sub-aba ativa e esconde as abas fora da fase',()=>{
+ const {revealPhase}=load();const doc=makeDoc();
+ revealPhase('dinamico',doc);
+ // dast/frida/proxy pertencem à fase (não off-phase); device-tools não
+ assert.ok(!doc.nav['dast'].classList.contains('off-phase'));
+ assert.ok(!doc.nav['proxy'].classList.contains('off-phase'));
+ assert.ok(doc.nav['device-tools'].classList.contains('off-phase'));
+ assert.ok(doc.nav['reverse'].classList.contains('off-phase'));
+ // só a ativa recebe .active + aria-selected=true
+ assert.ok(doc.nav['dast'].classList.contains('active'));
+ assert.equal(doc.nav['dast'].aria['aria-selected'],'true');
+ assert.ok(!doc.nav['frida'].classList.contains('active'));
+ assert.equal(doc.nav['frida'].aria['aria-selected'],'false');
+});
+test('revealPhase respeita a aba pedida quando disponível',()=>{
+ const {revealPhase}=load();const doc=makeDoc();
+ assert.deepEqual(revealPhase('dinamico',doc,'proxy'),{available:['dast','frida','proxy'],active:'proxy'});
+ assert.ok(doc.panel['proxy'].classList.contains('active'));
+ assert.ok(!doc.panel['dast'].classList.contains('active'));
+ assert.ok(doc.nav['proxy'].classList.contains('active'));
+});
+test('aba pedida indisponível ou inválida cai na primeira disponível',()=>{
+ const {revealPhase}=load();
+ assert.equal(revealPhase('dinamico',makeDoc(),'inexistente').active,'dast');
+ assert.equal(revealPhase('dinamico',makeDoc(['dast']),'dast').active,'frida');
+});
+test('fase com uma só aba disponível esconde a sub-nav',()=>{
+ const {revealPhase}=load();const doc=makeDoc();
+ assert.deepEqual(revealPhase('estatico',doc),{available:['reverse'],active:'reverse'});
+ assert.equal(doc.router.hidden,true);
+});
+test('fase com duas ou mais abas mostra a sub-nav',()=>{
+ const {revealPhase}=load();const doc=makeDoc();
+ revealPhase('dinamico',doc);
+ assert.equal(doc.router.hidden,false);
+});
+test('fase sem abas disponíveis: active undefined, sub-nav escondida e aviso visível',()=>{
  const {revealPhase}=load();const doc=makeDoc(['reverse']);
- assert.deepEqual(revealPhase('estatico',doc),[]);
+ assert.deepEqual(revealPhase('estatico',doc),{available:[],active:undefined});
  assert.ok(!doc.panel['reverse'].classList.contains('active'));
+ assert.equal(doc.router.hidden,true);
+ assert.equal(doc.extra['#phaseEmpty'].hidden,false);
 });
 test('preferencia invalida restaura a fase engagement',()=>{
  const {revealPhase,phaseForTab}=load();const doc=makeDoc();
- assert.deepEqual(revealPhase(phaseForTab('xxx'),doc),['device-tools','files']);
+ assert.deepEqual(revealPhase(phaseForTab('xxx'),doc),{available:['device-tools','files'],active:'device-tools'});
 });
 test('revealPhase esconde o aviso de fase vazia quando ha abas, e o mostra quando nao ha',()=>{
  const {revealPhase}=load();

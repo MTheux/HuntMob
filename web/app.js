@@ -456,20 +456,21 @@ function notify(message) {
 // é delegado à fase dona da aba: uma taxonomia só.
 tabs.forEach((tab) => tab.addEventListener('click', () => {
   if (tab.hidden || tab.disabled) return;
-  activatePhase(phaseForTab(tab.dataset.tab));
+  activatePhase(phaseForTab(tab.dataset.tab), tab.dataset.tab);
 }));
 
-// A fase revela o conjunto de abas (#tab-*) que lhe pertence e dispara os
-// efeitos das abas dinâmicas sobre as que ficaram visíveis.
-function activatePhase(phase) {
+// A fase revela UMA sub-aba por vez (a pedida, senão a primeira disponível) e
+// dispara os efeitos da aba que ficou ativa. Entrar pela espinha (sem tab) cai
+// na primeira aba da fase; clicar numa sub-aba traz a sua.
+function activatePhase(phase, tab) {
   if (!tabsForPhase(phase).length) phase = 'engagement';
   setAnalysisOpen(true, true);
-  const revealed = revealPhase(phase, document);
+  const { active } = revealPhase(phase, document, tab);
   try { localStorage.setItem('huntmob.activePhase', phase); } catch {}
-  if (!revealed.includes('proxy')) setProxyFocus(false);
-  if (revealed.includes('dast') && devicePlatform === 'android') { loadNativeReport(); refreshDynamic().then(() => window.huntmobDastApps?.load()); refreshDeepDast(); }
-  if (revealed.includes('frida') && devicePlatform === 'android') refreshDynamic();
-  if (revealed.includes('proxy') && devicePlatform === 'android') { loadNetwork(); refreshProxyStatus(); }
+  if (active !== 'proxy') setProxyFocus(false);
+  if (active === 'dast' && devicePlatform === 'android') { loadNativeReport(); refreshDynamic().then(() => window.huntmobDastApps?.load()); refreshDeepDast(); }
+  if (active === 'frida' && devicePlatform === 'android') refreshDynamic();
+  if (active === 'proxy' && devicePlatform === 'android') { loadNetwork(); refreshProxyStatus(); }
   syncEngagementStepper();
 }
 document.querySelectorAll('.phase-spine .phase').forEach((button) => button.addEventListener('click', () => activatePhase(button.dataset.phase)));
@@ -2082,7 +2083,7 @@ document.querySelector('#quickScreenshot').addEventListener('click', async () =>
   }
 });
 document.querySelectorAll('[data-report-section]').forEach(button => button.addEventListener('click', () => { const target = document.getElementById(button.dataset.reportSection); if (target.closest('details')) target.closest('details').open = true; target.scrollIntoView({block:'nearest',behavior:'smooth'}); }));
-tabs.forEach((tab) => { tab.tabIndex = tab.classList.contains('active') ? 0 : -1; tab.addEventListener('keydown', event => { if (!['ArrowRight','ArrowLeft','ArrowUp','ArrowDown','Home','End'].includes(event.key)) return; event.preventDefault(); const available=[...tabs].filter(item=>!item.hidden&&!item.disabled);const index=available.indexOf(tab);const next=event.key==='Home'?0:event.key==='End'?available.length-1:(index+(['ArrowRight','ArrowDown'].includes(event.key)?1:-1)+available.length)%available.length;available[next]?.click();available[next]?.focus(); }); });
+tabs.forEach((tab) => { tab.tabIndex = tab.classList.contains('active') ? 0 : -1; tab.addEventListener('keydown', event => { if (!['ArrowRight','ArrowLeft','ArrowUp','ArrowDown','Home','End'].includes(event.key)) return; event.preventDefault(); const available=[...tabs].filter(item=>!item.hidden&&!item.disabled&&!item.classList.contains('off-phase'));const index=available.indexOf(tab);const next=event.key==='Home'?0:event.key==='End'?available.length-1:(index+(['ArrowRight','ArrowDown'].includes(event.key)?1:-1)+available.length)%available.length;available[next]?.click();available[next]?.focus(); }); });
 
 document.querySelector('#selectObservers').addEventListener('click', () => { scriptOptions.forEach(option => { option.checked = !option.disabled; }); refreshFridaSelection(); });
 document.querySelector('#clearObservers').addEventListener('click', () => { scriptOptions.forEach(option => { option.checked = false; }); refreshFridaSelection(); });

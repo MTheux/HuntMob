@@ -707,7 +707,22 @@ dialog{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 /* ===== Workbench redesign (runtime-107): espinha de fases + chip ===== */
 .analysis-panel:not([hidden]){display:flex;flex-direction:column;overflow-y:auto}
 .analysis-panel>.toolbox-head{position:sticky;top:0;z-index:3;flex:0 0 auto;height:auto;display:flex;flex-direction:column;align-items:stretch;gap:var(--space-4);padding:var(--space-5) var(--space-5) var(--space-4);background:var(--surface);border-bottom:1px solid var(--line)}
-.analysis-panel>.tool-router{display:none}
+/* Sub-abas por fase (runtime-108): .tool-router é a barra secundária da fase
+   ativa — horizontal, compacta, sob o cabeçalho. Vence o rail vertical legado
+   por ordem de fonte. Some quando a fase tem menos de duas abas (JS seta hidden)
+   e esconde as abas de fora da fase (.off-phase). */
+.analysis-panel>.tool-router{display:flex;flex:0 0 auto;flex-direction:row;align-items:stretch;gap:var(--space-2);margin:0;padding:var(--space-2) var(--space-5);background:var(--surface);border-right:0;border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap}
+.analysis-panel>.tool-router[hidden]{display:none}
+.analysis-panel>.tool-router .off-phase{display:none}
+.analysis-panel>.tool-router button{flex:0 0 auto;width:auto!important;min-width:0;min-height:36px!important;padding:6px 12px!important;border:1px solid transparent;border-radius:var(--radius-md);background:transparent;color:var(--quiet);display:flex;align-items:center;gap:8px;text-align:left;box-shadow:none!important}
+.analysis-panel>.tool-router button:hover:not(.active){background:var(--surface-2);color:var(--text)}
+.analysis-panel>.tool-router button.active{background:var(--red-dim);border-color:rgba(231,39,74,.35);color:var(--text)}
+.analysis-panel>.tool-router button.active:after{display:none}
+.analysis-panel>.tool-router svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.analysis-panel>.tool-router button.active svg{color:#fb7891}
+.analysis-panel>.tool-router .tool-tab-copy{display:flex;flex-direction:column;min-width:0;gap:0;padding:0;background:transparent;border-radius:0}
+.analysis-panel>.tool-router .tool-tab-copy .tab-label{font-size:12px;font-weight:600;line-height:1.2;white-space:nowrap}
+.analysis-panel>.tool-router .tool-tab-copy small{display:none}
 .analysis-panel>.tab-content{flex:0 0 auto}
 .analysis-panel>.tab-content.active{overflow:visible}
 .toolbox-head .toolbox-head-main{display:flex;align-items:flex-start;justify-content:space-between}

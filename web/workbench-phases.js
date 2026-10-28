@@ -23,29 +23,47 @@ function phaseForTab(tabId) {
   return 'engagement';
 }
 
-// Revela no DOM o conjunto de abas (#tab-<id>) da fase: marca a fase ativa na
-// espinha, mostra os painéis das abas disponíveis (ignora as com nav
-// hidden/disabled, ex.: iOS) e esconde os demais. Devolve os ids revelados —
-// vazio quando nenhuma aba da fase está disponível (o caller mostra o aviso).
-// doc é injetado para testar isolado.
-function revealPhase(phase, doc) {
+// Revela no DOM a fase: marca a fase ativa na espinha, apura as abas da fase
+// disponíveis neste perfil (ignora as com nav hidden/disabled, ex.: iOS) e
+// mostra UMA sub-aba por vez — a pedida (activeTab) quando disponível, senão a
+// primeira. A sub-nav (.tool-router) vira a barra secundária da fase: as abas
+// de fora recebem .off-phase, só a ativa recebe .active, e a barra some quando
+// a fase tem menos de duas abas. Devolve {available, active} — available vazio
+// e active undefined quando nenhuma aba está disponível (o caller mostra o
+// aviso). doc é injetado para testar isolado.
+function revealPhase(phase, doc, activeTab) {
   doc.querySelectorAll('.phase-spine .phase').forEach((b) => {
     const on = b.dataset.phase === phase;
     b.classList.toggle('active', on);
     b.setAttribute('aria-selected', String(on));
   });
-  doc.querySelectorAll('.tab-content').forEach((sec) => sec.classList.remove('active'));
-  const revealed = [];
+  const available = [];
   for (const id of tabsForPhase(phase)) {
     const nav = doc.querySelector(`[data-tab="${id}"]`);
     if (nav && (nav.hidden || nav.disabled)) continue;
-    const sec = doc.querySelector(`#tab-${id}`);
-    if (sec) { sec.classList.add('active'); revealed.push(id); }
+    available.push(id);
+  }
+  const active = available.includes(activeTab) ? activeTab : available[0];
+  // Sub-nav: só as abas da fase ficam visíveis; só a ativa fica marcada.
+  doc.querySelectorAll('.tool-router [data-tab]').forEach((btn) => {
+    const inPhase = available.includes(btn.dataset.tab);
+    btn.classList.toggle('off-phase', !inPhase);
+    const on = inPhase && btn.dataset.tab === active;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', String(on));
+  });
+  const router = doc.querySelector('.tool-router');
+  if (router) router.hidden = available.length < 2;
+  // Painéis: só o da aba ativa fica visível.
+  doc.querySelectorAll('.tab-content').forEach((sec) => sec.classList.remove('active'));
+  if (active) {
+    const sec = doc.querySelector(`#tab-${active}`);
+    if (sec) sec.classList.add('active');
   }
   // Aviso quando a fase não tem nenhuma aba disponível neste perfil (ex.: iOS).
   const empty = doc.querySelector('#phaseEmpty');
-  if (empty) empty.hidden = revealed.length > 0;
-  return revealed;
+  if (empty) empty.hidden = available.length > 0;
+  return { available, active };
 }
 
 // Reflete no chip do header o estado real do aparelho (rótulo, online/offline,

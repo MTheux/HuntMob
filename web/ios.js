@@ -393,7 +393,7 @@ function syncXtoolActions(){
 async function refreshXtool(){
   const output=document.querySelector('#xtoolStatus');output.textContent='Consultando o worker…';
   try{
-    const data=await fetch('/api/ios/xtool/status',{cache:'no-store'}).then(r=>r.json());
+    const data=await fetchJson('/api/ios/xtool/status',{cache:'no-store'});
     document.querySelector('#xtoolState').textContent=data.available ? 'Instalado'+(data.version?' · '+data.version:'') : 'Ausente';
     const select=document.querySelector('#xtoolDevice');select.replaceChildren(new Option('Selecione o dispositivo autorizado',''));
     (data.devices || []).forEach(d=>select.add(new Option(`${d.name} · ${d.udid}`,d.udid)));

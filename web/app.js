@@ -840,7 +840,7 @@ async function huntmobStartReaForPackage(selectedPackage, onStatus) {
   const status = typeof onStatus === 'function' ? onStatus : () => {};
   const labId = activeLab.id;
   status('Verificando REA no worker…');
-  const readiness = await fetch('/api/reverse/engines', {cache: 'no-store', signal: AbortSignal.timeout(10000)}).then(response => response.json());
+  const readiness = await fetchJson('/api/reverse/engines', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
   if (!readiness.rea_ready) throw new Error(readiness.rea_reason || 'REA indisponível neste worker.');
   if (labId !== activeLab.id) throw new Error('O laboratório selecionado mudou.');
   status('Validando app e preparando APK…');
@@ -1240,7 +1240,7 @@ document.querySelector('#openGhidra').addEventListener('click', () => notify('Se
 async function refreshProxyStatus() {
   const port = Number(document.querySelector('#proxyPort').value);
   try {
-    const payload = await fetch(`/api/proxy?port=${port}`, { cache: 'no-store' }).then((response) => response.json());
+    const payload = await fetchJson(`/api/proxy?port=${port}`, { cache: "no-store" });
     const connected = payload.configured && payload.listener;
     const active = connected && payload.native_listener && (!payload.direct_capture_required || payload.direct_capture);
     document.querySelector('#proxyStatus').textContent = payload.native_listener ? `Porta ${port} usada pelo HuntMob. Use outra porta com listener do Burp.` : payload.listener ? `Listener externo ativo · Android ${payload.configured ? 'roteado aqui' : payload.device_proxy_set ? `roteado a ${payload.device_proxy}` : 'sem rota'}` : `Nenhum listener em 127.0.0.1:${port}`;

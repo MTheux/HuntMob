@@ -82,6 +82,19 @@ class SaveHookTests(unittest.TestCase):
             self.assertEqual(len(seen), 1)
             self.assertEqual(seen[0]['id'], 'huntmob_a')
 
+    def test_save_writes_index_under_root_not_real_home(self):
+        from unittest.mock import patch
+        from huntmob import lab_sessions, history
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(lab_sessions, 'root', return_value=root):
+                lab_sessions.save(_lab('huntmob_z', 'ZCo', 'com.z'))
+                conn = history.connect()  # default deve derivar de root()
+                rows = history.search('ZCo', conn=conn)
+                conn.close()
+            self.assertEqual([r['lab_id'] for r in rows], ['huntmob_z'])
+            self.assertTrue((root / 'history.db').exists())
+
     def test_save_is_best_effort_when_index_fails(self):
         from unittest.mock import patch
         from huntmob import lab_sessions

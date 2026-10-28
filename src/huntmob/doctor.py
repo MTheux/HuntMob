@@ -9,7 +9,11 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
+
+_DISCOVER = object()  # sentinela: resolver o SDK via AndroidSdk.discover()
+_SDK_TOOLS = {'adb', 'emulator', 'sdkmanager'}
 
 
 @dataclass(frozen=True)
@@ -39,11 +43,28 @@ _TOOLS = (
 _VERSION_RE = re.compile(r'(\d+\.\d+(?:\.\d+)?)')
 
 
-def check_tools(which=shutil.which, run=subprocess.run):
-    """Status de cada ferramenta. Nunca lança — falhas viram found/version vazios."""
+def check_tools(which=shutil.which, run=subprocess.run, sdk=_DISCOVER):
+    """Status de cada ferramenta. Nunca lança — falhas viram found/version vazios.
+
+    adb/emulator/sdkmanager são resolvidos primeiro pelo SDK do HuntMob (que vive
+    nas SDK roots, não no PATH), com fallback para o PATH. sdk=None desliga essa
+    resolução (usado em teste); o default descobre via AndroidSdk.discover().
+    """
+    if sdk is _DISCOVER:
+        try:
+            from .android_worker import AndroidSdk
+            sdk = AndroidSdk.discover()
+        except Exception:
+            sdk = None
     statuses = []
     for name, args, required in _TOOLS:
-        path = which(name)
+        path = None
+        if name in _SDK_TOOLS and sdk is not None:
+            candidate = getattr(sdk, name, None)
+            if candidate and Path(candidate).exists():
+                path = str(candidate)
+        if not path:
+            path = which(name)
         if not path:
             statuses.append(ToolStatus(name, False, None, None, False, None, required))
             continue

@@ -12,7 +12,11 @@ from pathlib import Path
 
 
 def default_db_path() -> Path:
-    return Path.home() / '.huntmob' / 'history.db'
+    # Deriva de lab_sessions.root() para que o índice fique ao lado dos labs e,
+    # em testes que fazem patch de root(), seja redirecionado junto (sem tocar o
+    # ~/.huntmob real).
+    from . import lab_sessions
+    return lab_sessions.root() / 'history.db'
 
 
 _SCHEMA = (

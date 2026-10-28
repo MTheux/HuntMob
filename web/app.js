@@ -452,28 +452,26 @@ function notify(message) {
   notify.timer = window.setTimeout(() => toast.classList.remove('show'), 2600);
 }
 
-function syncActiveToolGroup(){
-  document.querySelectorAll('.analysis-tabs .tool-group-label').forEach((label) => label.classList.remove('tool-group-active'));
-  const active = document.querySelector('.analysis-tabs button.active');
-  if (!active) return;
-  let node = active.previousElementSibling;
-  while (node && !node.classList.contains('tool-group-label')) node = node.previousElementSibling;
-  if (node) node.classList.add('tool-group-active');
-}
+// Qualquer clique numa aba (do usuário ou programático via [data-tab].click())
+// é delegado à fase dona da aba: uma taxonomia só.
 tabs.forEach((tab) => tab.addEventListener('click', () => {
-  if(tab.hidden||tab.disabled)return;
-  if (tab.dataset.tab !== 'proxy') setProxyFocus(false);
-  tabs.forEach((item) => { item.classList.remove('active'); item.setAttribute('aria-selected', 'false'); item.tabIndex = -1; });
-  panels.forEach((panel) => panel.classList.remove('active'));
-  setAnalysisOpen(true, true);
-  try { localStorage.setItem('huntmob.activeTool',tab.dataset.tab); } catch {}
-  tab.classList.add('active'); tab.setAttribute('aria-selected','true'); tab.tabIndex = 0;
-  document.querySelector(`#tab-${tab.dataset.tab}`).classList.add('active');
-  syncActiveToolGroup();
-  if (tab.dataset.tab === 'dast' && devicePlatform === 'android') { loadNativeReport(); refreshDynamic().then(()=>window.huntmobDastApps?.load()); refreshDeepDast(); }
-  if (tab.dataset.tab === 'frida' && devicePlatform === 'android') refreshDynamic();
-  if (tab.dataset.tab === 'proxy' && devicePlatform === 'android') { loadNetwork(); refreshProxyStatus(); }
+  if (tab.hidden || tab.disabled) return;
+  activatePhase(phaseForTab(tab.dataset.tab));
 }));
+
+// A fase revela o conjunto de abas (#tab-*) que lhe pertence e dispara os
+// efeitos das abas dinâmicas sobre as que ficaram visíveis.
+function activatePhase(phase) {
+  setAnalysisOpen(true, true);
+  const revealed = revealPhase(phase, document);
+  try { localStorage.setItem('huntmob.activePhase', phase); } catch {}
+  if (!revealed.includes('proxy')) setProxyFocus(false);
+  if (revealed.includes('dast') && devicePlatform === 'android') { loadNativeReport(); refreshDynamic().then(() => window.huntmobDastApps?.load()); refreshDeepDast(); }
+  if (revealed.includes('frida') && devicePlatform === 'android') refreshDynamic();
+  if (revealed.includes('proxy') && devicePlatform === 'android') { loadNetwork(); refreshProxyStatus(); }
+  syncEngagementStepper();
+}
+document.querySelectorAll('.phase-spine .phase').forEach((button) => button.addEventListener('click', () => activatePhase(button.dataset.phase)));
 
 // Stepper global do engagement: reflete o estado real das fases do pentest
 // (engagement → estático → dinâmico → evidências) lendo sinais já rastreados.
@@ -483,19 +481,16 @@ function syncEngagementStepper() {
   const stepper = document.querySelector('#engagementStepper');
   if (!stepper) return;
   const evidence = Number.parseInt(document.querySelector('#evidenceCount')?.textContent, 10) || 0;
-  const done = { engagement: engagementBound, reverse: !!reverseAnalysis, dast: !!dastProgressReport, evidence: evidence > 0 };
-  const order = ['engagement', 'reverse', 'dast', 'evidence'];
+  const done = { engagement: engagementBound, estatico: !!reverseAnalysis, dinamico: !!dastProgressReport, evidencias: evidence > 0 };
+  const order = ['engagement', 'estatico', 'dinamico', 'evidencias'];
   const current = order.findIndex((phase) => !done[phase]);
   order.forEach((phase, index) => {
-    const li = stepper.querySelector(`li[data-phase="${phase}"]`);
-    if (!li) return;
-    li.dataset.state = done[phase] ? 'done' : index === current ? 'current' : 'pending';
+    const btn = stepper.querySelector(`.phase[data-phase="${phase}"]`);
+    if (!btn) return;
+    btn.dataset.state = done[phase] ? 'done' : index === current ? 'current' : 'pending';
+    btn.classList.toggle('done', done[phase]);
   });
 }
-document.querySelectorAll('#engagementStepper [data-step-tab]').forEach((button) => button.addEventListener('click', () => {
-  const target = document.querySelector(`[data-tab="${button.dataset.stepTab}"]`);
-  if (target && !target.hidden && !target.disabled) target.click();
-}));
 document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
   const view = button.dataset.view;
   document.querySelectorAll('[data-view]').forEach(item => item.classList.toggle('active', item === button));
@@ -2094,6 +2089,5 @@ document.querySelector('#clearObservers').addEventListener('click', () => { scri
 
 document.querySelector('#openAndroidCamera').addEventListener('click', async () => { dialog.close(); await applyDeviceControl({action:'camera'}); });
 
-try { const selected = localStorage.getItem('huntmob.activeTool'); const saved = [...tabs].find(item => item.dataset.tab === selected); if (saved) { const open = !analysisPanel.hidden; saved.click(); setAnalysisOpen(open); } } catch {}
-syncActiveToolGroup();
+try { const savedPhase = localStorage.getItem('huntmob.activePhase') || phaseForTab(localStorage.getItem('huntmob.activeTool')); const open = !analysisPanel.hidden; activatePhase(savedPhase); setAnalysisOpen(open); } catch {}
 syncEngagementStepper();

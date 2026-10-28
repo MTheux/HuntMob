@@ -23,7 +23,29 @@ function phaseForTab(tabId) {
   return 'engagement';
 }
 
+// Revela no DOM o conjunto de abas (#tab-<id>) da fase: marca a fase ativa na
+// espinha, mostra os painéis das abas disponíveis (ignora as com nav
+// hidden/disabled, ex.: iOS) e esconde os demais. Devolve os ids revelados —
+// vazio quando nenhuma aba da fase está disponível (o caller mostra o aviso).
+// doc é injetado para testar isolado.
+function revealPhase(phase, doc) {
+  doc.querySelectorAll('.phase-spine .phase').forEach((b) => {
+    const on = b.dataset.phase === phase;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  doc.querySelectorAll('.tab-content').forEach((sec) => sec.classList.remove('active'));
+  const revealed = [];
+  for (const id of tabsForPhase(phase)) {
+    const nav = doc.querySelector(`[data-tab="${id}"]`);
+    if (nav && (nav.hidden || nav.disabled)) continue;
+    const sec = doc.querySelector(`#tab-${id}`);
+    if (sec) { sec.classList.add('active'); revealed.push(id); }
+  }
+  return revealed;
+}
+
 // Dual CJS/browser: no navegador este bloco é ignorado (module é undefined) e
 // os nomes acima ficam visíveis a app.js pelo escopo léxico de script clássico;
 // sob Node, os testes fazem require deste arquivo.
-if (typeof module !== 'undefined') module.exports = { PHASE_TABS, tabsForPhase, phaseForTab };
+if (typeof module !== 'undefined') module.exports = { PHASE_TABS, tabsForPhase, phaseForTab, revealPhase };

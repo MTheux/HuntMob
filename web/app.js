@@ -125,7 +125,7 @@ setDeviceZoom(1);
 
 async function sessionFetch(route, options) {
   async function send() {
-    if(!csrfToken)csrfToken=(await fetch('/api/session',{cache:'no-store'}).then(r=>r.json())).csrf_token;
+    if(!csrfToken)csrfToken=await fetchSessionToken();
     return fetch(route,{...options,headers:{...options.headers,'X-HuntMob-CSRF':csrfToken}});
   }
   let response=await send();
@@ -143,10 +143,7 @@ async function authorizedPost(route, body) {
   if (devicePlatform === 'ios' && ['/api/reverse','/api/dynamic','/api/proxy','/api/network/send'].includes(route)) {
     throw new Error('Esta ação ainda não está integrada ao runtime iOS.');
   }
-  if (!csrfToken) {
-    const session = await fetch('/api/session', { cache: 'no-store' }).then((response) => response.json());
-    csrfToken = session.csrf_token;
-  }
+  if (!csrfToken) csrfToken = await fetchSessionToken();
   const response = await sessionFetch(route, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-HuntMob-CSRF': csrfToken },
@@ -1570,7 +1567,7 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
       const artifact = document.querySelector('#labArtifact').files[0];
       if (!artifact.name.toLowerCase().endsWith('.apk')) throw new Error('Envie um APK instalável. AAB precisa ser convertido antes.');
       errorBox.textContent = 'Enviando APK, preparando Android e abrindo o app…';
-      if (!csrfToken) csrfToken = (await fetch('/api/session').then(response => response.json())).csrf_token;
+      if (!csrfToken) csrfToken = await fetchSessionToken();
       const response = await sessionFetch('/api/device/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.android.package-archive', 'X-HuntMob-CSRF': csrfToken, 'X-HuntMob-Approved': 'true', 'X-HuntMob-New-Lab': 'true', 'X-HuntMob-Legacy-SDK': String(document.querySelector('#labLegacySdk').checked), 'X-HuntMob-Root-Mode': document.querySelector('#labRootMode').value, 'X-HuntMob-Android-API':document.querySelector('#labVersion').value },

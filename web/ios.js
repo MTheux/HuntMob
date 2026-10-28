@@ -33,6 +33,13 @@ function renderIosNativeReadiness(info) {
   }
 }
 async function loadIosRuntime(render=false) {
+  // iOS em implementação: não consulta o Simulator; apresenta estado fixo na lateral.
+  const setText=(id,text)=>{const el=document.querySelector(id);if(el)el.textContent=text;};
+  setText('#iosDeviceName','iOS');setText('#iosDeviceMeta','Em implementação — indisponível');
+  setText('#iosRowState','Em implementação');setText('#iosAvailability','Em implementação');
+  const dot=document.querySelector('#iosDeviceDot');if(dot){dot.className='offline-dot';dot.setAttribute('aria-label','Em implementação');}
+  const row=document.querySelector('#iosDevice');if(row){row.setAttribute('aria-disabled','true');row.classList.add('is-unimplemented');}
+  return;
   if(render)iosRenderPending=true;
   if (iosPollBusy) return;
   iosPollBusy=true;
@@ -89,6 +96,7 @@ async function loadIosRuntime(render=false) {
   finally {iosPollBusy=false;window.huntmobSidebar?.ios(iosInfo);}
 }
 async function switchDevicePlatform(platform) {
+  if(platform==='ios'){notify('iOS está em implementação — indisponível no momento.');return;}
   if(devicePlatform===platform)return;
   stopDeviceScreen();runtimeWasOnline=false;runtimeDevice=undefined;devicePlatform=platform;
   syncLabLifecycleButtons();
@@ -171,7 +179,7 @@ window.addEventListener('DOMContentLoaded',()=>{
     iosActionBusy=true;updateIosControls();
     document.querySelector('#iosActionStatus').textContent='Instalando build no Simulator…';
     try{
-      if(!csrfToken)csrfToken=(await fetch('/api/session').then(r=>r.json())).csrf_token;
+      if(!csrfToken)csrfToken=await fetchSessionToken();
       const response=await sessionFetch('/api/ios/upload',{method:'POST',headers:{'X-HuntMob-CSRF':csrfToken,'X-HuntMob-Approved':'true','Content-Type':'application/zip'},body:file});
       const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.reason||'Build não instalado.');
       document.querySelector('#iosActionStatus').textContent='App instalado e aberto no iOS Simulator.';await loadIosRuntime(true);
@@ -402,7 +410,7 @@ document.querySelector('#xtoolInstall').addEventListener('click',async()=>{
   if(file.size>512*1024*1024){output.textContent='IPA deve ter até 512 MB.';return;}
   xtoolBusy=true;syncXtoolActions();output.textContent='Validando IPA e instalando no dispositivo USB selecionado…';
   try{
-    if(!csrfToken)csrfToken=(await fetch('/api/session').then(r=>r.json())).csrf_token;
+    if(!csrfToken)csrfToken=await fetchSessionToken();
     const response=await sessionFetch('/api/ios/xtool/install',{method:'POST',headers:{'X-HuntMob-CSRF':csrfToken,'X-HuntMob-Approved':'true','X-HuntMob-Device':document.querySelector('#xtoolDevice').value,'Content-Type':'application/zip'},body:file});
     const result=await response.json();output.textContent=result.reason || 'Operação não concluída.';
   }catch(error){output.textContent='Instalação não confirmada. Confira o dispositivo antes de repetir.';}

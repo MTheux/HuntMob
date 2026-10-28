@@ -1,5 +1,8 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
-const source=fs.readFileSync('web/app.js','utf8');const helper=source.slice(source.indexOf('async function sessionFetch'),source.indexOf('async function authorizedPost'));
+const source=fs.readFileSync('web/app.js','utf8');const sessionFetchSlice=source.slice(source.indexOf('async function sessionFetch'),source.indexOf('async function authorizedPost'));
+// sessionFetch delega o bootstrap da sessão a fetchSessionToken (web/session.js),
+// então o contexto extraído precisa carregar esse helper junto.
+const helper=fs.readFileSync('web/session.js','utf8')+'\n'+sessionFetchSlice;
 function response(status,payload,type='application/json'){return {status,headers:{get:()=>type},clone(){return this},async json(){return payload}};}
 test('stale CSRF rejected before execution is renewed exactly once',async()=>{
  const sent=[];let changes=0;

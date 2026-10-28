@@ -140,7 +140,24 @@ def run_desktop() -> int:
                     worker.wait(timeout=5)
 
 
+def _preflight() -> None:
+    """Aviso não-fatal sobre ferramentas externas ausentes antes de subir."""
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        from huntmob import doctor
+        statuses = doctor.check_tools()
+        missing = [s.name for s in statuses if s.required and not s.found]
+        optional = [s.name for s in statuses if not s.required and not s.found]
+        if missing:
+            print(f"Preflight: ferramentas requeridas ausentes: {', '.join(missing)}", file=sys.stderr)
+        if optional:
+            print(f"Preflight: ferramentas opcionais ausentes: {', '.join(optional)}", file=sys.stderr)
+    except Exception:
+        pass
+
+
 def main() -> int:
+    _preflight()
     try:
         if platform.system() == "Linux":
             return subprocess.call(["sh", str(ROOT / "scripts" / "run-docker.sh")], cwd=ROOT)

@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     android.add_argument("action", choices=("status", "create", "start", "stop"))
     android.add_argument("--authorized", action="store_true")
     android.add_argument("--approve", action="store_true")
+    commands.add_parser("doctor", help="validate external tools (presence + version)")
     commands.add_parser("history", help="list indexed engagements")
     search_cmd = commands.add_parser("search", help="search labs by engagement or package")
     search_cmd.add_argument("query")
@@ -111,6 +112,11 @@ def main() -> int:
         result = bootstrap_android(install=args.install)
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if result.get("ok") else 2
+    if args.command == "doctor":
+        from . import doctor
+        statuses = doctor.check_tools()
+        print(doctor.format_table(statuses))
+        return doctor.exit_code(statuses)
     if args.command in ("history", "search"):
         from . import history
         conn = history.connect()

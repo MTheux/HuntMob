@@ -31,4 +31,4 @@ function openIosRuntimes(){document.querySelector('#iosRuntimesDialog').showModa
 for(const id of ['manageLabIosVersions','manageWorkspaceIosVersions'])document.querySelector('#'+id).addEventListener('click',openIosRuntimes);
 document.querySelector('#refreshIosRuntimes').addEventListener('click',refreshIosRuntimes);
 document.querySelector('#iosRuntimesSearch').addEventListener('input',renderIosRuntimeCatalog);
-window.setInterval(()=>{if(document.querySelector('#iosRuntimesDialog').open)refreshIosRuntimes();},5000);
+everyVisible(()=>{if(document.querySelector('#iosRuntimesDialog').open)refreshIosRuntimes();},5000);

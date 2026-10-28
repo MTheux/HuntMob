@@ -923,7 +923,7 @@ function updateDastProgress(data){
   bar.firstElementChild.style.width=view.indeterminate?'35%':(view.value??0)+'%';
   panel.querySelectorAll('[data-step]').forEach((step,i)=>{step.dataset.state=view.steps[i];if(view.steps[i]==='current')step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');});
 }
-window.setInterval(()=>{if(document.querySelector('#tab-dast').classList.contains('active'))updateDastProgress();},1000);
+everyVisible(()=>{if(document.querySelector('#tab-dast').classList.contains('active'))updateDastProgress();},1000);
 function clearDastView(){
   dynamicSessionLab='';dynamicSessionActive=false;nativeReportJob='';dynamicError='';dastConnection={};
   dastProgressData={};dastProgressReport=dastProgressOperation=undefined;dastProgressError='';updateDastProgress();
@@ -1227,7 +1227,15 @@ document.querySelector('#deepAnalyzeDast').addEventListener('click',()=>deepDast
 document.querySelector('#prepareDeepRea').addEventListener('click',()=>deepDastAction('prepare-rea'));
 document.querySelector('#deepEngagementForm').addEventListener('submit',event=>{event.preventDefault();void deepDastAction('set-engagement',{engagement:document.querySelector('#deepEngagement').value.trim()});});
 refreshDeepDast();
-window.setInterval(() => { if (document.querySelector('#tab-dast').classList.contains('active') || document.querySelector('#tab-frida').classList.contains('active')) { refreshDynamic(); if (document.querySelector('#tab-dast').classList.contains('active')) refreshDeepDast(); } }, 2000);
+// Ticker único do dinâmico (consolida dast/frida e proxy): um só timer que
+// despacha pela aba ativa, pausado em background por everyVisible.
+everyVisible(() => {
+  const dast = document.querySelector('#tab-dast').classList.contains('active');
+  const frida = document.querySelector('#tab-frida').classList.contains('active');
+  const proxy = document.querySelector('#tab-proxy').classList.contains('active');
+  if (dast || frida) { refreshDynamic(); if (dast) refreshDeepDast(); }
+  if (proxy) { loadNetwork(); refreshProxyStatus(); }
+}, 2000);
 document.querySelector('#openGhidra').addEventListener('click', () => notify('Selecione uma biblioteca nativa .so antes de abrir no Ghidra'));
 
 async function refreshProxyStatus() {
@@ -1455,7 +1463,7 @@ document.querySelector('#sendRequest').addEventListener('click', async () => {
   }
   finally { replayBusy = false; button.disabled = !networkSelection; }
 });
-window.setInterval(() => { if (document.querySelector('#tab-proxy').classList.contains('active')) { loadNetwork(); refreshProxyStatus(); } }, 2000);
+// (proxy consolidado no ticker único do dinâmico acima)
 loadNetwork();
 const createLabButton = document.querySelector('#createLab');
 const labError = document.querySelector('#labError');
@@ -1649,7 +1657,7 @@ document.querySelector('#powerOffDevice').addEventListener('click', () => finish
 document.querySelector('#destroyDevice').addEventListener('click', () => finishLabShutdown('discard-lab'));
 loadRuntime();
 refreshProxyStatus();
-window.setInterval(loadRuntime, 2500);
+everyVisible(loadRuntime, 2500);
 
 const interactiveScreens = [document.querySelector('#deviceScreen'),document.querySelector('#deviceVideo')];
 const keyboardScope=()=>devicePlatform+':'+(devicePlatform==='ios'?iosInfo?.lab?.udid:activeLab.id)+':'+screenGeneration;

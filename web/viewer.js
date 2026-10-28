@@ -23,7 +23,7 @@ if(viewerParameters.get('viewer')==='1'){
  const expected=viewerParameters.get('device');
  if(expected){
   let blocked=false;
-  setInterval(async()=>{
+  everyVisible(async()=>{
    if(blocked)return;
    try{const info=await fetch('/api/ios/status',{cache:'no-store'}).then(r=>r.json());if(info.lab?.udid!==expected){blocked=true;stopDeviceScreen();const overlay=document.createElement('dialog');overlay.innerHTML='<form method="dialog"><h2>O dispositivo selecionado mudou</h2><p>Reabra a janela a partir do lab desejado.</p></form>';document.body.append(overlay);overlay.addEventListener('cancel',e=>e.preventDefault());overlay.showModal();}}catch{}
   },2000);

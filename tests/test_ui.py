@@ -50,7 +50,7 @@ class UiServerTests(unittest.TestCase):
         javascript = (web_root() / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="runtimeEmpty"', html)
         self.assertIn("runtimeDevice').hidden = true", javascript)
-        self.assertIn("window.setInterval(loadRuntime, 2500)", javascript)
+        self.assertIn("everyVisible(loadRuntime, 2500)", javascript)
         self.assertIn("O lab atual será preservado", javascript)
 
     def test_loopback_is_allowed(self):

@@ -146,7 +146,7 @@ document.querySelector('#connectWorkspaceAgent').addEventListener('click',async(
   catch(error){notify(error.message);}
 });
 document.querySelector('#copyWorkspaceAgent').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(workspaceAgentConfig);document.querySelector('#workspaceAgentStatus').textContent='Configuração copiada.';}catch{document.querySelector('#workspaceAgentStatus').textContent='Selecione e copie a configuração acima.';}});
-window.setInterval(loadWorkspaceDevices,5000);window.setInterval(syncWorkspaceButtons,1000);loadWorkspaceDevices();
+everyVisible(loadWorkspaceDevices,5000);everyVisible(syncWorkspaceButtons,1000);loadWorkspaceDevices();
 
 // Pair controls use stable workspace/device identities and background job progress.
 (() => {

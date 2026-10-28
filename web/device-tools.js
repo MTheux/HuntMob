@@ -69,5 +69,5 @@
   async function touch(other){if(bioScope!==id())throw new Error('O aparelho selecionado mudou. Abra Biometria novamente.');const finger=other?65535:Number(document.querySelector('#biometricFingerId').value);if(!Number.isInteger(finger)||finger<1||finger>65535)return notify('Informe um ID de 1 a 65534.');const data=await control({action:'biometric-touch',finger_id:finger});document.querySelector('#biometricStatus').textContent=data.message;return data;}
   for(const b of document.querySelectorAll('[data-biometric]'))b.addEventListener('click',async()=>{if(bioBusy)return;bioBusy=true;b.disabled=true;try{await touch(b.dataset.biometric==='unrecognized');}catch(error){document.querySelector('#biometricStatus').textContent=error.message;}finally{bioBusy=false;}});
   document.querySelector('#automaticBiometric').addEventListener('change',()=>{autoCount=0;});document.querySelector('#fixtureDialog').addEventListener('close',()=>{document.querySelector('#automaticBiometric').checked=false;autoCount=0;bioScope=undefined;});
-  window.huntmobBiometrics={refresh};setInterval(refresh,1500);setInterval(capabilities,1500);setInterval(refreshRoot,15000);sync();refreshRoot();
+  window.huntmobBiometrics={refresh};everyVisible(refresh,1500);everyVisible(capabilities,1500);everyVisible(refreshRoot,15000);sync();refreshRoot();
 })();

@@ -381,7 +381,7 @@ document.querySelectorAll('[data-ios-proxy]').forEach(button=>button.addEventLis
   finally{button.disabled=false;}
 }));
 document.querySelector('#iosProxyRefresh').addEventListener('click',refreshIosProxy);
-window.setInterval(()=>{if(devicePlatform==='ios' && document.querySelector('#tab-proxy').classList.contains('active'))refreshIosProxy();},2000);
+everyVisible(()=>{if(devicePlatform==='ios' && document.querySelector('#tab-proxy').classList.contains('active'))refreshIosProxy();},2000);
 
 let xtoolBusy=false;
 function syncXtoolActions(){

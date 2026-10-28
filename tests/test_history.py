@@ -70,5 +70,30 @@ class HistoryIndexTests(unittest.TestCase):
             conn.close()
 
 
+class SaveHookTests(unittest.TestCase):
+    def test_save_feeds_history_index(self):
+        from unittest.mock import patch
+        from huntmob import lab_sessions
+        with tempfile.TemporaryDirectory() as tmp:
+            seen = []
+            with patch.object(lab_sessions, 'root', return_value=Path(tmp)), \
+                 patch('huntmob.history.record_lab', side_effect=lambda rec: seen.append(rec)):
+                lab_sessions.save(_lab('huntmob_a', 'AcmeApp', 'com.acme'))
+            self.assertEqual(len(seen), 1)
+            self.assertEqual(seen[0]['id'], 'huntmob_a')
+
+    def test_save_is_best_effort_when_index_fails(self):
+        from unittest.mock import patch
+        from huntmob import lab_sessions
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def boom(_rec):
+                raise RuntimeError('índice indisponível')
+            with patch.object(lab_sessions, 'root', return_value=root), \
+                 patch('huntmob.history.record_lab', side_effect=boom):
+                lab_sessions.save(_lab('huntmob_a', 'AcmeApp', 'com.acme'))  # não pode propagar
+            self.assertTrue((root / 'huntmob_a.json').is_file())  # lab salvo mesmo assim
+
+
 if __name__ == '__main__':
     unittest.main()

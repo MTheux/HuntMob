@@ -42,6 +42,12 @@ def save(record):
         with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as output:
             json.dump(record, output)
         temp.replace(folder / name)
+    # Índice de histórico é best-effort: nunca pode quebrar o save do lab.
+    try:
+        from . import history
+        history.record_lab(record)
+    except Exception:
+        pass
 
 
 def is_saved(record):

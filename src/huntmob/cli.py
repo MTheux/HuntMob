@@ -50,6 +50,9 @@ def build_parser() -> argparse.ArgumentParser:
     android.add_argument("action", choices=("status", "create", "start", "stop"))
     android.add_argument("--authorized", action="store_true")
     android.add_argument("--approve", action="store_true")
+    commands.add_parser("history", help="list indexed engagements")
+    search_cmd = commands.add_parser("search", help="search labs by engagement or package")
+    search_cmd.add_argument("query")
     bootstrap = commands.add_parser("bootstrap", help="prepare a platform-appropriate HuntMob worker")
     bootstrap.add_argument("--install", action="store_true", help="install missing Android runtime packages when SDK tools already exist")
     return parser
@@ -108,6 +111,15 @@ def main() -> int:
         result = bootstrap_android(install=args.install)
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if result.get("ok") else 2
+    if args.command in ("history", "search"):
+        from . import history
+        conn = history.connect()
+        try:
+            rows = history.search(args.query, conn=conn) if args.command == "search" else history.list_engagements(conn=conn)
+        finally:
+            conn.close()
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return 0
     return 2
 
 

@@ -34,3 +34,20 @@ test('fetchSessionToken reaproveita fetchJson e devolve o csrf_token',async()=>{
  const ctx=load(async()=>res(200,{csrf_token:'abc'}));
  assert.equal(await ctx.fetchSessionToken(),'abc');
 });
+
+test('fetchJsonOk devolve o corpo quando response.ok',async()=>{
+ const ctx=load(async()=>({status:200,ok:true,headers:{get:()=>'application/json'},async json(){return {ok:true,v:7}}}));
+ assert.deepEqual(await ctx.fetchJsonOk('/api/x',undefined,'X'),{ok:true,v:7});
+});
+test('fetchJsonOk lança body.reason em 400 com corpo JSON',async()=>{
+ const ctx=load(async()=>({status:400,ok:false,headers:{get:()=>'application/json'},async json(){return {reason:'ação recusada'}}}));
+ await assert.rejects(()=>ctx.fetchJsonOk('/api/x',undefined,'X'),/ação recusada/);
+});
+test('fetchJsonOk lança mensagem acionável em 502 HTML (worker não pareado)',async()=>{
+ const ctx=load(async()=>({status:502,ok:false,headers:{get:()=>'text/html'},async json(){return {}}}));
+ await assert.rejects(()=>ctx.fetchJsonOk('/api/x',undefined,'X'),/make native/);
+});
+test('fetchJsonOk usa label+status quando não há reason',async()=>{
+ const ctx=load(async()=>({status:503,ok:false,headers:{get:()=>'application/json'},async json(){return {}}}));
+ await assert.rejects(()=>ctx.fetchJsonOk('/api/x',undefined,'runtime'),/runtime 503/);
+});

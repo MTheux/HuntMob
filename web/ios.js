@@ -311,7 +311,7 @@ async function updateLabPlatform() {
     return;
   }
   try {
-    const response=await fetch('/api/ios/catalog',{cache:'no-store'});const result=await response.json();
+    const result=await fetchJson('/api/ios/catalog',{cache:'no-store'});
     if(generation!==labCatalogGeneration)return;
     if(!result.ok || !result.runtimes.length)throw new Error(result.reason || 'Nenhuma versão iOS disponível neste worker.');
     iosLabCatalog=result;
@@ -369,7 +369,7 @@ document.querySelector('#iosFridaInspect').addEventListener('click',async()=>{
 async function refreshIosProxy() {
   if(devicePlatform!=='ios')return;
   try {
-    const response=await fetch('/api/ios/proxy/status',{cache:'no-store'});const data=await response.json();
+    const data=await fetchJson('/api/ios/proxy/status',{cache:'no-store'});
     document.querySelector('#iosProxyState').textContent=data.active?'Listener ativo':'Parado';
     document.querySelector('#iosProxyFlows').textContent=data.flows?.map(flow=>`${flow.method} ${flow.host}${flow.path} · ${flow.status ?? flow.state}`).join('\n') || 'Nenhuma requisição capturada.';
   } catch(error){document.querySelector('#iosProxyState').textContent='Indisponível';}

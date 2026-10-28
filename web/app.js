@@ -671,9 +671,7 @@ async function loadAppFiles() {
   document.querySelector('#filesPackage').textContent = selectedPackage;
   document.querySelector('#sandboxRoot').textContent = `/data/user/0/${selectedPackage} · alias /data/data/${selectedPackage}`;
   try {
-    const response = await fetch(`/api/device/files?package=${encodeURIComponent(selectedPackage)}`, { cache: 'no-store' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.reason || `files API ${response.status}`);
+    const payload = await fetchJsonOk(`/api/device/files?package=${encodeURIComponent(selectedPackage)}`, { cache: 'no-store' }, 'files API');
     renderFileList(document.querySelector('#apkFiles'), payload.apk.entries, 'APK sem entradas legíveis.');
     renderFileList(document.querySelector('#sandboxFiles'), payload.sandbox.entries, payload.sandbox.reason || 'Sandbox vazio.');
     notify(`${payload.apk.entries.length} entradas do APK · ${payload.sandbox.entries.length} caminhos no sandbox`);
@@ -720,9 +718,7 @@ async function loadInstalledApps() {
   const target = document.querySelector('#installedApps');
   target.innerHTML = '<p>Consultando device…</p>';
   try {
-    const response = await fetch('/api/device/apps', { cache: 'no-store' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.reason || `apps API ${response.status}`);
+    const payload = await fetchJsonOk('/api/device/apps', { cache: 'no-store' }, 'apps API');
     if (reverseAnalysis?.package_id === currentSelectedPackage) { renderReverseTree(reverseAnalysis); return payload.apps; }
     target.replaceChildren();
     if (!payload.apps.length) {
@@ -815,9 +811,7 @@ async function refreshQuickReaApps() {
   const labId = activeLab.id;
   quickReaStatus.textContent = 'Consultando apps instalados…';
   try {
-    const response = await fetch('/api/device/apps', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.reason || 'Não foi possível listar os apps.');
+    const data = await fetchJsonOk('/api/device/apps', {cache: 'no-store', signal: AbortSignal.timeout(10000)}, 'Não foi possível listar os apps.');
     if (labId !== activeLab.id || !quickReaAllowed()) return;
     const apps = [...new Set((data.apps || []).map(app => app.package_id).filter(validPackage))];
     quickReaPackage.replaceChildren(new Option('Escolha um APK instalado', ''));
@@ -1027,9 +1021,8 @@ const dastAppPicker=window.huntmobDastTarget.create({
     available:!!dastTarget().available,
     checking:dynamicSessionLab!==dastTarget().id,busy:dynamicBusy||targetBindingBusy||dynamicSessionLab!==dastTarget().id,active:dynamicSessionLab===dastTarget().id&&dynamicSessionActive}),
   list:async()=>{
-    const response=await fetch('/api/dynamic/apps'+dastQuery(),{cache:'no-store',signal:AbortSignal.timeout(10000)});
-    const data=await response.json();
-    if(!response.ok||!data.ok||!Array.isArray(data.apps))throw new Error(data.reason||'Não foi possível listar os apps. Clique em Atualizar apps para tentar novamente.');
+    const data=await fetchJson('/api/dynamic/apps'+dastQuery(),{cache:'no-store',signal:AbortSignal.timeout(10000)});
+    if(!data.ok||!Array.isArray(data.apps))throw new Error(data.reason||'Não foi possível listar os apps. Clique em Atualizar apps para tentar novamente.');
     return data.apps.map(app=>app.package_id);
   },
   bind:async selected=>{

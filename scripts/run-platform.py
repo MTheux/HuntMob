@@ -103,6 +103,8 @@ def run_desktop() -> int:
             os.pathsep + environment["PYTHONPATH"] if environment.get("PYTHONPATH") else ""
         )
         environment["HUNTMOB_WORKER_SECRET_FILE"] = str(secret_path)
+        from huntmob.web_assets import web_revision
+        environment["HUNTMOB_WEB_REV"] = web_revision(ROOT / "web")
         command = [sys.executable, "-m", "huntmob.cli", "ui", "--bind", "127.0.0.1",
                    "--port", "8092", "--worker-secret-file", str(secret_path), "--public-port", "8090"]
         started = False

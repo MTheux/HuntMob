@@ -1,6 +1,12 @@
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
+# Invalida o layer COPY web quando o conteúdo de web/ muda (run-platform.py
+# passa HUNTMOB_WEB_REV = web_revision(web/)). O ARG sozinho não busta o COPY
+# (buildx só invalida layers que USAM o arg); o RUN que referencia o arg quebra
+# a cadeia de cache, forçando o COPY seguinte a recopiar o web/ fresco.
+ARG HUNTMOB_WEB_REV=dev
+RUN echo "$HUNTMOB_WEB_REV" > /app/.web-rev
 COPY web ./web
 COPY deploy/control-gateway.py ./control-gateway.py
 COPY src/huntmob/operator_auth.py ./operator_auth.py

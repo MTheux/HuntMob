@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.control
+      args:
+        HUNTMOB_WEB_REV: ${HUNTMOB_WEB_REV:-dev}
     image: huntmob-control:local
     init: true
     ports:

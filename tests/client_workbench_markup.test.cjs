@@ -18,3 +18,10 @@ test('os contratos de DOM que o JS depende continuam presentes',()=>{
  for(const id of ['analysisPanel','analysisToggle','analysisChevron','analysisToggleLabel','evidenceCount']) assert.match(h,new RegExp(`id="${id}"`));
  for(const tab of ['device-tools','files','reverse','dast','frida','proxy','evidence']) assert.match(h,new RegExp(`data-tab="${tab}"`));
 });
+test('o contador de evidencias existe exatamente uma vez',()=>{
+ const matches=html().match(/id="evidenceCount"/g)||[];
+ assert.equal(matches.length,1);
+});
+test('o icone solto de evidencias saiu do header do topo',()=>{
+ assert.doesNotMatch(html(),/aria-label="Abrir evidências"/);
+});

@@ -1809,7 +1809,6 @@ async function downloadEvidenceJpeg(record) {
     URL.revokeObjectURL(sourceUrl);
   }
 }
-document.querySelector('.top-actions .icon-button').addEventListener('click', () => document.querySelector('[data-tab="evidence"]').click());
 loadEvidence();
 
 

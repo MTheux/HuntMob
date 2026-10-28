@@ -42,10 +42,27 @@ function revealPhase(phase, doc) {
     const sec = doc.querySelector(`#tab-${id}`);
     if (sec) { sec.classList.add('active'); revealed.push(id); }
   }
+  // Aviso quando a fase não tem nenhuma aba disponível neste perfil (ex.: iOS).
+  const empty = doc.querySelector('#phaseEmpty');
+  if (empty) empty.hidden = revealed.length > 0;
   return revealed;
+}
+
+// Reflete no chip do header o estado real do aparelho (rótulo, online/offline,
+// perfil). doc injetável. Evita o sinal fixo e enganoso do placeholder.
+function updateWorkbenchChip(state, doc) {
+  const dot = doc.querySelector('#workbenchDeviceDot');
+  const label = doc.querySelector('#workbenchDeviceChip');
+  const badge = doc.querySelector('#workbenchDeviceBadge');
+  if (label) label.textContent = state.label || 'Aparelho';
+  if (dot) { dot.classList.toggle('on', !!state.online); dot.classList.toggle('off', !state.online); }
+  if (badge) {
+    if (state.profile) { badge.textContent = state.profile; badge.hidden = false; }
+    else badge.hidden = true;
+  }
 }
 
 // Dual CJS/browser: no navegador este bloco é ignorado (module é undefined) e
 // os nomes acima ficam visíveis a app.js pelo escopo léxico de script clássico;
 // sob Node, os testes fazem require deste arquivo.
-if (typeof module !== 'undefined') module.exports = { PHASE_TABS, tabsForPhase, phaseForTab, revealPhase };
+if (typeof module !== 'undefined') module.exports = { PHASE_TABS, tabsForPhase, phaseForTab, revealPhase, updateWorkbenchChip };

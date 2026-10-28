@@ -30,12 +30,13 @@ function classList(init){const s=new Set(init);return{add:x=>s.add(x),remove:x=>
 function makeDoc(hidden=[]){
  const tabs=['device-tools','files','reverse','dast','frida','proxy','evidence'];
  const phases=['engagement','estatico','dinamico','evidencias'].map(p=>({dataset:{phase:p},classList:classList(),setAttribute(){}}));
- const nav={},panel={};
+ const nav={},panel={};const extra={'#phaseEmpty':{hidden:false}};
  tabs.forEach(id=>{nav[id]={dataset:{tab:id},hidden:hidden.includes(id),disabled:false};panel[id]={id:'tab-'+id,classList:classList()};});
- return {phases,panel,
+ return {phases,panel,extra,
   querySelectorAll(sel){if(sel==='.phase-spine .phase')return phases;if(sel==='.tab-content')return tabs.map(id=>panel[id]);return[];},
-  querySelector(sel){let m;if((m=sel.match(/^\[data-tab="(.+)"\]$/)))return nav[m[1]]||null;if((m=sel.match(/^#tab-(.+)$/)))return panel[m[1]]||null;return null;}};
+  querySelector(sel){let m;if((m=sel.match(/^\[data-tab="(.+)"\]$/)))return nav[m[1]]||null;if((m=sel.match(/^#tab-(.+)$/)))return panel[m[1]]||null;return extra[sel]||null;}};
 }
+function makeChipDoc(){const el=()=>({textContent:'',hidden:false,classList:classList()});const n={'#workbenchDeviceDot':el(),'#workbenchDeviceChip':el(),'#workbenchDeviceBadge':el()};return{n,querySelector:s=>n[s]||null};}
 test('revealPhase revela o conjunto de abas da fase e marca a fase ativa',()=>{
  const {revealPhase}=load();const doc=makeDoc();
  assert.deepEqual(revealPhase('dinamico',doc),['dast','frida','proxy']);
@@ -52,4 +53,27 @@ test('revealPhase devolve [] quando todas as abas da fase estao indisponiveis',(
 test('preferencia invalida restaura a fase engagement',()=>{
  const {revealPhase,phaseForTab}=load();const doc=makeDoc();
  assert.deepEqual(revealPhase(phaseForTab('xxx'),doc),['device-tools','files']);
+});
+test('revealPhase esconde o aviso de fase vazia quando ha abas, e o mostra quando nao ha',()=>{
+ const {revealPhase}=load();
+ const doc=makeDoc();revealPhase('dinamico',doc);
+ assert.equal(doc.extra['#phaseEmpty'].hidden,true);
+ const docEmpty=makeDoc(['reverse']);revealPhase('estatico',docEmpty);
+ assert.equal(docEmpty.extra['#phaseEmpty'].hidden,false);
+});
+test('updateWorkbenchChip reflete rotulo, online e perfil reais',()=>{
+ const {updateWorkbenchChip}=load();const doc=makeChipDoc();
+ updateWorkbenchChip({label:'Principal · emulator-5556 · Online',online:true,profile:'Google Play · sem root'},doc);
+ assert.equal(doc.n['#workbenchDeviceChip'].textContent,'Principal · emulator-5556 · Online');
+ assert.ok(doc.n['#workbenchDeviceDot'].classList.contains('on'));
+ assert.ok(!doc.n['#workbenchDeviceDot'].classList.contains('off'));
+ assert.equal(doc.n['#workbenchDeviceBadge'].hidden,false);
+ assert.equal(doc.n['#workbenchDeviceBadge'].textContent,'Google Play · sem root');
+});
+test('updateWorkbenchChip marca offline e esconde badge sem perfil',()=>{
+ const {updateWorkbenchChip}=load();const doc=makeChipDoc();
+ updateWorkbenchChip({label:'Principal · — · Desligado',online:false,profile:null},doc);
+ assert.ok(doc.n['#workbenchDeviceDot'].classList.contains('off'));
+ assert.ok(!doc.n['#workbenchDeviceDot'].classList.contains('on'));
+ assert.equal(doc.n['#workbenchDeviceBadge'].hidden,true);
 });

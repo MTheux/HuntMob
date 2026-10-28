@@ -462,6 +462,7 @@ tabs.forEach((tab) => tab.addEventListener('click', () => {
 // A fase revela o conjunto de abas (#tab-*) que lhe pertence e dispara os
 // efeitos das abas dinâmicas sobre as que ficaram visíveis.
 function activatePhase(phase) {
+  if (!tabsForPhase(phase).length) phase = 'engagement';
   setAnalysisOpen(true, true);
   const revealed = revealPhase(phase, document);
   try { localStorage.setItem('huntmob.activePhase', phase); } catch {}

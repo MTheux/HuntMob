@@ -277,8 +277,13 @@
             <label class="script-option"><input type="checkbox" value="crypto-observe"><span class="script-code">CRYPTO</span><span><strong>Crypto API monitor</strong><small>Algoritmos e chamadas; sem coletar chaves ou buffers</small></span><i>MED</i></label>
             <label class="script-option"><input type="checkbox" value="file-observe"><span class="script-code">FILE</span><span><strong>Application file I/O</strong><small>Chamadas de I/O; sem paths ou conteúdo de arquivos</small></span><i>LOW</i></label>
           </div>
-          <details class="unavailable-scripts"><summary>Recursos adicionais · indisponíveis neste worker</summary>            <label class="script-option high"><input type="checkbox" value="tls-lab-override" disabled><span class="script-code">TLS+</span><span><strong>TLS trust override</strong><small>Não disponível neste worker de observação</small></span><i>HIGH</i></label>
+          <details class="unavailable-scripts"><summary>Bypass ativo · lab-only · indisponível neste worker de observação</summary>            <label class="script-option high"><input type="checkbox" value="tls-lab-override" disabled><span class="script-code">TLS+</span><span><strong>TLS trust override</strong><small>Não disponível neste worker de observação</small></span><i>HIGH</i></label>
             <label class="script-option"><input type="checkbox" value="biometric-fixture" disabled><span class="script-code">BIO+</span><span><strong>Biometric result fixture</strong><small>Não disponível neste worker de observação</small></span><i>MED</i></label>
+            <label class="script-option high"><input type="checkbox" value="tls-unpin-multi" disabled><span class="script-code">PIN</span><span><strong>SSL pinning bypass (multi-lib)</strong><small>Unpinning OkHttp/TrustManager/Conscrypt · exige worker lab-modify</small></span><i>HIGH</i></label>
+            <label class="script-option high"><input type="checkbox" value="root-jailbreak-bypass" disabled><span class="script-code">ROOT+</span><span><strong>Root/jailbreak detection bypass</strong><small>Evasão de root/Magisk/jailbreak · exige worker lab-modify</small></span><i>HIGH</i></label>
+            <label class="script-option high"><input type="checkbox" value="anti-frida-bypass" disabled><span class="script-code">AF</span><span><strong>Anti-Frida / anti-debug evasion</strong><small>Mantém a instrumentação anexada · exige worker lab-modify</small></span><i>HIGH</i></label>
+            <label class="script-option"><input type="checkbox" value="webview-debug-enable" disabled><span class="script-code">WVD</span><span><strong>WebView debugging enable</strong><small>setWebContentsDebuggingEnabled(true) · exige worker lab-modify</small></span><i>MED</i></label>
+            <label class="script-option high"><input type="checkbox" value="rasp-bypass" disabled><span class="script-code">RASP</span><span><strong>RASP bypass (preset do operador)</strong><small>Slot para o seu script de RASP revisado · exige worker lab-modify</small></span><i>HIGH</i></label>
 </details></section>
           <section class="frida-execution" aria-label="Execução e retorno"><div class="frida-runbar"><div><span>EXECUÇÃO NO APP</span><small>Frida conecta, carrega os scripts e abre o app.</small></div><select id="fridaMode" aria-label="Modo Frida"><option value="spawn">Abrir e instrumentar</option><option value="attach">Conectar ao app aberto / Gadget</option></select><button class="outline" id="prepareFrida">Preparar Frida</button><button class="outline" id="stopFrida">Parar</button><button class="primary" id="runFrida" disabled>Testar no app</button></div>
           <details class="frida-events" open><summary>Retorno da sessão <span id="fridaSessionState" class="safe-badge">Sem sessão</span></summary><div class="console" id="fridaConsole"><div>$ aguardando plano de execução</div><span>Selecione um ou mais scripts.</span></div></details></section>
@@ -425,7 +430,7 @@
   <script src="dast-target.js?v=runtime-97-dast-apps-live"></script>
   <script src="dast-progress.js?v=runtime-99-pentest-ready"></script>
   <script src="face-quality.js?v=runtime-117-face-multisample"></script>
-  <script src="app.js?v=runtime-117-face-multisample"></script>
+  <script src="app.js?v=runtime-118-curated-bypass"></script>
   <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>
   <script src="ios-runtimes.js?v=runtime-111-polling"></script>
   <script src="workspace-devices.js?v=runtime-111-polling"></script>

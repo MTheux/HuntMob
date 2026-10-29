@@ -36,6 +36,15 @@ CATALOG = (
     FridaScript("webview-observe", "WebView navigation trace", ("android",), "webview", "observe", "low", "Records WebView URL loads and bridge registration.", "huntmob"),
     FridaScript("crypto-observe", "Crypto API trace", ("android", "ios"), "crypto", "observe", "medium", "Records algorithm and key-use metadata with secret values redacted.", "huntmob"),
     FridaScript("file-observe", "Application file I/O", ("android", "ios"), "storage", "observe", "low", "Records application-scoped file access paths.", "huntmob"),
+    # Família de bypass ativo, curada a partir de MobSF e Frida-Script-Runner.
+    # São 'modify'/high, lab-only: ficam catalogadas e visíveis, mas o runtime
+    # de observação (dynamic_runtime.OBSERVERS) continua fail-closed e NÃO as
+    # executa. A execução real depende do worker lab-modify (em desenho).
+    FridaScript("tls-unpin-multi", "SSL pinning bypass (multi-lib)", ("android", "ios"), "network", "modify", "high", "Lab-only unpinning across OkHttp, TrustManager, Conscrypt and common pinners for an authorized package.", "curated-upstream"),
+    FridaScript("root-jailbreak-bypass", "Root/jailbreak detection bypass", ("android", "ios"), "integrity", "modify", "high", "Lab-only evasion of root, Magisk and jailbreak checks for an authorized package.", "curated-upstream"),
+    FridaScript("anti-frida-bypass", "Anti-Frida / anti-debug evasion", ("android", "ios"), "integrity", "modify", "high", "Lab-only evasion of Frida and debugger detection to keep instrumentation attached.", "curated-upstream"),
+    FridaScript("webview-debug-enable", "WebView debugging enable", ("android",), "webview", "modify", "medium", "Lab-only setWebContentsDebuggingEnabled(true) for an authorized app.", "curated-upstream"),
+    FridaScript("rasp-bypass", "RASP bypass (preset)", ("android", "ios"), "integrity", "modify", "high", "Lab-only RASP evasion slot for the operator's reviewed script.", "operator-preset"),
 )
 
 

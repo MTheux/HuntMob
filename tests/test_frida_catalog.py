@@ -1,7 +1,7 @@
 import unittest
 
 from huntmob.contracts import EngagementGate, Platform
-from huntmob.frida_catalog import build_frida_job, validate_package_id
+from huntmob.frida_catalog import CATALOG, build_frida_job, validate_package_id
 
 
 class FridaCatalogTests(unittest.TestCase):
@@ -38,6 +38,25 @@ class FridaCatalogTests(unittest.TestCase):
             ["tls-lab-override"],
         )
         self.assertTrue(job["blocked"])
+
+    def test_curated_bypass_scripts_are_catalogued_as_modify_high(self):
+        indexed = {script.script_id: script for script in CATALOG}
+        curated = ["tls-unpin-multi", "root-jailbreak-bypass", "anti-frida-bypass", "rasp-bypass"]
+        for script_id in curated:
+            self.assertIn(script_id, indexed, script_id)
+            self.assertEqual(indexed[script_id].mode, "modify", script_id)
+            self.assertEqual(indexed[script_id].risk, "high", script_id)
+        # o preset de RASP fica marcado como entrada do operador para plugar o script dele
+        self.assertEqual(indexed["rasp-bypass"].source, "operator-preset")
+
+    def test_curated_bypass_builds_under_approved_gate(self):
+        job = build_frida_job(
+            self.gate(),
+            "br.com.huntmob.demo",
+            ["tls-unpin-multi", "root-jailbreak-bypass"],
+        )
+        self.assertTrue(job["ok"])
+        self.assertEqual({s["script_id"] for s in job["scripts"]}, {"tls-unpin-multi", "root-jailbreak-bypass"})
 
 
 if __name__ == "__main__":

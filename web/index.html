@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=runtime-108-subtabs">
+  <link rel="stylesheet" href="styles.css?v=runtime-116-estatico-app-picker">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
@@ -165,7 +165,7 @@
           <div class="panel-title"><div><span class="eyebrow">PERFIL DISPONÍVEL</span><h2>Apple Simulator</h2></div><span id="iosState" class="safe-badge">Verificando</span></div><p class="profile-description">Instala builds para Simulator (.app.zip). Use os controles abaixo para esse perfil.</p><div class="dynamic-actions"><button id="startIos" class="primary">Iniciar Simulator</button><button id="fixtureIos" class="outline">Abrir fixture HuntMob</button><button id="captureIos" class="outline">Capturar evidência</button><button id="stopIos" class="outline">Desligar e preservar</button></div><div class="ios-upload"><label class="lab-field">Build para Simulator (.app.zip)<input id="iosAppFile" type="file" accept=".zip"></label><label class="lab-approval"><input id="iosAppApproval" type="checkbox"> Aplicativo autorizado para este laboratório.</label><button id="installIos" class="primary">Instalar e abrir aplicativo</button></div><p id="iosTarget" class="profile-description">Nenhum aplicativo instalado pelo HuntMob.</p><div id="iosActionStatus" class="console" role="status">Aguardando ação.</div></div><div class="platform-android">
         </div></details></section>
         <section class="tab-content active" id="tab-reverse"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2>Análise iOS</h2></div></div><div class="ios-upload"><label class="lab-field">Análise local de IPA<input id="iosStaticFile" type="file" accept=".ipa"></label><button id="analyzeIos" class="outline">Analisar IPA sem instalar</button></div><p class="profile-description">Info.plist · permissões · URL schemes · ATS · SHA256. Funciona sem device. Frida/Objection e sandbox exigem runtime compatível; o iOS virtual está em validação.</p><pre id="iosStaticResult" class="console" role="status">Selecione um IPA autorizado para ver os resultados.</pre></div><div class="platform-android">
-          <div class="panel-title"><div><span class="eyebrow">ANÁLISE ESTÁTICA</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><button class="outline" id="refreshApps">Atualizar apps</button></div>
+          <div class="panel-title"><div><span class="eyebrow">ANÁLISE ESTÁTICA</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><div class="reverse-app-select platform-android"><label class="lab-field" for="reverseAppPicker">Aplicativo<select id="reverseAppPicker" disabled><option value="">Atualize a lista de apps</option></select></label><button class="outline" id="refreshApps">Atualizar apps</button></div>
           <div class="artifact-meta"><span id="targetAppState">Nenhum app selecionado</span><span id="reverseHash">SHA256 pendente</span><span id="analysisEngineState">Verificando motor integrado…</span></div>
           <section class="reverse-engines" aria-label="REA e Reconstruction Companion">
             <div class="panel-title"><div><span class="eyebrow">INSPEÇÃO DO APK</span><h3>Do APK à evidência</h3></div><span id="reverseProvidersState" class="safe-badge">Verificando worker…</span></div>
@@ -424,7 +424,7 @@
   <script src="device-sidebar.js?v=runtime-104-lab-rea"></script>
   <script src="dast-target.js?v=runtime-97-dast-apps-live"></script>
   <script src="dast-progress.js?v=runtime-99-pentest-ready"></script>
-  <script src="app.js?v=runtime-114-no-aosp-block"></script>
+  <script src="app.js?v=runtime-115-estatico-app-picker"></script>
   <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>
   <script src="ios-runtimes.js?v=runtime-111-polling"></script>
   <script src="workspace-devices.js?v=runtime-111-polling"></script>

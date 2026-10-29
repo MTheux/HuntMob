@@ -32,3 +32,9 @@ test('o visor de arquivo existe com os contratos de DOM que o clique usa',()=>{
  assert.match(h,/id="fileViewer"/);
  for(const id of ['fileViewerSource','fileViewerPath','fileViewerMeta','fileViewerContent','fileViewerClose']) assert.match(h,new RegExp(`id="${id}"`));
 });
+test('o painel Estatico tem o seletor de app proprio, antes do visor de reversePackage',()=>{
+ const h=html();
+ assert.match(h,/id="reverseAppPicker"/);
+ // o seletor vive no cabecalho do painel estatico, junto do reversePackage
+ assert.ok(h.indexOf('id="reverseAppPicker"')<h.indexOf('id="refreshApps"'),'o seletor precede o botao Atualizar apps');
+});

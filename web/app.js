@@ -694,6 +694,7 @@ async function selectApp(packageName, revalidate=false) {
   document.querySelector('#targetAppState').textContent = 'App alvo selecionado';
   packageId.value = packageName;
   document.querySelector('#reversePackage').textContent = packageName;
+  if (reverseAppPicker && [...reverseAppPicker.options].some(o => o.value === packageName)) reverseAppPicker.value = packageName;
   if (!document.querySelector('#prepareReverse')) document.querySelector('#reverseOutput').innerHTML = reverseInitialHtml;
   document.querySelector('#prepareReverse').disabled = !analysisReady;
   document.querySelector('#reverseHash').textContent = activeLab.apk_sha256 ? `SHA256 · ${activeLab.apk_sha256.slice(0,8)}…${activeLab.apk_sha256.slice(-4)}` : 'SHA256 pendente';
@@ -744,7 +745,27 @@ async function loadInstalledApps() {
   }
 }
 
-document.querySelector('#refreshApps').addEventListener('click', loadInstalledApps);
+// Seletor de app dedicado do painel Estático: lista os apps instalados num
+// <select> sempre visível e vincula o escolhido ao lab via selectApp — a
+// árvore #installedApps vira a árvore de arquivos após a análise e deixa de
+// servir como picker, então a troca de app passa a viver aqui.
+const reverseAppPicker = document.querySelector('#reverseAppPicker');
+async function refreshReverseAppPicker() {
+  if (devicePlatform !== 'android') return;
+  reverseAppPicker.disabled = true;
+  try {
+    const data = await fetchJsonOk('/api/device/apps', {cache: 'no-store', signal: AbortSignal.timeout(10000)}, 'Não foi possível listar os apps.');
+    const apps = [...new Set((data.apps || []).map(app => app.package_id).filter(validPackage))];
+    reverseAppPicker.replaceChildren(new Option(apps.length ? 'Escolha um app instalado' : 'Nenhum app instalado', ''));
+    apps.forEach(name => reverseAppPicker.add(new Option(name, name)));
+    reverseAppPicker.value = apps.includes(currentSelectedPackage) ? currentSelectedPackage : apps.includes(activeLab.package_id) ? activeLab.package_id : '';
+    reverseAppPicker.disabled = !apps.length;
+  } catch (error) {
+    reverseAppPicker.replaceChildren(new Option('Falha ao listar apps', ''));
+  }
+}
+reverseAppPicker.addEventListener('change', () => { if (validPackage(reverseAppPicker.value)) selectApp(reverseAppPicker.value, true); });
+document.querySelector('#refreshApps').addEventListener('click', () => { loadInstalledApps(); refreshReverseAppPicker(); });
 let reversePreparationBusy = false;
 async function prepareReverseWorkspace(selectedPackage) {
   if (!validPackage(selectedPackage)) throw new Error('Selecione um package válido.');
@@ -816,6 +837,7 @@ async function refreshQuickReaApps() {
 quickReaPackage.addEventListener('change', () => { quickReaStart.disabled = quickReaBusy || !quickReaPackage.value || !analysisReady; });
 document.querySelector('#quickReaRefresh').addEventListener('click', refreshQuickReaApps);
 document.querySelector('[data-tab="device-tools"]').addEventListener('click', refreshQuickReaApps);
+document.querySelector('[data-tab="reverse"]').addEventListener('click', refreshReverseAppPicker);
 // Static-RE orchestration for the active lab's package: verify REA, bind the app,
 // prepare or restore the workspace, start the inspection and open the Reverse tab.
 // Shared by the device-tools quick action and the sidebar per-lab action.

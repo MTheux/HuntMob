@@ -9,6 +9,22 @@
     if(mode==='adb'&&!/^[A-Za-z0-9 @._+:/-]$/.test(event.key))return;
     return {action:'text',text:event.key};
   }
+  // Converte texto colado numa sequência ordenada de ações de entrada: cada
+  // linha vira um ou mais blocos de texto (o worker limita a 256 por envio) e
+  // as quebras de linha viram Enter. Puro, para o handler de paste ser testável
+  // isolado — a leitura da área de transferência e o envio ficam no caller.
+  function pasteInputs(raw,maxChunk=256){
+    const payloads=[];
+    if(typeof raw!=='string'||!raw)return payloads;
+    raw.replace(/\r\n?/g,'\n').split('\n').forEach((line,index)=>{
+      if(index)payloads.push({action:'key',key:'Enter'});
+      for(let offset=0;offset<line.length;offset+=maxChunk){
+        const text=line.slice(offset,offset+maxChunk);
+        if(text)payloads.push({action:'text',text});
+      }
+    });
+    return payloads;
+  }
   function inputQueue(send,isCurrent,onError){
     let tail=Promise.resolve(),pending=0;
     return {push(input,scope){
@@ -26,6 +42,6 @@
     return {x:(width-(bounds.right-bounds.left)*zoom)/2-bounds.left*zoom,
             y:(height-(bounds.bottom-bounds.top)*zoom)/2-bounds.top*zoom};
   }
-  const api={keyboardAction,inputQueue,zoomPan,fitPan};
+  const api={keyboardAction,pasteInputs,inputQueue,zoomPan,fitPan};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.huntmobInteraction=api;
 })(typeof window==='undefined'?this:window);

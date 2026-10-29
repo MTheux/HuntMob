@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {keyboardAction,inputQueue,zoomPan,fitPan}=require('../web/screen-interaction.js');
+const {keyboardAction,inputQueue,zoomPan,fitPan,pasteInputs}=require('../web/screen-interaction.js');
 
 test('physical typing stays in order while a previous key is in flight',async()=>{
   const sent=[];let release;const blocked=new Promise(resolve=>release=resolve);
@@ -32,6 +32,23 @@ test('browser shortcuts and composition are not sent as native text',()=>{
   assert.deepEqual(keyboardAction({key:'ç'}),{action:'text',text:'ç'});
   assert.equal(keyboardAction({key:'ç'},{mode:'ascii'}),undefined);
   assert.equal(keyboardAction({key:'!'},{mode:'adb'}),undefined);
+});
+test('pasteInputs manda a colagem como texto, quebrando linhas em Enter',()=>{
+  // uma linha simples vira um único bloco de texto
+  assert.deepEqual(pasteInputs('token-ABC'),[{action:'text',text:'token-ABC'}]);
+  // quebras de linha viram Enter entre os blocos; \r\n normalizado
+  assert.deepEqual(pasteInputs('a\r\nb'),[{action:'text',text:'a'},{action:'key',key:'Enter'},{action:'text',text:'b'}]);
+  // quebra final (copia com \n no fim) envia o texto e depois Enter
+  assert.deepEqual(pasteInputs('abc\n'),[{action:'text',text:'abc'},{action:'key',key:'Enter'}]);
+  // vazio e não-string não geram ações
+  assert.deepEqual(pasteInputs(''),[]);
+  assert.deepEqual(pasteInputs(null),[]);
+});
+test('pasteInputs fatia linhas longas em blocos de no maximo 256 caracteres',()=>{
+  const long='x'.repeat(600);
+  const payloads=pasteInputs(long);
+  assert.deepEqual(payloads.map(p=>p.text.length),[256,256,88]);
+  assert.ok(payloads.every(p=>p.action==='text'));
 });
 test('wheel zoom keeps the same point under the cursor after panning and scrolling',()=>{
   const point={x:130,y:250},pan={x:-200,y:45},scroll={x:400,y:120},after={x:180,y:0};

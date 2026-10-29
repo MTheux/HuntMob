@@ -1758,6 +1758,18 @@ interactiveScreen.addEventListener('keydown', event => {
   event.preventDefault();
   void screenKeyboard.push({route:devicePlatform==='ios'?'/api/ios/action':directVideoActive?'/api/device/direct-input':'/api/device/input',payload},keyboardScope());
 });
+// Colar do host na tela do device: o keydown ignora Cmd/Ctrl (atalhos), então
+// o Cmd+V nunca viraria texto. O evento paste lê a área de transferência e
+// envia o conteúdo como texto pela mesma fila/rota do teclado físico.
+interactiveScreen.addEventListener('paste', event => {
+  const raw=(event.clipboardData||window.clipboardData)?.getData('text')||'';
+  const payloads=window.huntmobInteraction.pasteInputs(raw);
+  if (!payloads.length) return;
+  event.preventDefault();
+  const route=devicePlatform==='ios'?'/api/ios/action':directVideoActive?'/api/device/direct-input':'/api/device/input';
+  const scope=keyboardScope();
+  payloads.forEach(payload=>{ void screenKeyboard.push({route,payload},scope); });
+});
 });
 document.querySelector('#deviceBack').addEventListener('click', async () => {
   try { await authorizedPost(directVideoActive ? '/api/device/direct-input' : '/api/device/input', {action: 'back'}); } catch (error) { notify(error.message); }

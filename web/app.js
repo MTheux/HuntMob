@@ -401,9 +401,8 @@ async function captureFace() {
   await human.draw.face(overlay, result.face);
   if (result.face.length !== 1) throw new Error('mantenha exatamente um rosto visível');
   const face = result.face[0];
-  const confidence = face.faceScore || face.boxScore || 0;
-  if (confidence < 0.6) throw new Error('rosto detectado com baixa confiança');
-  if (!face.embedding?.length) throw new Error('não foi possível gerar o embedding');
+  const quality = faceQuality(face);
+  if (!quality.ok) throw new Error(quality.reason);
   return face;
 }
 
@@ -553,16 +552,36 @@ document.querySelector('#enableCamera').addEventListener('click', async () => {
   }
 });
 
+// Cadastro multi-amostra: coleta ENROLL_SAMPLES capturas de qualidade e tira a
+// média do embedding. Uma única captura é ruidosa (pose, luz, foco); a média de
+// amostras boas estabiliza o padrão e reduz falsos não-reconhecidos depois.
+const ENROLL_SAMPLES = 5;
 enrollFace.addEventListener('click', async () => {
   try {
-    setFaceStatus('Detectando rosto para cadastro…');
-    const face = await captureFace();
-    enrolledEmbedding = Array.from(face.embedding);
+    enrollFace.disabled = true;
+    verifyFace.disabled = true;
+    enrolledEmbedding = undefined;
+    const samples = [];
+    const maxAttempts = ENROLL_SAMPLES * 5;
+    for (let attempt = 0; attempt < maxAttempts && samples.length < ENROLL_SAMPLES; attempt++) {
+      setFaceStatus(`Cadastrando rosto · amostra ${samples.length + 1} de ${ENROLL_SAMPLES}…`);
+      try {
+        const face = await captureFace();
+        samples.push(Array.from(face.embedding));
+      } catch (error) {
+        setFaceStatus(`${error.message} · amostra ${samples.length + 1} de ${ENROLL_SAMPLES}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 140));
+    }
+    if (samples.length < ENROLL_SAMPLES) throw new Error('Amostras insuficientes · melhore a iluminação e mantenha o rosto centralizado');
+    enrolledEmbedding = averageEmbeddings(samples);
     verifyFace.disabled = false;
-    setFaceStatus('Rosto cadastrado apenas nesta sessão', 'ready');
+    setFaceStatus(`Rosto cadastrado nesta sessão · média de ${samples.length} amostras`, 'ready');
     notify('Embedding temporário criado');
   } catch (error) {
     setFaceStatus(error.message, 'error');
+  } finally {
+    enrollFace.disabled = false;
   }
 });
 

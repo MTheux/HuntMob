@@ -646,7 +646,7 @@ function validPackage(value) {
   return /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(value.trim());
 }
 
-function renderFileList(target, entries, emptyMessage) {
+function renderFileList(target, entries, emptyMessage, source) {
   target.replaceChildren();
   if (!entries?.length) {
     const empty = document.createElement('p');
@@ -657,10 +657,38 @@ function renderFileList(target, entries, emptyMessage) {
   entries.slice(0, 1000).forEach((entry) => {
     const row = document.createElement('button');
     row.type = 'button';
+    const path = typeof entry === 'string' ? entry : entry.path;
     row.textContent = typeof entry === 'string' ? entry : `${entry.path}  ·  ${entry.size} B`;
+    // Abre o conteúdo do arquivo ao clicar (só quando a origem é conhecida).
+    if (source) row.addEventListener('click', () => openAppFile(source, path));
     target.append(row);
   });
 }
+
+// Lê e exibe o conteúdo de UM arquivo do app (entrada do APK ou path do sandbox)
+// no visor. Governado: só leitura, confinado ao package autorizado pelo worker.
+async function openAppFile(source, path) {
+  const pkg = packageId.value.trim();
+  if (!validPackage(pkg)) { notify('Informe um package ID válido'); return; }
+  const viewer = document.querySelector('#fileViewer');
+  document.querySelector('#fileViewerSource').textContent = source === 'apk' ? 'ENTRADA DO APK' : 'SANDBOX';
+  document.querySelector('#fileViewerPath').textContent = path;
+  document.querySelector('#fileViewerMeta').textContent = 'Lendo…';
+  document.querySelector('#fileViewerContent').textContent = '';
+  if (viewer.showModal && !viewer.open) viewer.showModal();
+  try {
+    const query = `/api/device/file?package=${encodeURIComponent(pkg)}&source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`;
+    const payload = await fetchJsonOk(query, { cache: 'no-store' }, 'file API');
+    document.querySelector('#fileViewerMeta').textContent =
+      `${payload.size} B${payload.truncated ? ' · truncado' : ''}${payload.binary ? ' · binário' : ''}`;
+    document.querySelector('#fileViewerContent').textContent = payload.binary
+      ? `Conteúdo binário. Preview hex (1 KB):\n\n${(payload.preview.match(/../g) || []).join(' ')}`
+      : payload.content;
+  } catch (error) {
+    document.querySelector('#fileViewerMeta').textContent = error.message;
+  }
+}
+document.querySelector('#fileViewerClose')?.addEventListener('click', () => document.querySelector('#fileViewer').close());
 
 async function loadAppFiles() {
   const selectedPackage = packageId.value.trim();
@@ -672,8 +700,8 @@ async function loadAppFiles() {
   document.querySelector('#sandboxRoot').textContent = `/data/user/0/${selectedPackage} · alias /data/data/${selectedPackage}`;
   try {
     const payload = await fetchJsonOk(`/api/device/files?package=${encodeURIComponent(selectedPackage)}`, { cache: 'no-store' }, 'files API');
-    renderFileList(document.querySelector('#apkFiles'), payload.apk.entries, 'APK sem entradas legíveis.');
-    renderFileList(document.querySelector('#sandboxFiles'), payload.sandbox.entries, payload.sandbox.reason || 'Sandbox vazio.');
+    renderFileList(document.querySelector('#apkFiles'), payload.apk.entries, 'APK sem entradas legíveis.', 'apk');
+    renderFileList(document.querySelector('#sandboxFiles'), payload.sandbox.entries, payload.sandbox.reason || 'Sandbox vazio.', 'sandbox');
     notify(`${payload.apk.entries.length} entradas do APK · ${payload.sandbox.entries.length} caminhos no sandbox`);
   } catch (error) {
     renderFileList(document.querySelector('#apkFiles'), [], error.message);

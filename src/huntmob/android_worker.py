@@ -22,6 +22,30 @@ from typing import Dict, List, Sequence
 START_LOCK = threading.Lock()
 
 PACKAGE_ID = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
+# Caminho de sandbox aceito ao abrir um arquivo: relativo (`./...` ou `nome/...`),
+# só alfanumérico/_/./-. Barra inicial, espaços e metacaracteres de shell ficam de
+# fora; `..` é recusado à parte. run-as já confina a leitura ao uid do app.
+_SAFE_SANDBOX_PATH = __import__("re").compile(r"^(?:\./)?[A-Za-z0-9_][A-Za-z0-9_./-]*$")
+_MAX_FILE_BYTES = 256 * 1024  # teto de leitura; o excedente vem marcado truncated
+
+
+def _decode_file(package_id: str, source: str, path: str, raw: bytes) -> Dict[str, object]:
+    """Monta o payload de um arquivo lido: texto quando decodifica em UTF-8 sem
+    NUL, senão marca binary e devolve um preview hex dos primeiros bytes."""
+    truncated = len(raw) > _MAX_FILE_BYTES
+    raw = raw[:_MAX_FILE_BYTES]
+    binary = b"\x00" in raw
+    text = ""
+    if not binary:
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            binary = True
+    return {
+        "ok": True, "package_id": package_id, "source": source, "path": path,
+        "size": len(raw), "truncated": truncated, "binary": binary,
+        "content": text, "preview": raw[:1024].hex() if binary else "",
+    }
 
 
 SDK_CANDIDATES = (
@@ -644,6 +668,52 @@ class AndroidWorker:
                 "reason": "" if sandbox_ready else "run-as denied; a debuggable or explicitly prepared HuntMob lab build is required",
             },
         }
+
+    def read_app_file(self, package_id: str, source: str, path: str) -> Dict[str, object]:
+        """Lê o conteúdo de UM arquivo do app autorizado: uma entrada do APK
+        (``source='apk'``) ou um caminho do sandbox via run-as (``source='sandbox'``).
+        Somente leitura — nunca escreve no device."""
+        if not PACKAGE_ID.fullmatch(package_id):
+            return {"ok": False, "blocked": True, "reason": "invalid package ID"}
+        if not self.sdk or self.status()["state"] != "device":
+            return {"ok": False, "blocked": True, "reason": "device is not online"}
+        if source == "apk":
+            return self._read_apk_entry(package_id, path)
+        if source == "sandbox":
+            return self._read_sandbox_file(package_id, path)
+        return {"ok": False, "blocked": True, "reason": "unknown source"}
+
+    def _read_apk_entry(self, package_id: str, path: str) -> Dict[str, object]:
+        installed = _run((str(self.sdk.adb), "-s", self.serial, "shell", "pm", "path", package_id))
+        apk_paths = [line.removeprefix("package:").strip() for line in installed.stdout.splitlines() if line.startswith("package:")]
+        if installed.returncode != 0 or not apk_paths:
+            return {"ok": False, "blocked": True, "reason": "authorized package is not installed"}
+        with tempfile.TemporaryDirectory(prefix="huntmob-apk-") as directory:
+            for index, remote in enumerate(apk_paths[:8]):
+                local = Path(directory) / f"split-{index}.apk"
+                pulled = _run((str(self.sdk.adb), "-s", self.serial, "pull", remote, str(local)), timeout=180)
+                if pulled.returncode != 0 or not local.is_file():
+                    continue
+                try:
+                    with zipfile.ZipFile(local) as archive:
+                        if path not in archive.namelist():
+                            continue
+                        with archive.open(path) as handle:
+                            raw = handle.read(_MAX_FILE_BYTES + 1)
+                except (zipfile.BadZipFile, KeyError, OSError):
+                    continue
+                return _decode_file(package_id, "apk", path, raw)
+        return {"ok": False, "blocked": True, "reason": "entry not found in APK"}
+
+    def _read_sandbox_file(self, package_id: str, path: str) -> Dict[str, object]:
+        if not path or ".." in path or not _SAFE_SANDBOX_PATH.fullmatch(path):
+            return {"ok": False, "blocked": True, "reason": "unsafe sandbox path"}
+        result = _run((str(self.sdk.adb), "-s", self.serial, "shell", "run-as", package_id, "cat", path), timeout=30)
+        if result.returncode != 0:
+            return {"ok": False, "blocked": True,
+                    "reason": result.stderr.strip() or "run-as denied; a debuggable or explicitly prepared HuntMob lab build is required"}
+        raw = result.stdout.encode("utf-8", "surrogateescape")
+        return _decode_file(package_id, "sandbox", path, raw)
 
     def installed_apps(self) -> Dict[str, object]:
         if not self.sdk or self.status()["state"] != "device":

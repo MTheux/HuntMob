@@ -25,3 +25,8 @@ test('o contador de evidencias existe exatamente uma vez',()=>{
 test('o icone solto de evidencias saiu do header do topo',()=>{
  assert.doesNotMatch(html(),/aria-label="Abrir evidências"/);
 });
+test('o visor de arquivo existe com os contratos de DOM que o clique usa',()=>{
+ const h=html();
+ assert.match(h,/id="fileViewer"/);
+ for(const id of ['fileViewerSource','fileViewerPath','fileViewerMeta','fileViewerContent','fileViewerClose']) assert.match(h,new RegExp(`id="${id}"`));
+});

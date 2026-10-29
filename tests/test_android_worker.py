@@ -225,6 +225,58 @@ class AndroidWorkerTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(result["blocked"])
 
+    def test_read_app_file_rejects_invalid_package(self):
+        result = AndroidWorker(self.sdk).read_app_file("bad;pkg", "sandbox", "./files/x")
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["blocked"])
+
+    @patch.object(AndroidWorker, "status", return_value={"state": "device"})
+    def test_read_app_file_rejects_unknown_source(self, _status):
+        result = AndroidWorker(self.sdk).read_app_file("com.acme.app", "weird", "x")
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["blocked"])
+
+    @patch.object(AndroidWorker, "status", return_value={"state": "device"})
+    def test_read_sandbox_file_rejects_unsafe_path(self, _status):
+        for bad in ["../../etc/passwd", "files/$(id)", "a;b", "/abs/escape", "x`id`"]:
+            result = AndroidWorker(self.sdk).read_app_file("com.acme.app", "sandbox", bad)
+            self.assertFalse(result["ok"], bad)
+            self.assertTrue(result["blocked"], bad)
+
+    @patch.object(AndroidWorker, "status", return_value={"state": "device"})
+    @patch("huntmob.android_worker._run")
+    def test_read_sandbox_file_returns_text_via_run_as(self, run, _status):
+        run.return_value = subprocess.CompletedProcess([], 0, "<map><string>token</string></map>\n", "")
+        result = AndroidWorker(self.sdk).read_app_file("com.acme.app", "sandbox", "./shared_prefs/auth.xml")
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["binary"])
+        self.assertIn("token", result["content"])
+        cmd = list(run.call_args.args[0])
+        self.assertIn("run-as", cmd)
+        self.assertEqual(cmd[-2], "cat")
+        self.assertEqual(cmd[-1], "./shared_prefs/auth.xml")
+
+    @patch.object(AndroidWorker, "status", return_value={"state": "device"})
+    @patch("huntmob.android_worker._run")
+    def test_read_apk_entry_returns_entry_text(self, run, _status):
+        import zipfile as zf
+
+        def fake_run(command, **kwargs):
+            cmd = list(command)
+            if "path" in cmd:  # pm path <pkg>
+                return subprocess.CompletedProcess(cmd, 0, "package:/data/app/base.apk\n", "")
+            if "pull" in cmd:
+                with zf.ZipFile(cmd[-1], "w") as archive:
+                    archive.writestr("res/values/strings.xml", "<resources>hello</resources>")
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        run.side_effect = fake_run
+        result = AndroidWorker(self.sdk).read_app_file("com.acme.app", "apk", "res/values/strings.xml")
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["binary"])
+        self.assertIn("hello", result["content"])
+
     @patch.object(AndroidWorker, "status", return_value={"state": "device"})
     @patch("huntmob.android_worker._run")
     def test_installed_apps_returns_only_parsed_package_ids(self, run, _status):

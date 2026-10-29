@@ -12,24 +12,24 @@ test('phaseForTab devolve a fase dona de cada aba',()=>{
  const {phaseForTab}=load();
  assert.equal(phaseForTab('proxy'),'dinamico');
  assert.equal(phaseForTab('reverse'),'estatico');
- assert.equal(phaseForTab('evidence'),'evidencias');
+ assert.equal(phaseForTab('files'),'engagement');
 });
 test('phaseForTab cai em engagement para aba desconhecida',()=>{
  const {phaseForTab}=load();
  assert.equal(phaseForTab('inexistente'),'engagement');
 });
-test('as 7 abas atuais aparecem exatamente uma vez somando todas as fases',()=>{
+test('as 6 abas atuais aparecem exatamente uma vez somando todas as fases',()=>{
  const {PHASE_TABS}=load();
  const all=Object.values(PHASE_TABS).flat();
- assert.equal(all.length,7);
- assert.deepEqual([...all].sort(),['dast','device-tools','evidence','files','frida','proxy','reverse']);
+ assert.equal(all.length,6);
+ assert.deepEqual([...all].sort(),['dast','device-tools','files','frida','proxy','reverse']);
 });
 
 // --- revealPhase: document stub mínimo ---
 function classList(init){const s=new Set(init);return{add:x=>s.add(x),remove:x=>s.delete(x),toggle:(x,on)=>{if(on)s.add(x);else s.delete(x);},contains:x=>s.has(x)};}
 function makeDoc(hidden=[]){
- const tabs=['device-tools','files','reverse','dast','frida','proxy','evidence'];
- const phases=['engagement','estatico','dinamico','evidencias'].map(p=>({dataset:{phase:p},classList:classList(),setAttribute(){}}));
+ const tabs=['device-tools','files','reverse','dast','frida','proxy'];
+ const phases=['engagement','estatico','dinamico'].map(p=>({dataset:{phase:p},classList:classList(),setAttribute(){}}));
  const nav={},panel={};const router={hidden:true};const extra={'#phaseEmpty':{hidden:false},'.tool-router':router};
  // Os botões da sub-nav são os mesmos nós consultados por [data-tab="id"]: um
  // só objeto por aba, com classList/setAttribute para off-phase/active/aria.

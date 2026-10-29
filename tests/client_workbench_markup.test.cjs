@@ -1,14 +1,15 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const html=()=>fs.readFileSync('web/index.html','utf8');
 
-test('o painel tem a espinha de 4 fases',()=>{
+test('o painel tem a espinha de 3 fases (Evidencias saiu do topo)',()=>{
  const h=html();
- for(const p of ['engagement','estatico','dinamico','evidencias']) assert.match(h,new RegExp(`data-phase="${p}"`));
+ for(const p of ['engagement','estatico','dinamico']) assert.match(h,new RegExp(`data-phase="${p}"`));
+ assert.doesNotMatch(h,/data-phase="evidencias"/);
  assert.match(h,/phase-spine/);
 });
-test('o contador de evidencias vive na espinha, nao antes dela',()=>{
+test('o contador de evidencias vive no popup de evidencias',()=>{
  const h=html();
- assert.ok(h.indexOf('id="evidenceCount"')>h.indexOf('phase-spine'),'evidenceCount deve aparecer dentro/depois da espinha');
+ assert.ok(h.indexOf('id="evidenceCount"')>h.indexOf('id="evidenceDialog"'),'evidenceCount deve viver dentro do dialog de evidencias');
 });
 test('a navegacao paralela por grupos foi removida',()=>{
  assert.doesNotMatch(html(),/tool-group-label/);
@@ -16,7 +17,8 @@ test('a navegacao paralela por grupos foi removida',()=>{
 test('os contratos de DOM que o JS depende continuam presentes',()=>{
  const h=html();
  for(const id of ['analysisPanel','analysisToggle','analysisChevron','analysisToggleLabel','evidenceCount']) assert.match(h,new RegExp(`id="${id}"`));
- for(const tab of ['device-tools','files','reverse','dast','frida','proxy','evidence']) assert.match(h,new RegExp(`data-tab="${tab}"`));
+ for(const tab of ['device-tools','files','reverse','dast','frida','proxy']) assert.match(h,new RegExp(`data-tab="${tab}"`));
+ assert.doesNotMatch(h,/data-tab="evidence"/);
 });
 test('o contador de evidencias existe exatamente uma vez',()=>{
  const matches=html().match(/id="evidenceCount"/g)||[];

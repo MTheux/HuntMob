@@ -482,9 +482,8 @@ let engagementBound = false;
 function syncEngagementStepper() {
   const stepper = document.querySelector('#engagementStepper');
   if (!stepper) return;
-  const evidence = Number.parseInt(document.querySelector('#evidenceCount')?.textContent, 10) || 0;
-  const done = { engagement: engagementBound, estatico: !!reverseAnalysis, dinamico: !!dastProgressReport, evidencias: evidence > 0 };
-  const order = ['engagement', 'estatico', 'dinamico', 'evidencias'];
+  const done = { engagement: engagementBound, estatico: !!reverseAnalysis, dinamico: !!dastProgressReport };
+  const order = ['engagement', 'estatico', 'dinamico'];
   const current = order.findIndex((phase) => !done[phase]);
   order.forEach((phase, index) => {
     const btn = stepper.querySelector(`.phase[data-phase="${phase}"]`);
@@ -1798,6 +1797,14 @@ async function loadEvidence() {
   }
 }
 document.querySelector('#refreshEvidence').addEventListener('click', loadEvidence);
+// Evidências deixou de ser uma fase do topo; vira um popup aberto pelo atalho
+// em Dispositivo. A captura/armazenamento do proof-pack segue igual por baixo.
+document.querySelector('#openEvidence')?.addEventListener('click', () => {
+  const dialog = document.querySelector('#evidenceDialog');
+  if (dialog?.showModal && !dialog.open) dialog.showModal();
+  loadEvidence();
+});
+document.querySelector('#evidenceDialogClose')?.addEventListener('click', () => document.querySelector('#evidenceDialog').close());
 document.querySelector('#captureEvidence').addEventListener('click', async () => {
   if (devicePlatform === 'ios') { await iosAction('capture'); return; }
   const button = document.querySelector('#captureEvidence');

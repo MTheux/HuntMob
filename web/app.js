@@ -216,37 +216,6 @@ document.querySelector('#reconnectScreen').addEventListener('click', () => {
   if (runtimeDevice?.state === 'on') startDeviceScreen();
 });
 
-let rootProfileBusy = false;
-let rootProfileKnownId = null;
-document.querySelector('#prepareRootProfile').addEventListener('click', async event => {
-  if (rootProfileBusy) return;
-  rootProfileBusy = true;
-  const button = event.currentTarget;
-  button.disabled = true; button.textContent = 'Preparando imagem…';
-  document.querySelector('#rootProfileStatus').textContent = 'Baixando imagem oficial Android, se necessário…';
-  try { await deviceAction('prepare-root-profile', {root_mode: document.querySelector('#deviceRootMode').value}); notify('Imagem pronta para este perfil'); }
-  catch (error) { notify(error.message); }
-  finally { rootProfileBusy = false; button.disabled = false; button.textContent = 'Preparar imagem'; }
-});
-async function changeAndroidRootProfile(mode, expectedLabId=activeLab.id) {
-  if(rootProfileBusy)return {ok:false,reason:'Aguarde a troca de perfil em andamento.'};
-  if(devicePlatform!=='android'||expectedLabId!==activeLab.id){notify('O aparelho selecionado mudou. Abra Root novamente.');return {ok:false,reason:'O aparelho selecionado mudou. Abra Root novamente.'};}
-  if(mode===(activeLab.root_mode||'root')){notify('Este perfil já está selecionado');return {ok:true};}
-  rootProfileBusy=true;
-  const button=document.querySelector('#switchRootProfile');button.disabled=true;button.textContent='Trocando Android…';
-  document.querySelector('#rootProfileStatus').textContent='Preparando a imagem oficial do outro Android…';
-  try{
-    await deviceAction('prepare-root-profile',{root_mode:mode});
-    document.querySelector('#rootProfileStatus').textContent='Preservando o Android atual e iniciando o outro…';
-    stopDeviceScreen();
-    const result=await deviceAction('root-profile',{root_mode:mode,lab_id:expectedLabId});
-    await loadRuntime();await loadSavedLabs();await loadWorkspaceDevices();
-    if(result.lab?.package_id)selectApp(result.lab.package_id);
-    notify('Android trocado. O anterior continua preservado; os dados do app são separados.');return result;
-  }catch(error){notify(error.message);return {ok:false,reason:error.message};}
-  finally{rootProfileBusy=false;button.disabled=false;button.textContent='Trocar perfil';await loadRuntime();}
-}
-document.querySelector('#switchRootProfile').addEventListener('click',()=>changeAndroidRootProfile(document.querySelector('#deviceRootMode').value));
 
 async function loadRuntime() {
   if (devicePlatform === 'ios') { await loadIosRuntime(true); return; }
@@ -271,13 +240,6 @@ async function loadRuntime() {
     engagementBound = !!activeLab.engagement; syncEngagementStepper();
     syncLabLifecycleButtons();
     renderEngagement(activeLab);
-    const verification = activeLab.root_verification;
-    document.querySelector('#rootProfileStatus').textContent = verification?.verified ? (activeLab.root_mode==='stock' ? 'Google Play · ADB root indisponível' : 'AOSP · ADB root alternável em Controles') : 'Imagem ainda não verificada';
-    if (!rootProfileBusy && rootProfileKnownId !== activeLab.id) {
-      rootProfileKnownId = activeLab.id;
-      document.querySelector('#deviceRootMode').value = activeLab.root_mode || 'root';
-    }
-    document.querySelector('#switchRootProfile').disabled = rootProfileBusy || !activeLab.id;
     const labChanged = (activeLab.id || '') !== observedLabId;
     if (labChanged) {
       observedLabId = activeLab.id || '';

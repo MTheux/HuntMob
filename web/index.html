@@ -138,7 +138,7 @@
             <button disabled type="button" id="deviceBack" hidden aria-label="Voltar no Android">Voltar</button>
           </div></details>
           <p class="profile-description" id="toolsPrimaryScope">Análise, tráfego e evidências permanecem vinculados ao aparelho principal.</p>
-          <details class="device-profile-details" id="deviceProfileDetails"><summary>Imagem e runtime</summary><div class="platform-ios" id="iosProfile">
+          <details class="device-profile-details platform-ios" id="deviceProfileDetails"><summary>Imagem e runtime</summary><div class="platform-ios" id="iosProfile">
           <section class="ios-native-status" aria-labelledby="iosNativeTitle">
             <div class="panel-title"><div><span class="eyebrow">RUNTIME PRÓPRIO</span><h2 id="iosNativeTitle">iOS virtual</h2></div><span id="iosNativeState" class="safe-badge">Verificando</span></div>
             <p id="iosNativeSummary" class="profile-description">Consultando a última validação deste worker.</p>
@@ -163,9 +163,6 @@
             <p id="xtoolStatus" class="profile-description" role="status">Windows usa WSL e encaminhamento USB. Tela do iPhone físico não está integrada.</p>
           </section>
           <div class="panel-title"><div><span class="eyebrow">PERFIL DISPONÍVEL</span><h2>Apple Simulator</h2></div><span id="iosState" class="safe-badge">Verificando</span></div><p class="profile-description">Instala builds para Simulator (.app.zip). Use os controles abaixo para esse perfil.</p><div class="dynamic-actions"><button id="startIos" class="primary">Iniciar Simulator</button><button id="fixtureIos" class="outline">Abrir fixture HuntMob</button><button id="captureIos" class="outline">Capturar evidência</button><button id="stopIos" class="outline">Desligar e preservar</button></div><div class="ios-upload"><label class="lab-field">Build para Simulator (.app.zip)<input id="iosAppFile" type="file" accept=".zip"></label><label class="lab-approval"><input id="iosAppApproval" type="checkbox"> Aplicativo autorizado para este laboratório.</label><button id="installIos" class="primary">Instalar e abrir aplicativo</button></div><p id="iosTarget" class="profile-description">Nenhum aplicativo instalado pelo HuntMob.</p><div id="iosActionStatus" class="console" role="status">Aguardando ação.</div></div><div class="platform-android">
-          <div class="panel-title"><div><span class="eyebrow">LABORATÓRIO</span><h2>Perfil Android</h2></div></div>
-          <p class="profile-description">A imagem Google Play não aceita ADB root. Trocar para AOSP cria ou retoma outro Android; o atual fica preservado. O APK é reinstalado, mas os dados internos do app não são copiados.</p>
-          <div class="root-profile-controls"><label for="deviceRootMode">Perfil Android</label><select id="deviceRootMode"><option value="root">Com root · AOSP</option><option value="stock">Sem root · Google Play</option></select><button id="prepareRootProfile" class="outline">Preparar imagem</button><button id="switchRootProfile" class="outline">Trocar perfil</button><span id="rootProfileStatus" role="status">Root ainda não verificado</span></div>
         </div></details></section>
         <section class="tab-content active" id="tab-reverse"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2>Análise iOS</h2></div></div><div class="ios-upload"><label class="lab-field">Análise local de IPA<input id="iosStaticFile" type="file" accept=".ipa"></label><button id="analyzeIos" class="outline">Analisar IPA sem instalar</button></div><p class="profile-description">Info.plist · permissões · URL schemes · ATS · SHA256. Funciona sem device. Frida/Objection e sandbox exigem runtime compatível; o iOS virtual está em validação.</p><pre id="iosStaticResult" class="console" role="status">Selecione um IPA autorizado para ver os resultados.</pre></div><div class="platform-android">
           <div class="panel-title"><div><span class="eyebrow">ANÁLISE ESTÁTICA</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><button class="outline" id="refreshApps">Atualizar apps</button></div>
@@ -427,7 +424,7 @@
   <script src="device-sidebar.js?v=runtime-104-lab-rea"></script>
   <script src="dast-target.js?v=runtime-97-dast-apps-live"></script>
   <script src="dast-progress.js?v=runtime-99-pentest-ready"></script>
-  <script src="app.js?v=runtime-113-no-evidence-phase"></script>
+  <script src="app.js?v=runtime-114-no-aosp-block"></script>
   <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>
   <script src="ios-runtimes.js?v=runtime-111-polling"></script>
   <script src="workspace-devices.js?v=runtime-111-polling"></script>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=runtime-123-newlab-redesign">
+  <link rel="stylesheet" href="styles.css?v=runtime-125-sidebar-collapse">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
@@ -24,9 +24,13 @@
 
 
     <aside class="device-list" aria-label="Aparelhos e laboratórios">
+      <button class="device-rail-toggle" id="expandDeviceList" type="button" hidden aria-label="Expandir dispositivos" title="Expandir dispositivos">›</button>
       <div class="aside-head">
         <div><span class="eyebrow">SEU AMBIENTE</span><h1>Dispositivos</h1></div>
-        <button class="square-button" id="sidebarNewLab" type="button" aria-label="Criar novo laboratório" title="Criar novo laboratório">+</button>
+        <div class="aside-head-actions">
+          <button class="square-button" id="collapseDeviceList" type="button" aria-label="Recolher dispositivos" title="Recolher dispositivos" aria-expanded="true">‹</button>
+          <button class="square-button" id="sidebarNewLab" type="button" aria-label="Criar novo laboratório" title="Criar novo laboratório">+</button>
+        </div>
       </div>
       <label class="search sidebar-search" for="deviceSearch"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="sr-only">Buscar aparelhos ou laboratórios</span><input id="deviceSearch" type="search" placeholder="Buscar aparelhos ou labs…" autocomplete="off" spellcheck="false"></label>
       <div class="sidebar-scroll">
@@ -429,7 +433,7 @@
   <script src="dast-target.js?v=runtime-97-dast-apps-live"></script>
   <script src="dast-progress.js?v=runtime-99-pentest-ready"></script>
   <script src="face-quality.js?v=runtime-117-face-multisample"></script>
-  <script src="app.js?v=runtime-124-newlab-fix"></script>
+  <script src="app.js?v=runtime-125-sidebar-collapse"></script>
   <script src="android-identity.js?v=runtime-120-android-id"></script>
   <script src="protection-scan.js?v=runtime-120-protection-scan"></script>
   <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>

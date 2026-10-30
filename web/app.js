@@ -75,6 +75,16 @@ document.querySelector('#analysisToggle').addEventListener('click', () => {
 function syncAnalysisAvailability(online) {
   setAnalysisOpen(online && analysisPreference !== 'false');
 }
+function setDeviceListOpen(open, remember = false) {
+  document.body.classList.toggle('device-collapsed', !open);
+  document.querySelector('#expandDeviceList').hidden = open;
+  document.querySelector('#collapseDeviceList').hidden = !open;
+  document.querySelector('#collapseDeviceList').setAttribute('aria-expanded', String(open));
+  if (remember) { try { localStorage.setItem('huntmob.deviceListOpen', String(open)); } catch {} }
+}
+document.querySelector('#collapseDeviceList').addEventListener('click', () => setDeviceListOpen(false, true));
+document.querySelector('#expandDeviceList').addEventListener('click', () => setDeviceListOpen(true, true));
+try { setDeviceListOpen(localStorage.getItem('huntmob.deviceListOpen') !== 'false'); } catch { setDeviceListOpen(true); }
 
 const viewport = document.querySelector('#deviceViewport');
 const phoneCanvas = document.querySelector('#phoneCanvas');

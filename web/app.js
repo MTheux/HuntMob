@@ -313,6 +313,7 @@ async function loadRuntime() {
       document.querySelector('#stageSerial').textContent = workerReady ? 'nenhum device em execução' : 'QEMU/AOSP ainda não provisionado';
       const runtimeLabels = { booting: 'INICIANDO', unauthorized: 'AUTORIZAÇÃO PENDENTE', error: 'ERRO ADB' };
       document.querySelector('#runtimeState').textContent = runtimeLabels[payload.state] || (workerReady ? 'STOPPED' : 'BUILD REQUIRED');
+      if (payload.state === 'error' || payload.state === 'unauthorized') huntmobLog(payload.connection?.reason || runtimeLabels[payload.state], 'error');
       document.querySelector('#deviceViewport').classList.add('runtime-unavailable');
       document.querySelector('#runtimePlaceholder').hidden = false;
       document.querySelector('#runtimePlaceholder strong').textContent = workerReady ? 'Device desligado' : 'Runtime ainda não provisionado';
@@ -365,6 +366,7 @@ async function loadRuntime() {
     dot.setAttribute('aria-label', online ? 'Online' : 'Offline');
     window.huntmobBiometrics?.refresh();
   } catch (error) {
+    huntmobLog('Worker indisponível: ' + error.message, 'error');
     document.querySelector('#runtimeName').textContent = 'Runtime indisponível';
     window.huntmobSidebar?.runtimeError();
     document.querySelector('#runtimeMeta').textContent = error.message;
@@ -433,7 +435,35 @@ async function captureFace() {
   return face;
 }
 
+const logBuffer = [];
+function huntmobLog(message, level = 'info') {
+  const text = String(message || '').trim();
+  if (!text) return;
+  const last = logBuffer[logBuffer.length - 1];
+  if (last && last.message === text && last.level === level) return; // não repete o mesmo evento a cada poll
+  logBuffer.push({ at: new Date(), level, message: text });
+  if (logBuffer.length > 300) logBuffer.shift();
+  renderLogs();
+}
+function renderLogs() {
+  const list = document.querySelector('#logList');
+  if (!list) return;
+  list.replaceChildren();
+  for (const entry of logBuffer.slice(-200).reverse()) {
+    const row = document.createElement('div');
+    row.className = 'log-row log-' + entry.level;
+    const time = document.createElement('time'); time.textContent = entry.at.toLocaleTimeString('pt-BR');
+    const level = document.createElement('span'); level.className = 'log-level'; level.textContent = entry.level === 'error' ? 'ERRO' : 'INFO';
+    const msg = document.createElement('span'); msg.className = 'log-msg'; msg.textContent = entry.message;
+    row.append(time, level, msg);
+    list.append(row);
+  }
+  const empty = document.querySelector('#logEmpty');
+  if (empty) empty.hidden = logBuffer.length > 0;
+}
+document.querySelector('#clearLogs')?.addEventListener('click', () => { logBuffer.length = 0; renderLogs(); });
 function notify(message) {
+  huntmobLog(message);
   toast.textContent = message;
   toast.classList.add('show');
   window.clearTimeout(notify.timer);

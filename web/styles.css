@@ -790,3 +790,12 @@ body.device-collapsed .menu-toggle{display:inline-flex}
 .pentest-readiness>summary strong{font-size:13px}
 .pentest-readiness>summary .readiness-summary{margin-left:auto;font:10px var(--mono);color:var(--muted);background:var(--surface-3);padding:3px 7px;border-radius:4px}
 .pentest-readiness[open]>summary{margin-bottom:10px}
+
+.log-list{margin:14px 16px;display:flex;flex-direction:column;gap:2px;max-height:calc(100vh - 320px);overflow:auto}
+.log-row{display:grid;grid-template-columns:62px 42px 1fr;gap:8px;align-items:start;padding:7px 9px;border-radius:5px;font:10px/1.5 var(--mono)}
+.log-row:hover{background:var(--surface-2)}
+.log-row time{color:var(--quiet)}
+.log-row .log-level{font-weight:700;color:var(--quiet)}
+.log-row.log-error{background:var(--red-dim)}
+.log-row.log-error .log-level{color:var(--red)}
+.log-row .log-msg{color:var(--text);overflow-wrap:anywhere}

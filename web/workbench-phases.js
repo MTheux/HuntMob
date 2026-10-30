@@ -6,7 +6,7 @@
 const PHASE_TABS = {
   engagement: ['device-tools', 'files', 'lab'],
   estatico: ['reverse'],
-  dinamico: ['dast', 'frida', 'proxy'],
+  dinamico: ['dast', 'frida', 'proxy', 'logs'],
 };
 
 function tabsForPhase(phase) {

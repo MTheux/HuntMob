@@ -5,7 +5,7 @@ function load(){delete require.cache[require.resolve('../web/workbench-phases.js
 
 test('tabsForPhase devolve as abas da fase na ordem do mapa',()=>{
  const {tabsForPhase}=load();
- assert.deepEqual(tabsForPhase('dinamico'),['dast','frida','proxy']);
+ assert.deepEqual(tabsForPhase('dinamico'),['dast','frida','proxy','logs']);
  assert.deepEqual(tabsForPhase('engagement'),['device-tools','files','lab']);
 });
 test('phaseForTab devolve a fase dona de cada aba',()=>{
@@ -18,17 +18,17 @@ test('phaseForTab cai em engagement para aba desconhecida',()=>{
  const {phaseForTab}=load();
  assert.equal(phaseForTab('inexistente'),'engagement');
 });
-test('as 7 abas atuais aparecem exatamente uma vez somando todas as fases',()=>{
+test('as 8 abas atuais aparecem exatamente uma vez somando todas as fases',()=>{
  const {PHASE_TABS}=load();
  const all=Object.values(PHASE_TABS).flat();
- assert.equal(all.length,7);
- assert.deepEqual([...all].sort(),['dast','device-tools','files','frida','lab','proxy','reverse']);
+ assert.equal(all.length,8);
+ assert.deepEqual([...all].sort(),['dast','device-tools','files','frida','lab','logs','proxy','reverse']);
 });
 
 // --- revealPhase: document stub mínimo ---
 function classList(init){const s=new Set(init);return{add:x=>s.add(x),remove:x=>s.delete(x),toggle:(x,on)=>{if(on)s.add(x);else s.delete(x);},contains:x=>s.has(x)};}
 function makeDoc(hidden=[]){
- const tabs=['device-tools','files','lab','reverse','dast','frida','proxy'];
+ const tabs=['device-tools','files','lab','reverse','dast','frida','proxy','logs'];
  const phases=['engagement','estatico','dinamico'].map(p=>({dataset:{phase:p},classList:classList(),setAttribute(){}}));
  const nav={},panel={};const router={hidden:true};const extra={'#phaseEmpty':{hidden:false},'.tool-router':router};
  // Os botões da sub-nav são os mesmos nós consultados por [data-tab="id"]: um
@@ -42,7 +42,7 @@ function makeChipDoc(){const el=()=>({textContent:'',hidden:false,classList:clas
 
 test('revealPhase mostra só a aba ativa (default = primeira) e devolve {available,active}',()=>{
  const {revealPhase}=load();const doc=makeDoc();
- assert.deepEqual(revealPhase('dinamico',doc),{available:['dast','frida','proxy'],active:'dast'});
+ assert.deepEqual(revealPhase('dinamico',doc),{available:['dast','frida','proxy','logs'],active:'dast'});
  assert.ok(doc.panel['dast'].classList.contains('active'));
  assert.ok(!doc.panel['frida'].classList.contains('active'));
  assert.ok(!doc.panel['proxy'].classList.contains('active'));
@@ -64,7 +64,7 @@ test('revealPhase marca a sub-aba ativa e esconde as abas fora da fase',()=>{
 });
 test('revealPhase respeita a aba pedida quando disponível',()=>{
  const {revealPhase}=load();const doc=makeDoc();
- assert.deepEqual(revealPhase('dinamico',doc,'proxy'),{available:['dast','frida','proxy'],active:'proxy'});
+ assert.deepEqual(revealPhase('dinamico',doc,'proxy'),{available:['dast','frida','proxy','logs'],active:'proxy'});
  assert.ok(doc.panel['proxy'].classList.contains('active'));
  assert.ok(!doc.panel['dast'].classList.contains('active'));
  assert.ok(doc.nav['proxy'].classList.contains('active'));

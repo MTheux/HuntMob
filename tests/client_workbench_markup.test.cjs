@@ -81,6 +81,13 @@ test('o dialogo Novo laboratorio foi repaginado (versao sem API, 3 origens, perf
  // Botão vira "Iniciar laboratório"
  assert.match(dlg,/id="createLab"[^>]*>Iniciar laboratório</);
 });
+test('a aba Logs existe com lista e botao limpar (erros de ADB/eventos)',()=>{
+ const h=html();
+ assert.match(h,/data-tab="logs"[^>]*role="tab"/);
+ const at=h.indexOf('id="tab-logs"');
+ const sec=h.slice(at,at+700);
+ for(const id of ['logList','logEmpty','clearLogs']) assert.match(sec,new RegExp(`id="${id}"`),id);
+});
 test('o painel Estatico tem o cartao de proteções/RASP (fatia nutcracker)',()=>{
  const h=html();
  const panel=h.slice(h.indexOf('id="tab-reverse"'),h.indexOf('id="reverseOutput"'));

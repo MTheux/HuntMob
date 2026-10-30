@@ -59,6 +59,8 @@ test('a sidebar de dispositivos recolhe com seta (igual ao painel de ferramentas
  const at=h.indexOf('class="device-list"');
  const aside=h.slice(at,h.indexOf('</aside>',at));
  for(const id of ['collapseDeviceList','expandDeviceList']) assert.match(aside,new RegExp(`id="${id}"`),id);
+ // o trilho recolhido mostra "menu" (igual o tab de Ferramentas mostra rótulo)
+ assert.match(aside,/device-rail-label[^>]*>menu</);
 });
 test('o dialogo Novo laboratorio foi repaginado (versao sem API, 3 origens, perfil com/sem root)',()=>{
  const h=html();

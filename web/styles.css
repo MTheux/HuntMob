@@ -756,12 +756,14 @@ dialog{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 .lab-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.lab-row .lab-field{margin-bottom:12px}@media(max-width:520px){.lab-row{grid-template-columns:1fr}}
 
 .aside-head-actions{display:flex;gap:6px;align-items:center}
-.device-rail-toggle{width:100%;border:0;background:transparent;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:8px 0}
-.device-rail-toggle:hover{color:var(--red)}
+#collapseDeviceList{color:var(--red);font-size:20px;font-weight:300}
+.device-rail-toggle{display:flex;flex-direction:column;align-items:center;gap:7px;width:100%;border:0;background:transparent;cursor:pointer;padding:10px 0}
+.device-rail-toggle .device-rail-chevron{font-size:20px;line-height:1;color:var(--red)}
+.device-rail-toggle .device-rail-label{writing-mode:vertical-rl;text-orientation:mixed;font:10px var(--mono);letter-spacing:.16em;text-transform:lowercase;color:var(--muted)}
+.device-rail-toggle:hover .device-rail-label{color:var(--text)}
 @media(min-width:821px){
-  body.device-collapsed .shell{grid-template-columns:26px minmax(0,1fr)}
+  body.device-collapsed .shell{grid-template-columns:34px minmax(0,1fr)}
   body.device-collapsed .device-list{padding:10px 2px;overflow:hidden;align-items:center}
-  body.device-collapsed .device-list>.aside-head,
-  body.device-collapsed .device-list>.sidebar-search,
-  body.device-collapsed .device-list>.sidebar-scroll{display:none}
+  body.device-collapsed .device-list>*{display:none}
+  body.device-collapsed .device-list>#expandDeviceList{display:flex}
 }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=runtime-121-android-id-card">
+  <link rel="stylesheet" href="styles.css?v=runtime-123-newlab-redesign">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
@@ -371,21 +371,20 @@
   <dialog id="newLabDialog">
     <form method="dialog" class="dialog-shell" id="newLabForm">
       <header><div><span class="eyebrow">APP-FIRST</span><h2>Novo laboratório</h2></div><button type="button" id="closeNewLab" aria-label="Fechar">×</button></header>
-      <label class="lab-field">Plataforma<select id="labPlatform"><option value="android">Android</option><option value="ios">iOS · Simulator no Mac</option></select></label>
-      <label class="lab-field">Versão<select id="labVersion"><option value="36">Android 16 · API 36</option><option value="35" selected>Android 15 · API 35</option><option value="34">Android 14 · API 34</option><option value="33">Android 13 · API 33</option><option value="32">Android 12L · API 32</option><option value="31">Android 12 · API 31</option><option value="30">Android 11 · API 30</option></select><small id="labVersionHelp">A imagem da arquitetura deste worker é preparada no primeiro uso.</small></label>
+      <div class="lab-row"><label class="lab-field">Plataforma<select id="labPlatform"><option value="android">Android</option><option value="ios">iOS · Simulator no Mac</option></select></label>
+      <label class="lab-field">Versão<select id="labVersion"><option value="36">Android 16</option><option value="35" selected>Android 15</option><option value="34">Android 14</option><option value="33">Android 13</option><option value="32">Android 12L</option><option value="31">Android 12</option><option value="30">Android 11</option></select></label></div>
       <button type="button" class="outline" id="manageLabIosVersions" hidden>Gerenciar versões de iOS</button>
       <label class="lab-field" id="labModelField" hidden>Modelo iPhone<select id="labModel"></select><small>Compatibilidade entre modelo e versão é verificada antes da criação.</small></label>
       <div id="labLegacyModels" hidden></div>
       <label class="lab-field" id="labIosAccessField" hidden>Perfil iOS<select id="labIosAccess"><option value="stock">Sem jailbreak · Simulator</option><option value="jailbreak" disabled>Com jailbreak · runtime ainda indisponível</option></select></label>
       <label class="lab-field" id="labPackageField"><span id="labPackageLabel">Package ID</span> <small id="labPackageHelp">opcional; detectado do APK quando possível</small><input id="labPackage" placeholder="br.com.empresa.app"></label>
-      <label class="lab-field">Origem do aplicativo<select id="labSource"><option value="upload">APK local · lab exclusivo</option><option value="empty">Lab vazio · avançado</option><option value="firebase">Firebase App Distribution</option><option value="signed-url">URL assinada autorizada</option><option value="play-manual">Play Store · instalação manual</option></select></label>
+      <div class="lab-row"><label class="lab-field">Origem do aplicativo<select id="labSource"><option value="upload">APP Local · APK</option><option value="play-manual">Play Store · loja no device</option><option value="empty">Lab vazio · avançado</option></select></label>
+      <label class="lab-field">Perfil Android<select id="labRootMode"><option value="root">Com root</option><option value="stock">Sem root</option></select></label></div>
       <label class="lab-field" id="artifactField">Artefato<input id="labArtifact" type="file" accept=".apk"></label>
-      <label class="lab-field">Perfil Android<select id="labRootMode"><option value="root">AOSP · ADB root; Magisk opcional</option><option value="stock">Google Play · sem root</option></select><small>Cada perfil mantém apps e dados próprios. A imagem é preparada no primeiro uso.</small></label>
-      <label class="lab-approval"><input id="labLegacySdk" type="checkbox"> Compatibilidade com APK antigo (target SDK abaixo de 24), somente neste laboratório.</label>
       <label class="lab-approval"><input id="labApproval" type="checkbox" required> Tenho autorização para usar este laboratório e testar os aplicativos nele instalados.</label>
       <div class="lab-plan" id="labPlan">Cria um Android limpo para este APK. O lab atual será desligado e preservado para retomada.</div>
       <div class="form-error" id="labError" role="alert" hidden></div>
-      <button type="submit" class="primary full" id="createLab">Criar e iniciar laboratório</button>
+      <button type="submit" class="primary full" id="createLab">Iniciar laboratório</button>
     </form>
   </dialog>
   <dialog id="sessionDialog">
@@ -432,7 +431,7 @@
   <script src="dast-target.js?v=runtime-97-dast-apps-live"></script>
   <script src="dast-progress.js?v=runtime-99-pentest-ready"></script>
   <script src="face-quality.js?v=runtime-117-face-multisample"></script>
-  <script src="app.js?v=runtime-122-resume-feedback"></script>
+  <script src="app.js?v=runtime-123-newlab-redesign"></script>
   <script src="android-identity.js?v=runtime-120-android-id"></script>
   <script src="protection-scan.js?v=runtime-120-protection-scan"></script>
   <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>

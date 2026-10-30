@@ -54,6 +54,24 @@ test('o cartao de identidade Android (trocar Android ID) existe no painel de fer
  const card=h.slice(at,at+1200);
  for(const id of ['androidIdentityValue','androidIdInput','applyAndroidId','randomAndroidId']) assert.match(card,new RegExp(`id="${id}"`),id);
 });
+test('o dialogo Novo laboratorio foi repaginado (versao sem API, 3 origens, perfil com/sem root)',()=>{
+ const h=html();
+ const at=h.indexOf('id="newLabDialog"');
+ const dlg=h.slice(at,h.indexOf('</dialog>',at));
+ // Versão mostra só o nome do Android, sem "· API NN", e sem a linha de ajuda
+ assert.doesNotMatch(dlg,/· API \d/,'a versao nao deve mostrar API');
+ assert.doesNotMatch(h,/id="labVersionHelp"/,'a ajuda de versao foi removida');
+ // Origem: só APP Local, Play Store e Lab vazio — sem firebase/URL assinada
+ assert.doesNotMatch(dlg,/value="firebase"/);
+ assert.doesNotMatch(dlg,/value="signed-url"/);
+ for(const v of ['upload','play-manual','empty']) assert.match(dlg,new RegExp(`value="${v}"`),v);
+ // Perfil: Com root / Sem root
+ assert.match(dlg,/Com root/);assert.match(dlg,/Sem root/);
+ // Checkbox de APK antigo removido
+ assert.doesNotMatch(h,/id="labLegacySdk"/);
+ // Botão vira "Iniciar laboratório"
+ assert.match(dlg,/id="createLab"[^>]*>Iniciar laboratório</);
+});
 test('o painel Estatico tem o cartao de proteções/RASP (fatia nutcracker)',()=>{
  const h=html();
  const panel=h.slice(h.indexOf('id="tab-reverse"'),h.indexOf('id="reverseOutput"'));

@@ -96,7 +96,11 @@ class UiServerTests(unittest.TestCase):
         html = (web_root() / "index.html").read_text(encoding="utf-8")
         javascript = (web_root() / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="newLabDialog"', html)
-        self.assertIn('value="firebase"', html)
+        # Origens enxutas por decisão do operador: APP Local, Play Store, Lab vazio.
+        self.assertIn('value="upload"', html)
+        self.assertIn('value="play-manual"', html)
+        self.assertNotIn('value="firebase"', html)
+        self.assertNotIn('value="signed-url"', html)
         self.assertIn('id="labApproval"', html)
         self.assertIn("newLabDialog.showModal()", javascript)
         self.assertIn('value="empty"', html)

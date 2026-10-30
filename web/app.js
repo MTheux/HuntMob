@@ -1510,7 +1510,7 @@ const labError = document.querySelector('#labError');
 
 function resetNewLabProgress() {
   createLabButton.disabled = false;
-  createLabButton.textContent = 'Criar e iniciar laboratório';
+  createLabButton.textContent = 'Iniciar laboratório';
   labError.hidden = true;
   labError.textContent = '';
 }
@@ -1540,9 +1540,7 @@ function updateLabSource() {
   const source = document.querySelector('#labSource').value;
   const labels = {
     empty: 'Cria um lab vazio separado. O lab atual será preservado.',
-    upload: 'Selecione um APK/AAB local; o worker calculará SHA-256 antes da instalação.',
-    firebase: 'O worker usará uma referência Firebase e credenciais guardadas no servidor.',
-    'signed-url': 'A URL assinada será resolvida apenas no worker e nunca ficará no navegador.',
+    upload: 'Selecione um APK local; o worker calculará SHA-256 antes da instalação.',
     'play-manual': 'A instalação pela loja requer login e autorização manual dentro do device.',
   };
   document.querySelector('#artifactField').hidden = source !== 'upload';
@@ -1551,8 +1549,6 @@ function updateLabSource() {
   document.querySelector('#labPackageLabel').textContent=ios?'Bundle ID':play?'Link do Google Play ou Package ID':'Package ID';
   document.querySelector('#labPackageHelp').textContent=ios?'opcional; detectado do build .app':play?'opcional; deixe vazio para abrir a loja':'opcional; detectado do APK';
   document.querySelector('#labPackage').placeholder=play?'https://play.google.com/store/apps/details?id=…':'br.com.empresa.app';
-  if(!ios)document.querySelector('#labVersionHelp').textContent=play?'A imagem oficial Google Play para este worker será preparada no primeiro uso. Licenças pendentes precisam ser aceitas no SDK Manager.':'A imagem AOSP para este worker será preparada no primeiro uso. Licenças pendentes precisam ser aceitas no SDK Manager.';
-  document.querySelector('#labLegacySdk').closest('label').hidden=ios||play;
   document.querySelector('#labPlan').textContent=ios?(source==='upload'?'Instala um build .app para Simulator, compactado em ZIP. Não instala IPA físico nem App Store.':'Cria um iOS Simulator separado e preserva o atual.'):labels[source];
   if(play){document.querySelector('#labRootMode').value='stock';document.querySelector('#labPlan').textContent='Prepara a imagem oficial e abre a Play Store em um Android separado. Entre na loja e instale o app pela tela do dispositivo. O laboratório atual será preservado. Disponibilidade e compatibilidade dependem do app.';}
   document.querySelector('#labRootMode').disabled=!ios&&source==='play-manual';
@@ -1608,7 +1604,7 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
       if (!csrfToken) csrfToken = await fetchSessionToken();
       const response = await sessionFetch('/api/device/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/vnd.android.package-archive', 'X-HuntMob-CSRF': csrfToken, 'X-HuntMob-Approved': 'true', 'X-HuntMob-New-Lab': 'true', 'X-HuntMob-Legacy-SDK': String(document.querySelector('#labLegacySdk').checked), 'X-HuntMob-Root-Mode': document.querySelector('#labRootMode').value, 'X-HuntMob-Android-API':document.querySelector('#labVersion').value },
+        headers: { 'Content-Type': 'application/vnd.android.package-archive', 'X-HuntMob-CSRF': csrfToken, 'X-HuntMob-Approved': 'true', 'X-HuntMob-New-Lab': 'true', 'X-HuntMob-Root-Mode': document.querySelector('#labRootMode').value, 'X-HuntMob-Android-API':document.querySelector('#labVersion').value },
         body: artifact,
       });
       const result = await response.json();
@@ -1639,7 +1635,7 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
     errorBox.hidden = false;
   } finally {
     createLabButton.disabled = false;
-    createLabButton.textContent = 'Criar e iniciar laboratório';
+    createLabButton.textContent = 'Iniciar laboratório';
   }
 });
 const sessionDialog = document.querySelector('#sessionDialog');

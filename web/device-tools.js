@@ -25,7 +25,7 @@
 
   }
   function sync(data){if(data?.workspace_id)inventory=data;const previous=selected;select.replaceChildren(new Option('Principal'+(devicePlatform==='ios'?' · iOS':' · Android'),'primary'));
-    if(devicePlatform==='android')for(const d of inventory?.devices||[])if(d.online)select.add(new Option(window.huntmobCanvas?.label(d.id)||d.serial,d.id));selected=[...select.options].some(o=>o.value===previous)?previous:'primary';select.value=selected;capabilities();}
+    if(devicePlatform==='android')for(const d of inventory?.devices||[])if(d.online)select.add(new Option(window.huntmobCanvas?.label(d.id)||d.serial,d.id));selected=[...select.options].some(o=>o.value===previous)?previous:'primary';select.value=selected;document.querySelector('.tools-device-picker').hidden=select.options.length<=1;capabilities();}
   select.addEventListener('change',()=>{selected=select.value;rootState=undefined;rootScope=undefined;rootMessage='';document.querySelector('#automaticBiometric').checked=false;autoCount=0;capabilities();refreshRoot();});
   window.huntmobTools={extra,isIos,control,sync,refreshCapabilities:capabilities,rootChanging:()=>rootBusy&&!extra()?rootScope:undefined,refreshRoot:()=>{if(rootScope!==id())refreshRoot();},select(deviceId){selected=deviceId===activeLab.id?'primary':deviceId;sync(inventory);refreshRoot();document.querySelector('[data-tab="device-tools"]').click();}};
   document.querySelector('#checkPentestReadiness').addEventListener('click',async event=>{
@@ -39,10 +39,12 @@
       if(!response.ok||!data.ok)throw new Error(data.reason||'Diagnóstico indisponível.');
       status.textContent='Requisitos conferidos · '+new Date(data.checked_at).toLocaleTimeString('pt-BR');
       for(const item of data.checks){const row=document.createElement('div');row.dataset.state=item.state==='ready'?'passed':'blocked';const marker=document.createElement('span');marker.textContent={ready:'OK',blocked:'BLOCK',pending:'PEND',experimental:'BETA',unsupported:'LIMITE'}[item.state]||item.state;const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');title.textContent=item.label;detail.textContent=item.detail;copy.append(title,detail);row.append(marker,copy);checks.append(row);}
-    }catch(error){if(scope===id())status.textContent=error.name==='TimeoutError'?'A verificação demorou. Confira a conexão e tente novamente.':error.message;}
+      const ok=data.checks.filter(c=>c.state==='ready').length,blocked=data.checks.filter(c=>c.state==='blocked').length,pend=data.checks.length-ok-blocked;
+      document.querySelector('#pentestReadinessSummary').textContent=`${ok} OK`+(blocked?` · ${blocked} bloqueio`:'')+(pend?` · ${pend} pendente`:'');
+    }catch(error){if(scope===id()){status.textContent=error.name==='TimeoutError'?'A verificação demorou. Confira a conexão e tente novamente.':error.message;document.querySelector('#pentestReadinessSummary').textContent='Falha ao conferir';}}
     finally{button.disabled=false;}
   });
-  select.addEventListener('change',()=>{document.querySelector('#pentestReadinessChecks').replaceChildren();document.querySelector('#pentestReadinessStatus').textContent='Aparelho alterado. Verifique os requisitos novamente.';});
+  select.addEventListener('change',()=>{document.querySelector('#pentestReadinessChecks').replaceChildren();document.querySelector('#pentestReadinessStatus').textContent='Aparelho alterado. Verifique os requisitos novamente.';document.querySelector('#pentestReadinessSummary').textContent='Requisitos não conferidos';});
   document.querySelector('#toolsBackDevice').addEventListener('click',()=>applyDeviceControl({action:'back'}));
   document.querySelector('#toolsStopDevice').addEventListener('click',async()=>{if(devicePlatform==='android'){if(!extra())return openLabShutdown();return window.huntmobCanvas?.stop([id()]);}try{await authorizedPost('/api/ios/action',{action:'stop'});await loadIosRuntime();}catch(error){notify(error.message);}});
   document.querySelector('#toolsStoreDevice').addEventListener('click',async()=>{try{if(extra())await authorizedPost('/api/workspace/device/action',{workspace_id:inventory.workspace_id,device_id:selected,action:'open-store'});else await deviceAction('open-play-store');}catch(error){notify(error.message);}});

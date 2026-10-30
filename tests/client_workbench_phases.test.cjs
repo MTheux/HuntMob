@@ -6,7 +6,7 @@ function load(){delete require.cache[require.resolve('../web/workbench-phases.js
 test('tabsForPhase devolve as abas da fase na ordem do mapa',()=>{
  const {tabsForPhase}=load();
  assert.deepEqual(tabsForPhase('dinamico'),['dast','frida','proxy']);
- assert.deepEqual(tabsForPhase('engagement'),['device-tools','files']);
+ assert.deepEqual(tabsForPhase('engagement'),['device-tools','files','lab']);
 });
 test('phaseForTab devolve a fase dona de cada aba',()=>{
  const {phaseForTab}=load();
@@ -18,17 +18,17 @@ test('phaseForTab cai em engagement para aba desconhecida',()=>{
  const {phaseForTab}=load();
  assert.equal(phaseForTab('inexistente'),'engagement');
 });
-test('as 6 abas atuais aparecem exatamente uma vez somando todas as fases',()=>{
+test('as 7 abas atuais aparecem exatamente uma vez somando todas as fases',()=>{
  const {PHASE_TABS}=load();
  const all=Object.values(PHASE_TABS).flat();
- assert.equal(all.length,6);
- assert.deepEqual([...all].sort(),['dast','device-tools','files','frida','proxy','reverse']);
+ assert.equal(all.length,7);
+ assert.deepEqual([...all].sort(),['dast','device-tools','files','frida','lab','proxy','reverse']);
 });
 
 // --- revealPhase: document stub mínimo ---
 function classList(init){const s=new Set(init);return{add:x=>s.add(x),remove:x=>s.delete(x),toggle:(x,on)=>{if(on)s.add(x);else s.delete(x);},contains:x=>s.has(x)};}
 function makeDoc(hidden=[]){
- const tabs=['device-tools','files','reverse','dast','frida','proxy'];
+ const tabs=['device-tools','files','lab','reverse','dast','frida','proxy'];
  const phases=['engagement','estatico','dinamico'].map(p=>({dataset:{phase:p},classList:classList(),setAttribute(){}}));
  const nav={},panel={};const router={hidden:true};const extra={'#phaseEmpty':{hidden:false},'.tool-router':router};
  // Os botões da sub-nav são os mesmos nós consultados por [data-tab="id"]: um
@@ -93,7 +93,7 @@ test('fase sem abas disponíveis: active undefined, sub-nav escondida e aviso vi
 });
 test('preferencia invalida restaura a fase engagement',()=>{
  const {revealPhase,phaseForTab}=load();const doc=makeDoc();
- assert.deepEqual(revealPhase(phaseForTab('xxx'),doc),{available:['device-tools','files'],active:'device-tools'});
+ assert.deepEqual(revealPhase(phaseForTab('xxx'),doc),{available:['device-tools','files','lab'],active:'device-tools'});
 });
 test('revealPhase esconde o aviso de fase vazia quando ha abas, e o mostra quando nao ha',()=>{
  const {revealPhase}=load();

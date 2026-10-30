@@ -4,7 +4,7 @@
 // Investigação/Resultados). Puro — o modelo não toca o DOM; revealPhase recebe
 // o document para ser testável isolado.
 const PHASE_TABS = {
-  engagement: ['device-tools', 'files'],
+  engagement: ['device-tools', 'files', 'lab'],
   estatico: ['reverse'],
   dinamico: ['dast', 'frida', 'proxy'],
 };

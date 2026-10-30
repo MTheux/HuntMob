@@ -77,7 +77,7 @@ class UiServerTests(unittest.TestCase):
         # Only layout/navigation preferences persist; biometric data stays in memory.
         import re
         writes = re.findall(r"localStorage\.setItem\(([^;]+)\)", javascript)
-        self.assertEqual(writes, ["'huntmob.analysisOpen', analysisPreference", "'huntmob.activePhase', phase"])
+        self.assertEqual(writes, ["'huntmob.analysisOpen', analysisPreference", "'huntmob.deviceListOpen', String(open)", "'huntmob.activePhase', phase"])
         self.assertNotIn("JSON.stringify(enrolledEmbedding)", javascript)
         self.assertNotIn("indexedDB", javascript)
 

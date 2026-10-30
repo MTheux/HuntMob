@@ -765,3 +765,20 @@ body.device-collapsed .menu-toggle{display:inline-flex}
   body.device-collapsed .shell{grid-template-columns:minmax(0,1fr)}
   body.device-collapsed .device-list{display:none}
 }
+
+.stage-toolbar-row{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.device-status{display:flex;align-items:center;gap:9px;min-width:0}
+.device-status .status-live{flex:none}
+.device-status-id{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.device-status-id strong{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(42vw,340px)}
+.device-status-id small{font:9px var(--mono);color:var(--quiet)}
+.stage-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.stage-overflow{position:relative}
+.stage-overflow>summary{list-style:none;cursor:pointer;width:32px;height:30px;display:grid;place-items:center;border:1px solid var(--line);border-radius:5px;background:var(--surface-2);color:var(--muted);font-size:17px;letter-spacing:1px}
+.stage-overflow>summary::-webkit-details-marker{display:none}
+.stage-overflow>summary::marker{content:""}
+.stage-overflow>summary:hover,.stage-overflow[open]>summary{border-color:var(--red);color:var(--text)}
+.overflow-menu{position:absolute;right:0;top:36px;z-index:20;display:flex;flex-direction:column;min-width:220px;padding:6px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.overflow-item{border:0;background:transparent;color:var(--text);text-align:left;padding:9px 10px;border-radius:5px;font-size:12px;cursor:pointer}
+.overflow-item:hover:not(:disabled){background:var(--surface-2)}
+.overflow-item:disabled{color:var(--quiet);cursor:not-allowed}

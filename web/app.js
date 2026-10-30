@@ -27,7 +27,7 @@ function syncLabLifecycleButtons() {
   const saveButton = document.querySelector('#saveLabButton');
   const closeButton = document.querySelector('#closeLabButton');
   saveButton.disabled = !available || labIsSaved();
-  saveButton.textContent = labIsSaved() ? 'Lab salvo' : 'Salvar laboratório';
+  saveButton.textContent = labIsSaved() ? 'Salvo' : 'Salvar';
   closeButton.disabled = !available;
 }
 function setPowerOnVisible(show) {
@@ -85,6 +85,13 @@ function setDeviceListOpen(open, remember = false) {
 document.querySelector('#collapseDeviceList').addEventListener('click', () => setDeviceListOpen(false, true));
 document.querySelector('#expandDeviceList').addEventListener('click', () => setDeviceListOpen(true, true));
 try { setDeviceListOpen(localStorage.getItem('huntmob.deviceListOpen') !== 'false'); } catch { setDeviceListOpen(true); }
+// Menu "⋯" de ações avançadas do aparelho: fecha ao escolher um item ou clicar fora.
+document.querySelectorAll('.stage-overflow').forEach(menu => {
+  menu.querySelectorAll('.overflow-item').forEach(item => item.addEventListener('click', () => { menu.open = false; }));
+});
+document.addEventListener('click', event => {
+  document.querySelectorAll('.stage-overflow[open]').forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+});
 
 const viewport = document.querySelector('#deviceViewport');
 const phoneCanvas = document.querySelector('#phoneCanvas');

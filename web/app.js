@@ -1675,17 +1675,20 @@ document.querySelector('#rebootDevice').addEventListener('click', async () => {
 document.querySelector('#powerOnDevice').addEventListener('click', async () => {
   if (labLifecycleBusy || devicePlatform !== 'android') return;
   labLifecycleBusy = true; setPowerOnVisible(true); syncLabLifecycleButtons();
+  const powerOn = document.querySelector('#powerOnDevice');
+  powerOn.textContent = 'Ligando…'; powerOn.setAttribute('aria-busy', 'true');
   try {
     const response = await fetch('/api/labs', { cache: 'no-store' });
     if (!response.ok) throw new Error('Labs salvos indisponíveis');
     const payload = await response.json();
     const labId = payload.current?.id || payload.labs?.[0]?.id;
     if (!labId) { notify('Nenhum lab salvo para ligar. Crie um laboratório.'); return; }
+    notify('Ligando o Android… acompanhe o progresso no palco.');
     await authorizedPost('/api/device/action', { action: 'resume', lab_id: labId });
     await loadRuntime(); await loadSavedLabs();
     notify('Aparelho ligado com os dados preservados');
   } catch (error) { notify(error.message); }
-  finally { labLifecycleBusy = false; syncLabLifecycleButtons(); }
+  finally { labLifecycleBusy = false; powerOn.textContent = 'Ligar'; powerOn.removeAttribute('aria-busy'); syncLabLifecycleButtons(); }
 });
 async function finishLabShutdown(action) {
   if (labLifecycleBusy || !dialogLabId || dialogLabId !== activeLab.id) return;
@@ -1927,12 +1930,13 @@ async function resumeSavedLab(lab,button){
     return;
   }
   if(!window.confirm('Retomar este lab? O atual será desligado e preservado.'))return;
-  button.disabled=true;
+  button.disabled=true;button.setAttribute('aria-busy','true');
+  notify('Ligando o Android… o lab é retomado por snapshot; acompanhe o palco.');
   try{
     await authorizedPost('/api/device/action',{action:'resume',lab_id:lab.id});
     await loadRuntime();await loadSavedLabs();notify('Lab retomado com dados preservados');
   }catch(error){notify(error.message);}
-  finally{button.disabled=false;}
+  finally{button.disabled=false;button.removeAttribute('aria-busy');}
 }
 
 

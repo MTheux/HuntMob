@@ -385,10 +385,43 @@ class AndroidWorker:
             *performance, *camera,
         )
 
+    def _reconcile_port_owner(self) -> bool:
+        """An orphan HuntMob emulator from another lab can hold our console port,
+        so status reports 'serial pertence a outro AVD'. Stop that orphan (its
+        data persists on disk) so the selected lab can take the port. Never
+        touches a non-HuntMob emulator; returns True when the port is freed."""
+        if not self.sdk:
+            return False
+        from .lab_sessions import LAB_NAME
+        adb = str(self.sdk.adb)
+        observed = _run((adb, "-s", self.serial, "emu", "avd", "name"), timeout=5)
+        name = observed.stdout.splitlines()[0].strip() if observed.returncode == 0 and observed.stdout.splitlines() else ""
+        if not name or name == self.avd_name:
+            return False
+        if not (LAB_NAME.fullmatch(name) or name == type(self).avd_name):
+            return False
+        if _run((adb, "-s", self.serial, "emu", "kill"), timeout=15).returncode:
+            return False
+        self._devices_cache.clear()
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", int(self.port)), timeout=0.25):
+                    pass
+            except OSError:
+                self._devices_cache.clear()
+                return True
+            time.sleep(0.5)
+        return False
+
     def _start(self, timeout: int) -> Dict[str, object]:
         existing = self.status()
         if existing["state"] == "device" and existing.get("properties", {}).get("sys.boot_completed") == "1":
             return {"ok": True, "started": False, **existing}
+        # An orphan HuntMob emulator on our port surfaces as an ownership
+        # mismatch; reconcile by stopping it and re-reading, instead of failing.
+        if existing["state"] == "error" and existing.get("ownership_verified") is False and self._reconcile_port_owner():
+            existing = self.status()
         if existing["state"] in {"error", "unauthorized"}:
             return {"ok": False, "blocked": True, "reason": existing.get("reason", "Device authorization is required")}
         try:

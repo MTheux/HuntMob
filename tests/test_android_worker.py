@@ -42,6 +42,42 @@ class AndroidWorkerTests(unittest.TestCase):
             with self.subTest(key=key, value=value), patch.dict('os.environ', {key: value}):
                 with self.assertRaises(ValueError): worker.emulator_options()
 
+    def test_reconcile_stops_orphan_huntmob_emulator_and_frees_port(self):
+        worker = AndroidWorker(self.sdk)
+        orphan = 'huntmob_lab_' + 'b' * 32
+        calls = []
+        def run(command, **kwargs):
+            calls.append(tuple(command))
+            if command[-2:] == ('avd', 'name'):
+                return subprocess.CompletedProcess(command, 0, orphan + '\n', '')
+            return subprocess.CompletedProcess(command, 0, 'OK\n', '')
+        with patch('huntmob.android_worker._run', side_effect=run), \
+             patch('huntmob.android_worker.socket.create_connection', side_effect=ConnectionRefusedError), \
+             patch('huntmob.android_worker.time.sleep'):
+            self.assertTrue(worker._reconcile_port_owner())
+        self.assertIn(('/sdk/adb', '-s', 'emulator-5556', 'emu', 'kill'), calls)
+
+    def test_reconcile_never_touches_a_non_huntmob_or_same_avd(self):
+        worker = AndroidWorker(self.sdk)
+        def run_for(name):
+            calls = []
+            def run(command, **kwargs):
+                calls.append(tuple(command))
+                if command[-2:] == ('avd', 'name'):
+                    return subprocess.CompletedProcess(command, 0, name + '\n', '')
+                return subprocess.CompletedProcess(command, 0, 'OK\n', '')
+            return run, calls
+        # mesmo AVD selecionado: nada a reconciliar
+        run, calls = run_for(worker.avd_name)
+        with patch('huntmob.android_worker._run', side_effect=run):
+            self.assertFalse(worker._reconcile_port_owner())
+        self.assertFalse(any(c[-1] == 'kill' for c in calls))
+        # AVD de terceiro (não HuntMob): nunca mata
+        run, calls = run_for('Pixel_7_API_34')
+        with patch('huntmob.android_worker._run', side_effect=run):
+            self.assertFalse(worker._reconcile_port_owner())
+        self.assertFalse(any(c[-1] == 'kill' for c in calls))
+
     def test_old_target_sdk_detected_from_badging(self):
         from huntmob.android_worker import _old_target_sdk
         self.assertTrue(_old_target_sdk("package: name='a'\nsdkVersion:'14'\ntargetSdkVersion:'19'\n"))

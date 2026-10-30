@@ -1538,19 +1538,13 @@ function playPackage(value) {
 }
 function updateLabSource() {
   const source = document.querySelector('#labSource').value;
-  const labels = {
-    empty: 'Cria um lab vazio separado. O lab atual será preservado.',
-    upload: 'Selecione um APK local; o worker calculará SHA-256 antes da instalação.',
-    'play-manual': 'A instalação pela loja requer login e autorização manual dentro do device.',
-  };
   document.querySelector('#artifactField').hidden = source !== 'upload';
   const ios=document.querySelector('#labPlatform').value==='ios';
   const play=!ios&&source==='play-manual';
   document.querySelector('#labPackageLabel').textContent=ios?'Bundle ID':play?'Link do Google Play ou Package ID':'Package ID';
   document.querySelector('#labPackageHelp').textContent=ios?'opcional; detectado do build .app':play?'opcional; deixe vazio para abrir a loja':'opcional; detectado do APK';
   document.querySelector('#labPackage').placeholder=play?'https://play.google.com/store/apps/details?id=…':'br.com.empresa.app';
-  document.querySelector('#labPlan').textContent=ios?(source==='upload'?'Instala um build .app para Simulator, compactado em ZIP. Não instala IPA físico nem App Store.':'Cria um iOS Simulator separado e preserva o atual.'):labels[source];
-  if(play){document.querySelector('#labRootMode').value='stock';document.querySelector('#labPlan').textContent='Prepara a imagem oficial e abre a Play Store em um Android separado. Entre na loja e instale o app pela tela do dispositivo. O laboratório atual será preservado. Disponibilidade e compatibilidade dependem do app.';}
+  if(play)document.querySelector('#labRootMode').value='stock';
   document.querySelector('#labRootMode').disabled=!ios&&source==='play-manual';
 }
 document.querySelector('#labSource').addEventListener('change', updateLabSource);
@@ -1565,11 +1559,6 @@ document.querySelector('#newLabForm').addEventListener('submit', async (event) =
   }
   if (document.querySelector('#labPlatform').value==='android' && packageValue && !validPackage(packageValue)) {
     errorBox.textContent = 'Package ID inválido. Use o formato br.com.empresa.app ou deixe vazio para detecção automática.';
-    errorBox.hidden = false;
-    return;
-  }
-  if (!document.querySelector('#labApproval').checked) {
-    errorBox.textContent = 'Confirme a autorização para usar este laboratório antes de iniciar.';
     errorBox.hidden = false;
     return;
   }

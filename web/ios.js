@@ -292,21 +292,18 @@ async function updateLabPlatform() {
   document.querySelector('#manageLabIosVersions').hidden=!ios;
   document.querySelector('#labIosAccessField').hidden=!ios;
   document.querySelector('#labRootMode').closest('label').hidden=ios;
-  document.querySelector('#labLegacySdk').closest('label').hidden=ios;
   document.querySelector('#labArtifact').value='';document.querySelector('#labArtifact').accept=ios?'.zip':'.apk';
   const source=document.querySelector('#labSource');source.replaceChildren();
-  const sources=ios?[['upload','Build .app.zip para Simulator'],['empty','iOS vazio']]:[['upload','APK local · lab exclusivo'],['empty','Android vazio'],['play-manual','Play Store · login no dispositivo']];
-  sources.forEach(([value,label])=>source.add(new Option(label,value)));source.value=ios?'empty':'play-manual';
+  const sources=ios?[['upload','Build .app.zip para Simulator'],['empty','iOS vazio']]:[['upload','APP Local · APK'],['play-manual','Play Store · loja no device'],['empty','Lab vazio · avançado']];
+  sources.forEach(([value,label])=>source.add(new Option(label,value)));source.value=ios?'empty':'upload';
   document.querySelector('#labPackageLabel').textContent=ios?'Bundle ID':'Package ID';
   document.querySelector('#labPackageHelp').textContent=ios?'opcional; detectado do build .app':'opcional; detectado do APK';
   source.dispatchEvent(new Event('change'));
   document.querySelector('#labError').hidden=true;
 
-  if(ios)document.querySelector('#labVersionHelp').textContent='Versões instaladas no worker Mac. iOS virtual e jailbreak ainda indisponíveis.';
   document.querySelector('#createLab').disabled=ios;
   if(!ios) {
-    const arch=runtimeDevice?.architecture==='arm64-v8a'?' · ARM64':runtimeDevice?.architecture==='x86_64'?' · x86_64':'';
-    [[36,'16'],[35,'15'],[34,'14'],[33,'13'],[32,'12L'],[31,'12'],[30,'11']].forEach(([api,name])=>version.add(new Option('Android '+name+' · API '+api+arch,api)));
+    [[36,'16'],[35,'15'],[34,'14'],[33,'13'],[32,'12L'],[31,'12'],[30,'11']].forEach(([api,name])=>version.add(new Option('Android '+name,api)));
     version.value='35';
     return;
   }
@@ -320,7 +317,7 @@ async function updateLabPlatform() {
     updateLabModels();
   } catch(error) {
     if(generation!==labCatalogGeneration)return;
-    version.add(new Option('Nenhum runtime disponível',''));document.querySelector('#labVersionHelp').textContent=error.message;
+    version.add(new Option('Nenhum runtime disponível',''));const box=document.querySelector('#labError');box.textContent=error.message;box.hidden=false;
   }
 }
 function updateLabModels() {

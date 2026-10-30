@@ -101,7 +101,8 @@ class UiServerTests(unittest.TestCase):
         self.assertIn('value="play-manual"', html)
         self.assertNotIn('value="firebase"', html)
         self.assertNotIn('value="signed-url"', html)
-        self.assertIn('id="labApproval"', html)
+        # A autorização segue afirmada ao worker no upload, sem checkbox na UI.
+        self.assertIn("'X-HuntMob-Approved': 'true'", javascript)
         self.assertIn("newLabDialog.showModal()", javascript)
         self.assertIn('value="empty"', html)
         self.assertIn('id="closeNewLab"', html)

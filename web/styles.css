@@ -757,13 +757,11 @@ dialog{border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 
 .aside-head-actions{display:flex;gap:6px;align-items:center}
 #collapseDeviceList{color:var(--red);font-size:20px;font-weight:300}
-.device-rail-toggle{display:flex;flex-direction:column;align-items:center;gap:7px;width:100%;border:0;background:transparent;cursor:pointer;padding:10px 0}
-.device-rail-toggle .device-rail-chevron{font-size:20px;line-height:1;color:var(--red)}
-.device-rail-toggle .device-rail-label{writing-mode:vertical-rl;text-orientation:mixed;font:10px var(--mono);letter-spacing:.16em;text-transform:lowercase;color:var(--muted)}
-.device-rail-toggle:hover .device-rail-label{color:var(--text)}
+.menu-toggle{display:none;align-items:center;gap:7px;min-height:30px;margin-right:4px;padding:0 10px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface-2);color:var(--muted);cursor:pointer;font:600 11px var(--font)}
+.menu-toggle span:first-child{font-size:20px;line-height:1;color:var(--red)}
+.menu-toggle:hover{border-color:var(--red);color:var(--text)}
+body.device-collapsed .menu-toggle{display:inline-flex}
 @media(min-width:821px){
-  body.device-collapsed .shell{grid-template-columns:34px minmax(0,1fr)}
-  body.device-collapsed .device-list{padding:10px 2px;overflow:hidden;align-items:center}
-  body.device-collapsed .device-list>*{display:none}
-  body.device-collapsed .device-list>#expandDeviceList{display:flex}
+  body.device-collapsed .shell{grid-template-columns:0 minmax(0,1fr)}
+  body.device-collapsed .device-list{display:none}
 }

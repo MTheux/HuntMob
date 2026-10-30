@@ -54,13 +54,14 @@ test('o cartao de identidade Android (trocar Android ID) existe no painel de fer
  const card=h.slice(at,at+1200);
  for(const id of ['androidIdentityValue','androidIdInput','applyAndroidId','randomAndroidId']) assert.match(card,new RegExp(`id="${id}"`),id);
 });
-test('a sidebar de dispositivos recolhe com seta (igual ao painel de ferramentas)',()=>{
+test('a sidebar recolhe com seta e reabre pela pilula "menu" (padrão de ferramentas)',()=>{
  const h=html();
  const at=h.indexOf('class="device-list"');
  const aside=h.slice(at,h.indexOf('</aside>',at));
- for(const id of ['collapseDeviceList','expandDeviceList']) assert.match(aside,new RegExp(`id="${id}"`),id);
- // o trilho recolhido mostra "menu" (igual o tab de Ferramentas mostra rótulo)
- assert.match(aside,/device-rail-label[^>]*>menu</);
+ assert.match(aside,/id="collapseDeviceList"/,'seta de recolher no cabeçalho da sidebar');
+ // reabrir usa o mesmo padrão do tab de Ferramentas (pilula menu-toggle) e diz "menu"
+ assert.match(h,/class="menu-toggle" id="expandDeviceList"/);
+ assert.match(h,/id="expandDeviceList"[\s\S]{0,120}>menu</);
 });
 test('o dialogo Novo laboratorio foi repaginado (versao sem API, 3 origens, perfil com/sem root)',()=>{
  const h=html();

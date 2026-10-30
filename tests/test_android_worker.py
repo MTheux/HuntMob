@@ -42,6 +42,41 @@ class AndroidWorkerTests(unittest.TestCase):
             with self.subTest(key=key, value=value), patch.dict('os.environ', {key: value}):
                 with self.assertRaises(ValueError): worker.emulator_options()
 
+    def test_reboot_recovers_a_wedged_adb_server_before_timing_out(self):
+        worker = AndroidWorker(self.sdk)
+        booted = {'state': 'device', 'attached': True, 'ownership_verified': True, 'properties': {'sys.boot_completed': '1'}}
+        offline = {'state': 'offline', 'attached': False}
+        statuses = [booted] + [offline] * 10 + [booted]
+        calls = []
+        def run(command, **kwargs):
+            calls.append(tuple(command))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with patch.object(worker, 'status', side_effect=statuses), \
+             patch('huntmob.android_worker._run', side_effect=run), \
+             patch('huntmob.android_worker.time.sleep'):
+            result = worker.reboot()
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['recovered'])
+        self.assertIn(('/sdk/adb', 'kill-server'), calls)
+        self.assertIn(('/sdk/adb', 'start-server'), calls)
+
+    def test_reboot_does_not_bounce_adb_when_device_comes_back_cleanly(self):
+        worker = AndroidWorker(self.sdk)
+        booted = {'state': 'device', 'attached': True, 'ownership_verified': True, 'properties': {'sys.boot_completed': '1'}}
+        offline = {'state': 'offline', 'attached': False}
+        statuses = [booted, offline, booted]
+        calls = []
+        def run(command, **kwargs):
+            calls.append(tuple(command))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with patch.object(worker, 'status', side_effect=statuses), \
+             patch('huntmob.android_worker._run', side_effect=run), \
+             patch('huntmob.android_worker.time.sleep'):
+            result = worker.reboot()
+        self.assertTrue(result['ok'])
+        self.assertFalse(result['recovered'])
+        self.assertNotIn(('/sdk/adb', 'kill-server'), calls)
+
     def test_stop_waits_for_console_port_before_resume(self):
         from unittest.mock import MagicMock
         worker = AndroidWorker(self.sdk)

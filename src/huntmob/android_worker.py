@@ -64,6 +64,11 @@ def _batch_wrap(command):
     return command
 
 
+# Consecutive offline/error polls (~2s each) a post-reboot device may show
+# before we treat the adb transport as wedged and bounce the server once.
+_ADB_RECOVER_POLLS = 10
+
+
 def _run(command: Sequence[str], timeout: int = 30, input_text: str | None = None, env=None):
     return subprocess.run(
         _batch_wrap(command), input=input_text, capture_output=True, text=True,
@@ -437,6 +442,19 @@ class AndroidWorker:
             time.sleep(0.5)
         return {"ok": False, "state": "stopping", "reason": "O Android ainda está desligando; aguarde e tente retomar novamente."}
 
+    def _recover_adb(self) -> None:
+        """Un-wedge a stuck adb transport the way the operator did by hand:
+        reconnect the device, then bounce the adb server. Scoped to adb only —
+        the worker↔gateway pairing is HTTP and is not touched."""
+        if not self.sdk:
+            return
+        adb = str(self.sdk.adb)
+        self._devices_cache.clear()
+        _run((adb, "-s", self.serial, "reconnect"), timeout=10)
+        _run((adb, "kill-server"), timeout=10)
+        _run((adb, "start-server"), timeout=15)
+        self._devices_cache.clear()
+
     def reboot(self, timeout: int = 180) -> Dict[str, object]:
         if not self.sdk or self.status()["state"] != "device":
             return {"ok": False, "blocked": True, "reason": "device is not online"}
@@ -444,12 +462,23 @@ class AndroidWorker:
         if result.returncode != 0:
             return {"ok": False, "blocked": True, "reason": "reboot command failed"}
         deadline = time.monotonic() + timeout
+        recovered = False
+        wedged = 0
         while time.monotonic() < deadline:
             status = self.status()
             if status["state"] == "device" and status.get("properties", {}).get("sys.boot_completed") == "1":
-                return {"ok": True, "state": "device", "rebooted": True}
+                return {"ok": True, "state": "device", "rebooted": True, "recovered": recovered}
+            # A transport stuck offline/error after reboot is the loop the
+            # operator used to clear by hand; recover the adb server once.
+            if status["state"] in {"offline", "error"}:
+                wedged += 1
+                if wedged >= _ADB_RECOVER_POLLS and not recovered:
+                    self._recover_adb()
+                    recovered = True
+            else:
+                wedged = 0
             time.sleep(2)
-        return {"ok": False, "blocked": True, "reason": "reboot timed out"}
+        return {"ok": False, "blocked": True, "reason": "reboot timed out", "recovered": recovered}
 
     def destroy(self, timeout: int = 45) -> Dict[str, object]:
         """Delete only the fixed HuntMob AVD after stopping its emulator."""

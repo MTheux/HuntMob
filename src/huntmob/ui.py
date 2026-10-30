@@ -198,6 +198,10 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             try: self.workspace_json(reverse_engines.target(parse_qs(parsed.query).get('workspace', [''])[0]))
             except (OSError, ValueError, KeyError, TypeError): self.workspace_json({'ok': False, 'reason': 'Workspace selecionado mudou.'}, 409)
             return
+        if route == '/api/reverse/protections':
+            try: self.workspace_json(reverse_engines.protections(parse_qs(parsed.query).get('workspace', [''])[0]))
+            except (OSError, ValueError, KeyError, TypeError): self.workspace_json({'ok': False, 'reason': 'Workspace selecionado mudou.'}, 409)
+            return
         if route in {'/api/reverse/inspections', '/api/reverse/companion', '/api/reverse/companion.zip'}:
             query = parse_qs(parsed.query)
             try:

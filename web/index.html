@@ -168,6 +168,7 @@
         <section class="tab-content active" id="tab-reverse"><div class="platform-ios"><div class="panel-title"><div><span class="eyebrow">REA WORKSPACE</span><h2>Análise iOS</h2></div></div><div class="ios-upload"><label class="lab-field">Análise local de IPA<input id="iosStaticFile" type="file" accept=".ipa"></label><button id="analyzeIos" class="outline">Analisar IPA sem instalar</button></div><p class="profile-description">Info.plist · permissões · URL schemes · ATS · SHA256. Funciona sem device. Frida/Objection e sandbox exigem runtime compatível; o iOS virtual está em validação.</p><pre id="iosStaticResult" class="console" role="status">Selecione um IPA autorizado para ver os resultados.</pre></div><div class="platform-android">
           <div class="panel-title"><div><span class="eyebrow">ANÁLISE ESTÁTICA</span><h2 id="reversePackage">Selecione um aplicativo</h2></div><div class="reverse-app-select platform-android"><label class="lab-field" for="reverseAppPicker">Aplicativo<select id="reverseAppPicker" disabled><option value="">Atualize a lista de apps</option></select></label><button class="outline" id="refreshApps">Atualizar apps</button></div>
           <div class="artifact-meta"><span id="targetAppState">Nenhum app selecionado</span><span id="reverseHash">SHA256 pendente</span><span id="analysisEngineState">Verificando motor integrado…</span></div>
+          <section id="protectionScan" class="protection-scan platform-android" aria-label="Proteções e RASP detectadas"><div class="panel-title"><div><span class="eyebrow">PROTEÇÃO / RASP · ESTÁTICO</span><h3>Blindagem detectada</h3></div><button type="button" class="outline" id="refreshProtections">Varrer proteções</button></div><p class="profile-description">Varredura de nomes no APK ligado (fatia nutcracker): packers, ofuscadores e RASP. Só leitura — não executa o app.</p><p id="protectionSummary" role="status">Prepare a análise estática e clique em Varrer proteções.</p><ul id="protectionList" class="protection-list"></ul></section>
           <section class="reverse-engines" aria-label="REA e Reconstruction Companion">
             <div class="panel-title"><div><span class="eyebrow">INSPEÇÃO DO APK</span><h3>Do APK à evidência</h3></div><span id="reverseProvidersState" class="safe-badge">Verificando worker…</span></div>
             <p class="profile-description">O REA lê o APK e registra fatos verificáveis. O Companion entrega esse contexto ao agente. O modelo local só avalia quando você solicitar e a resposta exige revisão humana.</p>
@@ -433,6 +434,7 @@
   <script src="face-quality.js?v=runtime-117-face-multisample"></script>
   <script src="app.js?v=runtime-120-power-on"></script>
   <script src="android-identity.js?v=runtime-120-android-id"></script>
+  <script src="protection-scan.js?v=runtime-120-protection-scan"></script>
   <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>
   <script src="ios-runtimes.js?v=runtime-111-polling"></script>
   <script src="workspace-devices.js?v=runtime-111-polling"></script>

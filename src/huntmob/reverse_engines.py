@@ -130,6 +130,23 @@ def target(workspace):
             'file_count': len(record['files'])}
 
 
+def protections(workspace):
+    """Read-only protector/RASP fingerprint over the SHA-bound APK of this lab."""
+    selected = lab_sessions.current()
+    if selected.get('id') != workspace: raise ValueError('O workspace selecionado mudou.')
+    package = selected.get('package_id', '')
+    try:
+        record = reverse_workspace.latest(package, workspace)
+        _, apk = bound(package, workspace, record['run_id'], record['sha256'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return {'ok': True, 'prepared': False, 'package_id': package, 'workspace_id': workspace,
+                'protections': [], 'reason': 'Prepare a decompilação na interface Reverse.'}
+    from .protection_scan import scan_protections
+    result = scan_protections(apk)
+    result.update({'prepared': True, 'package_id': package, 'workspace_id': workspace, 'sha256': record['sha256']})
+    return result
+
+
 def bound(package, workspace, run, sha):
     selected = lab_sessions.current()
     if selected.get('id') != workspace or selected.get('package_id') != package:

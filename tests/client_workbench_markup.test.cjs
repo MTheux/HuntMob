@@ -54,6 +54,11 @@ test('o cartao de identidade Android (trocar Android ID) existe no painel de fer
  const card=h.slice(at,at+1200);
  for(const id of ['androidIdentityValue','androidIdInput','applyAndroidId','randomAndroidId']) assert.match(card,new RegExp(`id="${id}"`),id);
 });
+test('o painel Estatico tem o cartao de proteções/RASP (fatia nutcracker)',()=>{
+ const h=html();
+ const panel=h.slice(h.indexOf('id="tab-reverse"'),h.indexOf('id="reverseOutput"'));
+ for(const id of ['protectionScan','refreshProtections','protectionSummary','protectionList']) assert.match(panel,new RegExp(`id="${id}"`),id);
+});
 test('os scripts de bypass curados vivem catalogados e desabilitados na secao gated',()=>{
  const h=html();
  const gated=h.slice(h.indexOf('unavailable-scripts'));

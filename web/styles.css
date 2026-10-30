@@ -114,6 +114,7 @@
 .ios-view .platform-ios{display:block}
 .ios-view .platform-android{display:none}
 .platform-android{height:100%}
+#androidIdentityCard{height:auto}
 #iosStaticResult{white-space:pre-wrap;overflow-wrap:anywhere}
 
 .ios-native-status{margin:0 0 20px;padding:0 0 20px;border-bottom:1px solid var(--line)}

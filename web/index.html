@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>HuntMob — Mobile Security Workbench</title>
-  <link rel="stylesheet" href="styles.css?v=runtime-116-estatico-app-picker">
+  <link rel="stylesheet" href="styles.css?v=runtime-121-android-id-card">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Pular para o workspace</a>
@@ -118,6 +118,7 @@
           </div>
           <details id="iosUnavailableControls" class="tool-unavailable" hidden><summary>Controles sem suporte no iOS</summary><ul><li>Root / jailbreak</li><li>Webcam do app</li><li>Rádios e velocidade de rede</li><li>Sensores virtuais</li><li>REA de APK e observador TLS Android</li></ul></details>
           <section class="ios-native-status platform-ios" id="iosIdentityCard" aria-labelledby="iosIdentityTitle"><div class="panel-title"><div><span class="eyebrow">IDENTIDADE DO LAB</span><h2 id="iosIdentityTitle">UUID do Simulator</h2></div></div><p id="iosIdentityValue" class="ios-identity-value">Consultando…</p><div class="control-presets"><button type="button" id="resetIosIdentity" class="primary" disabled>Resetar UUID · novo lab</button><button type="button" id="restoreIosIdentity" hidden>Voltar ao lab anterior</button><button type="button" id="copyIosIdentity">Copiar</button><button type="button" id="exportIosIdentity">Exportar</button></div><p id="iosIdentityActionStatus" class="profile-description" role="status">O reset cria um iOS limpo no mesmo modelo e versão. Apps e dados do lab anterior ficam preservados.</p><details><summary>Sobre este identificador</summary><p id="iosIdentityReason" class="profile-description">Identificador do Simulator; o ID usado pelo aplicativo depende do app.</p></details></section>
+          <section class="ios-native-status platform-android" id="androidIdentityCard" aria-labelledby="androidIdentityTitle"><div class="panel-title"><div><span class="eyebrow">IDENTIDADE DO LAB</span><h2 id="androidIdentityTitle">Android ID</h2></div></div><p id="androidIdentityValue" class="ios-identity-value">Consultando…</p><label class="lab-field" for="androidIdInput">Novo Android ID (16 hex · vazio = aleatório)<input id="androidIdInput" type="text" maxlength="16" pattern="[0-9a-fA-F]{16}" placeholder="ex.: a1b2c3d4e5f60718" autocomplete="off" spellcheck="false"></label><div class="control-presets"><button type="button" id="applyAndroidId" class="primary" disabled>Aplicar Android ID</button><button type="button" id="randomAndroidId" disabled>Gerar aleatório</button><button type="button" id="restoreAndroidId" hidden>Voltar ao anterior</button></div><p id="androidIdentityActionStatus" class="profile-description" role="status">Reescreve o Android ID deste emulador para "virar outro aparelho" entre contas. Aplique o valor anterior para reverter.</p><details><summary>Sobre este identificador</summary><p class="profile-description">No Android 8+ (API 26+) o ANDROID_ID é derivado por app/assinatura; o app pode ler um valor distinto do global. IMEI, serial e widevine não saem por aqui.</p></details></section>
           <section class="tools-analysis-shortcuts" aria-label="Análise do aplicativo principal">
             <div class="tools-shortcut-head"><span class="eyebrow">APK INSTALADO · APARELHO PRINCIPAL</span><h3>Engenharia do app</h3></div>
             <p>Escolha um app instalado. O HuntMob prepara o APK e inicia a inspeção estática de Package e Manifest no REA.</p>
@@ -431,6 +432,7 @@
   <script src="dast-progress.js?v=runtime-99-pentest-ready"></script>
   <script src="face-quality.js?v=runtime-117-face-multisample"></script>
   <script src="app.js?v=runtime-120-power-on"></script>
+  <script src="android-identity.js?v=runtime-120-android-id"></script>
   <script src="reverse-engines.js?v=runtime-77-rea-shortcuts"></script>
   <script src="ios-runtimes.js?v=runtime-111-polling"></script>
   <script src="workspace-devices.js?v=runtime-111-polling"></script>

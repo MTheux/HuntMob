@@ -1,8 +1,12 @@
 """Bounded, reversible controls for the selected, project-owned emulator."""
 import math
+import re
+import secrets
 from pathlib import Path
 import subprocess
 import threading
+
+_ANDROID_ID = re.compile(r'^[0-9a-f]{16}$')
 
 from .android_worker import _run
 from .lab_sessions import current, LAB_LOCK
@@ -30,6 +34,20 @@ def _number(payload, key, low, high):
     value = float(payload[key])
     if not math.isfinite(value) or not low <= value <= high:
         raise ValueError('Valor fora do intervalo permitido.')
+    return value
+
+
+def _android_id(payload):
+    """A 64-bit Android ID is 16 hex chars; generate one when none is given,
+    and never let caller text reach the shell as anything but hex."""
+    raw = payload.get('android_id')
+    if raw is None:
+        return secrets.token_hex(8)
+    if not isinstance(raw, str):
+        raise ValueError('Android ID inválido.')
+    value = raw.strip().lower()
+    if not _ANDROID_ID.fullmatch(value):
+        raise ValueError('Android ID deve ter 16 dígitos hexadecimais.')
     return value
 
 
@@ -150,6 +168,14 @@ def execute(worker, payload, *, workspace_id=None):
             elif action == 'rotation-reset':
                 commands = [('shell', 'wm', 'user-rotation', 'free')]
                 message = 'Rotação automática restaurada.'
+            elif action == 'device-identity':
+                android_id = _android_id(payload)
+                commands = [('shell', 'settings', 'put', 'secure', 'android_id', android_id)]
+                message = ('Android ID reescrito no provedor Secure. No Android 8+ (API 26+) o ANDROID_ID é '
+                           'derivado por app/assinatura; o app pode ler um valor distinto do global. Confira no readback.')
+            elif action == 'device-identity-read':
+                commands = []
+                message = 'Android ID atual lido do provedor Secure. Nada foi alterado.'
             elif action in {'home', 'back', 'recents', 'volume-up', 'volume-down', 'wake'}:
                 keys = {'home':'3', 'back':'4', 'recents':'187', 'volume-up':'24', 'volume-down':'25', 'wake':'224'}
                 commands = [('shell', 'input', 'keyevent', keys[action])]
@@ -161,7 +187,7 @@ def execute(worker, payload, *, workspace_id=None):
                 if result.returncode or 'KO:' in result.stdout or 'Error:' in result.stdout or 'Error:' in result.stderr:
                     return {'ok': False, 'reason': 'Android recusou o controle; verifique capacidade da imagem. Parte da operação pode ter sido aplicada.'}
             readings = {}
-            for key, command in {'battery':('shell','dumpsys','battery'), 'wifi':('shell','settings','get','global','wifi_on'), 'mobile':('shell','settings','get','global','mobile_data'), 'location_enabled':('shell','cmd','location','is-location-enabled'), 'rotation':('shell','wm','user-rotation'), 'acceleration':('emu','sensor','get','acceleration'), 'network_shape':('emu','network','status')}.items():
+            for key, command in {'battery':('shell','dumpsys','battery'), 'wifi':('shell','settings','get','global','wifi_on'), 'mobile':('shell','settings','get','global','mobile_data'), 'location_enabled':('shell','cmd','location','is-location-enabled'), 'rotation':('shell','wm','user-rotation'), 'acceleration':('emu','sensor','get','acceleration'), 'network_shape':('emu','network','status'), 'android_id':('shell','settings','get','secure','android_id')}.items():
                 reading = _run(base + command, timeout=5)
                 readings[key] = reading.stdout.strip()[:1000] if reading.returncode == 0 else 'Indisponível'
             return {'ok': True, 'action': action, 'lab_id': lab['id'], 'message': message, 'readback': readings}

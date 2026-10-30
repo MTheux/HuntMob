@@ -46,6 +46,14 @@ test('o botao Ligar existe no cabecalho do palco, ao lado do Desligar',()=>{
  assert.match(header,/id="powerOnDevice"/);
  assert.match(header,/id="closeLabButton"/);
 });
+test('o cartao de identidade Android (trocar Android ID) existe no painel de ferramentas',()=>{
+ const h=html();
+ const at=h.indexOf('id="androidIdentityCard"');
+ const open=h.slice(h.lastIndexOf('<section',at),at);
+ assert.match(open,/platform-android/,'o cartao Android fica visivel so no modo Android');
+ const card=h.slice(at,at+1200);
+ for(const id of ['androidIdentityValue','androidIdInput','applyAndroidId','randomAndroidId']) assert.match(card,new RegExp(`id="${id}"`),id);
+});
 test('os scripts de bypass curados vivem catalogados e desabilitados na secao gated',()=>{
  const h=html();
  const gated=h.slice(h.indexOf('unavailable-scripts'));

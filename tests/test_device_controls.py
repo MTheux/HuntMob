@@ -118,6 +118,30 @@ class DeviceControlTests(unittest.TestCase):
         enabled.assert_called_once()
         self.assertIn(('/lab/adb','-s','emulator-5556','emu','avd','name'),self.calls)
 
+    def test_device_identity_applies_valid_android_id_via_secure_settings(self):
+        result = self.run_control({'action':'device-identity','android_id':'A1B2C3D4E5F60718'})
+        self.assertTrue(result['ok'])
+        self.assertIn(('/lab/adb','-s','emulator-5556','shell','settings','put','secure','android_id','a1b2c3d4e5f60718'),self.calls)
+
+    def test_device_identity_rejects_non_hex_or_injection(self):
+        for value in ['0; reboot','short','G'*16,'a1b2c3d4e5f6071','a1b2c3d4e5f6071800',12345]:
+            self.calls.clear()
+            self.assertFalse(self.run_control({'action':'device-identity','android_id':value})['ok'])
+            self.assertFalse(any('android_id' in call for call in self.calls))
+
+    def test_device_identity_without_value_generates_sixteen_hex(self):
+        result = self.run_control({'action':'device-identity'})
+        self.assertTrue(result['ok'])
+        applied = [call for call in self.calls if 'put' in call and call[-2] == 'android_id']
+        self.assertTrue(applied)
+        self.assertRegex(applied[0][-1], r'^[0-9a-f]{16}$')
+
+    def test_device_identity_read_returns_android_id_without_mutation(self):
+        result = self.run_control({'action':'device-identity-read'})
+        self.assertTrue(result['ok'])
+        self.assertIn('android_id', result['readback'])
+        self.assertFalse(any('put' in call for call in self.calls))
+
     def test_app_root_rejects_wrong_avd_before_setup(self):
         with patch('huntmob.device_controls.current',return_value={'id':LAB}), patch('huntmob.device_controls._run',side_effect=self.run_command), patch('huntmob.app_root.enable') as enabled:
             result=execute(self.worker,{'action':'app-root-toggle','enabled':True,'expected_device_id':'other'})

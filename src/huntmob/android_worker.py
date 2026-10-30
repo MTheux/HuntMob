@@ -409,6 +409,11 @@ class AndroidWorker:
         else:
             log.close()
         deadline = time.monotonic() + timeout
+        return self._await_boot(process, log_path, log_offset, deadline)
+
+    def _await_boot(self, process, log_path, log_offset, deadline) -> Dict[str, object]:
+        recovered = False
+        stale = 0
         while time.monotonic() < deadline:
             if process is not None and process.poll() is not None:
                 with log_path.open('rb') as details:
@@ -423,6 +428,16 @@ class AndroidWorker:
             current = self.status()
             if current["state"] == "device" and current.get("properties", {}).get("sys.boot_completed") == "1":
                 return {"ok": True, "started": True, **current}
+            # A stale adb transport can report the previous AVD on the reused
+            # console port right after a switch; recover it once instead of
+            # letting "serial pertence a outro AVD" wait out the whole timeout.
+            if current.get("state") == "error" and current.get("ownership_verified") is False:
+                stale += 1
+                if stale >= _ADB_RECOVER_POLLS and not recovered:
+                    self._recover_adb()
+                    recovered = True
+            else:
+                stale = 0
             time.sleep(2)
         return {"ok": False, "blocked": True, "reason": "Android boot timed out", **self.status()}
 

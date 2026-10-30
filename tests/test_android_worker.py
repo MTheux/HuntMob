@@ -42,6 +42,24 @@ class AndroidWorkerTests(unittest.TestCase):
             with self.subTest(key=key, value=value), patch.dict('os.environ', {key: value}):
                 with self.assertRaises(ValueError): worker.emulator_options()
 
+    def test_boot_wait_recovers_a_stale_transport_reporting_the_old_avd(self):
+        import time
+        worker = AndroidWorker(self.sdk)
+        mismatch = {'state': 'error', 'ownership_verified': False,
+                    'reason': 'O serial ADB pertence a outro AVD. Reconecte o laboratório selecionado.'}
+        booted = {'state': 'device', 'properties': {'sys.boot_completed': '1'}}
+        statuses = [mismatch] * 10 + [booted]
+        calls = []
+        def run(command, **kwargs):
+            calls.append(tuple(command))
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with patch.object(worker, 'status', side_effect=statuses), \
+             patch('huntmob.android_worker._run', side_effect=run), \
+             patch('huntmob.android_worker.time.sleep'):
+            result = worker._await_boot(None, Path('/x'), 0, time.monotonic() + 180)
+        self.assertTrue(result['ok'])
+        self.assertIn(('/sdk/adb', 'kill-server'), calls)
+
     def test_quickboot_on_api35_omits_no_snapshot_save(self):
         worker = AndroidWorker(self.sdk, android_api=35)
         with patch.dict('os.environ', {}, clear=True):

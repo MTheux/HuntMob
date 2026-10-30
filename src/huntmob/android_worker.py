@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import platform
 import hashlib
+import re
 import shutil
 import subprocess
 import time
@@ -67,6 +68,13 @@ def _batch_wrap(command):
 # Consecutive offline/error polls (~2s each) a post-reboot device may show
 # before we treat the adb transport as wedged and bounce the server once.
 _ADB_RECOVER_POLLS = 10
+
+
+def _old_target_sdk(badging: str) -> bool:
+    """True when the APK targets an SDK old enough (<24) that Android 14+ blocks
+    the install without --bypass-low-target-sdk-block. Read from aapt badging."""
+    match = re.search(r"targetSdkVersion:'(\d+)'", badging)
+    return bool(match) and int(match.group(1)) < 24
 
 
 def _run(command: Sequence[str], timeout: int = 30, input_text: str | None = None, env=None):
@@ -601,7 +609,7 @@ class AndroidWorker:
             return {'ok': False, 'reason': 'Não foi possível instalar o conjunto original de APKs.', 'error': (result.stderr + result.stdout).strip()}
         return {**self.launch_app(package_id), 'apk_count': len(apks)}
 
-    def upload_and_launch(self, apk: Path, *, legacy_sdk: bool = False, new_lab: bool = False, root_mode: str = "root", android_api: int = 35, engagement: str = '') -> Dict[str, object]:
+    def upload_and_launch(self, apk: Path, *, new_lab: bool = False, root_mode: str = "root", android_api: int = 35, engagement: str = '') -> Dict[str, object]:
         if not self.sdk:
             return {"ok": False, "reason": "Android SDK unavailable"}
         candidates = sorted((self.sdk.root / "build-tools").glob("*/aapt*"))
@@ -621,7 +629,9 @@ class AndroidWorker:
         if not started.get("ok"):
             return started
         target = AndroidWorker(self.sdk, avd_name=started['lab']['id']) if new_lab else self
-        result = target.install_and_launch(apk, match[1], legacy_sdk=legacy_sdk, grant_permissions=legacy_sdk)
+        # Old-target APKs still install (auto-detected bypass on API 34+), but we
+        # never auto-grant permissions — a pentest must see the real prompts.
+        result = target.install_and_launch(apk, match[1], legacy_sdk=_old_target_sdk(metadata.stdout), grant_permissions=False)
         if new_lab:
             result['lab'] = started['lab']
         elif result.get('installed') and current().get('id') == self.avd_name:

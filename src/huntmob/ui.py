@@ -648,7 +648,7 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
                 with tempfile.TemporaryDirectory(prefix="huntmob-upload-") as folder:
                     apk = Path(folder) / "app.apk"
                     receive_upload(self, apk, length, maximum=512 * 1024 * 1024)
-                    result = AndroidWorker().upload_and_launch(apk, legacy_sdk=self.headers.get("X-HuntMob-Legacy-SDK") == "true", new_lab=self.headers.get("X-HuntMob-New-Lab") == "true", root_mode=self.headers.get("X-HuntMob-Root-Mode", "root"), android_api=int(self.headers.get('X-HuntMob-Android-API','35')), engagement=unquote(self.headers.get('X-HuntMob-Engagement','')))
+                    result = AndroidWorker().upload_and_launch(apk, new_lab=self.headers.get("X-HuntMob-New-Lab") == "true", root_mode=self.headers.get("X-HuntMob-Root-Mode", "root"), android_api=int(self.headers.get('X-HuntMob-Android-API','35')), engagement=unquote(self.headers.get('X-HuntMob-Engagement','')))
             except (ValueError, TimeoutError, CapacityExceeded):
                 result = {"ok": False, "reason": "invalid upload or Android operation timed out"}
             body = json.dumps(result).encode()

@@ -42,6 +42,14 @@ class AndroidWorkerTests(unittest.TestCase):
             with self.subTest(key=key, value=value), patch.dict('os.environ', {key: value}):
                 with self.assertRaises(ValueError): worker.emulator_options()
 
+    def test_old_target_sdk_detected_from_badging(self):
+        from huntmob.android_worker import _old_target_sdk
+        self.assertTrue(_old_target_sdk("package: name='a'\nsdkVersion:'14'\ntargetSdkVersion:'19'\n"))
+        self.assertTrue(_old_target_sdk("targetSdkVersion:'23'"))
+        self.assertFalse(_old_target_sdk("targetSdkVersion:'24'"))
+        self.assertFalse(_old_target_sdk("targetSdkVersion:'34'"))
+        self.assertFalse(_old_target_sdk("package: name='a' (sem targetSdkVersion)"))
+
     def test_boot_wait_recovers_a_stale_transport_reporting_the_old_avd(self):
         import time
         worker = AndroidWorker(self.sdk)

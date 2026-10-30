@@ -42,6 +42,26 @@ class AndroidWorkerTests(unittest.TestCase):
             with self.subTest(key=key, value=value), patch.dict('os.environ', {key: value}):
                 with self.assertRaises(ValueError): worker.emulator_options()
 
+    def test_quickboot_on_api35_omits_no_snapshot_save(self):
+        worker = AndroidWorker(self.sdk, android_api=35)
+        with patch.dict('os.environ', {}, clear=True):
+            command = worker._launch_command(('-gpu', 'host'), ())
+        self.assertNotIn('-no-snapshot-save', command)
+        self.assertNotIn('-writable-system', command)
+
+    def test_api30_keeps_cold_boot_for_writable_system(self):
+        worker = AndroidWorker(self.sdk, android_api=30)
+        with patch.dict('os.environ', {}, clear=True):
+            command = worker._launch_command(('-gpu', 'host'), ())
+        self.assertIn('-no-snapshot-save', command)
+        self.assertIn('-writable-system', command)
+
+    def test_quickboot_env_opt_out_forces_clean_cold_boot(self):
+        worker = AndroidWorker(self.sdk, android_api=35)
+        with patch.dict('os.environ', {'HUNTMOB_ANDROID_QUICKBOOT': '0'}):
+            command = worker._launch_command(('-gpu', 'host'), ())
+        self.assertIn('-no-snapshot-save', command)
+
     def test_reboot_recovers_a_wedged_adb_server_before_timing_out(self):
         worker = AndroidWorker(self.sdk)
         booted = {'state': 'device', 'attached': True, 'ownership_verified': True, 'properties': {'sys.boot_completed': '1'}}

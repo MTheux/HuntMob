@@ -363,6 +363,20 @@ class AndroidWorker:
             raise ValueError('HUNTMOB_ANDROID_MEMORY_MB deve estar entre 1024 e 16384.')
         return ('-gpu', gpu, '-memory', str(int(memory)))
 
+    def _launch_command(self, performance: tuple, camera: tuple) -> tuple:
+        """Quick Boot (snapshot save/load) makes Resume take seconds instead of
+        a full cold boot. The API 30 labs run with -writable-system, which
+        conflicts with snapshots, so they stay on cold boot; HUNTMOB_ANDROID_QUICKBOOT=0
+        forces a clean cold boot everywhere when lab hygiene needs it."""
+        quick_boot = self.android_api != 30 and os.environ.get('HUNTMOB_ANDROID_QUICKBOOT', '1') != '0'
+        return (
+            str(self.sdk.emulator), f"@{self.avd_name}",
+            *(("-writable-system",) if self.android_api == 30 else ()),
+            "-no-window", "-no-audio", "-no-boot-anim", "-port", self.port,
+            *(() if quick_boot else ("-no-snapshot-save",)),
+            *performance, *camera,
+        )
+
     def _start(self, timeout: int) -> Dict[str, object]:
         existing = self.status()
         if existing["state"] == "device" and existing.get("properties", {}).get("sys.boot_completed") == "1":
@@ -384,10 +398,7 @@ class AndroidWorker:
         from .lab_sessions import current
         lab = current()
         camera = ('-camera-front', 'webcam0') if lab.get('id') == self.avd_name and lab.get('camera_front') == 'webcam0' else ()
-        command = (
-            str(self.sdk.emulator), f"@{self.avd_name}", *(("-writable-system",) if self.android_api == 30 else ()), "-no-window", "-no-audio",
-            "-no-boot-anim", "-port", self.port, "-no-snapshot-save", *performance, *camera,
-        )
+        command = self._launch_command(performance, camera)
         # A device already visible to ADB may still be booting; never launch it twice.
         process = None
         if not existing.get("attached") and existing["state"] not in {"device", "unauthorized"}:

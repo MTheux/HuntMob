@@ -30,6 +30,12 @@ function syncLabLifecycleButtons() {
   saveButton.textContent = labIsSaved() ? 'Lab salvo' : 'Salvar laboratório';
   closeButton.disabled = !available;
 }
+function setPowerOnVisible(show) {
+  const button = document.querySelector('#powerOnDevice');
+  if (!button) return;
+  button.hidden = !show;
+  button.disabled = !show || labLifecycleBusy;
+}
 function renderEngagement(lab) {
   // Project metadata remains in the lab profile; no placeholder in the header.
 }
@@ -234,6 +240,7 @@ async function loadRuntime() {
       document.querySelector('#runtimeMeta').textContent = android ? `Android ${android.android_version} · API ${android.api}` : 'Worker Android local';
       document.querySelector('#runtimeCount').textContent = android ? '1' : '0';
       document.querySelector('#runtimeDot').className = android ? 'online-dot' : 'offline-dot';
+      setPowerOnVisible(false);
       return;
     }
     activeLab = payload.lab || {};
@@ -274,6 +281,7 @@ async function loadRuntime() {
     document.querySelector('#runtimeCount').textContent = String((payload.devices?.length || 0)+(window.huntmobAdditionalOnline?.()||0));
     if (!runtimeDevice) {
       const workerReady = payload.ready === true;
+      setPowerOnVisible(workerReady);
       if (runtimeWasOnline || analysisPreference === null) syncAnalysisAvailability(false);
       if (runtimeWasOnline) stopDeviceScreen();
       runtimeWasOnline = false;
@@ -304,6 +312,7 @@ async function loadRuntime() {
       return;
     }
     const online = runtimeDevice.state === 'on';
+    setPowerOnVisible(!online);
     if (online !== runtimeWasOnline) syncAnalysisAvailability(online);
     document.querySelector('#runtimeDevice').hidden = false;
     document.querySelector('#runtimeEmpty').hidden = true;
@@ -343,6 +352,7 @@ async function loadRuntime() {
     window.huntmobSidebar?.runtimeError();
     document.querySelector('#runtimeMeta').textContent = error.message;
     document.querySelector('#runtimeState').textContent = 'OFFLINE';
+    setPowerOnVisible(false);
     stopDeviceScreen();
     runtimeDevice = undefined;
     document.querySelectorAll('.toolbar-actions button').forEach(button => { button.disabled = true; });
@@ -1661,6 +1671,21 @@ document.querySelector('#saveLabButton').addEventListener('click', async () => {
 document.querySelector('#rebootDevice').addEventListener('click', async () => {
   notify('Reiniciando Android…');
   try { await deviceAction('reboot'); await loadRuntime(); notify('Android reiniciado'); } catch (error) { notify(error.message); }
+});
+document.querySelector('#powerOnDevice').addEventListener('click', async () => {
+  if (labLifecycleBusy || devicePlatform !== 'android') return;
+  labLifecycleBusy = true; setPowerOnVisible(true); syncLabLifecycleButtons();
+  try {
+    const response = await fetch('/api/labs', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Labs salvos indisponíveis');
+    const payload = await response.json();
+    const labId = payload.current?.id || payload.labs?.[0]?.id;
+    if (!labId) { notify('Nenhum lab salvo para ligar. Crie um laboratório.'); return; }
+    await authorizedPost('/api/device/action', { action: 'resume', lab_id: labId });
+    await loadRuntime(); await loadSavedLabs();
+    notify('Aparelho ligado com os dados preservados');
+  } catch (error) { notify(error.message); }
+  finally { labLifecycleBusy = false; syncLabLifecycleButtons(); }
 });
 async function finishLabShutdown(action) {
   if (labLifecycleBusy || !dialogLabId || dialogLabId !== activeLab.id) return;

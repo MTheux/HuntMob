@@ -38,6 +38,14 @@ test('o painel Estatico tem o seletor de app proprio, antes do visor de reverseP
  // o seletor vive no cabecalho do painel estatico, junto do reversePackage
  assert.ok(h.indexOf('id="reverseAppPicker"')<h.indexOf('id="refreshApps"'),'o seletor precede o botao Atualizar apps');
 });
+test('o botao Ligar existe no cabecalho do palco, ao lado do Desligar',()=>{
+ const h=html();
+ assert.match(h,/id="powerOnDevice"/);
+ // o Ligar vive no mesmo cabecalho do palco que o Desligar (closeLabButton)
+ const header=h.slice(h.indexOf('id="runtimeState"'),h.indexOf('id="runtimePlaceholder"'));
+ assert.match(header,/id="powerOnDevice"/);
+ assert.match(header,/id="closeLabButton"/);
+});
 test('os scripts de bypass curados vivem catalogados e desabilitados na secao gated',()=>{
  const h=html();
  const gated=h.slice(h.indexOf('unavailable-scripts'));

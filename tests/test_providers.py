@@ -3,7 +3,9 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from huntmob.providers import AndroidBiometricProbe, AppleSimulatorProvider, GenymotionProvider, HuntMobRuntimeProvider
+from huntmob.providers import (AndroidBiometricProbe, AppleSimulatorProvider,
+                               GenymotionProvider, HuntMobRuntimeProvider,
+                               InfernoResearchProvider)
 
 
 def completed(command, stdout="", stderr="", returncode=0):
@@ -59,6 +61,66 @@ class ProviderTests(unittest.TestCase):
         )
         self.assertFalse(status.ready)
         self.assertIn("no iOS Simulator runtime", status.error)
+
+    def test_inferno_is_detected_without_being_promoted_to_ready_runtime(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            component = root / "component"
+            component.mkdir()
+            binary = root / "qemu-system-aarch64"
+            binary.write_bytes(b"pinned inferno")
+            revision = "a" * 40
+            (component / "upstream.json").write_text(json.dumps({"revision": revision}))
+            (root / "build-receipt.json").write_text(json.dumps({
+                "state": "compiled", "revision": revision, "binary": str(binary),
+                "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+            }))
+            provider = InfernoResearchProvider()
+            with patch.object(provider, "root", root), patch.object(provider, "component", component):
+                status = provider.probe(lambda command: completed(
+                    command,
+                    "QEMU ChefKiss Inferno\n" if "--version" in command else "t8030 Apple T8030\n",
+                ))
+        self.assertTrue(status.installed)
+        self.assertFalse(status.ready)
+        self.assertEqual(status.kind, "research-engine")
+        self.assertIn("research-only; not an Apple Simulator replacement", status.limitations)
+
+    def test_inferno_rejects_receipt_with_changed_binary(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            component = root / "component"
+            component.mkdir()
+            binary = root / "qemu-system-aarch64"
+            binary.write_bytes(b"changed")
+            revision = "b" * 40
+            (component / "upstream.json").write_text(json.dumps({"revision": revision}))
+            (root / "build-receipt.json").write_text(json.dumps({
+                "state": "compiled", "revision": revision, "binary": str(binary),
+                "binary_sha256": "0" * 64,
+            }))
+            provider = InfernoResearchProvider()
+            with patch.object(provider, "root", root), patch.object(provider, "component", component):
+                status = provider.probe(lambda command: completed(command))
+        self.assertFalse(status.installed)
+        self.assertFalse(status.ready)
+        self.assertIn("integrity", status.error)
+
+    def test_inferno_uses_windows_local_app_data_receipt(self):
+        provider = InfernoResearchProvider()
+        with patch("huntmob.providers.platform.system", return_value="Windows"), \
+                patch.dict("huntmob.providers.os.environ", {"LOCALAPPDATA": "C:/Local"}, clear=True):
+            self.assertEqual(
+                provider.receipt_root(),
+                __import__("pathlib").Path("C:/Local/HuntMob/research/ios-engine"),
+            )
 
 
 if __name__ == "__main__":

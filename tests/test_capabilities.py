@@ -27,6 +27,14 @@ class CapabilityContractTests(unittest.TestCase):
         self.assertEqual(profile["platform"], "android")
         self.assertTrue(any("Clean-room" in note for note in profile["notes"]))
 
+    def test_inferno_is_a_disabled_research_engine_not_a_device_runtime(self):
+        profile = next(
+            item for item in capability_catalog()
+            if item["provider"] == "inferno"
+        )
+        self.assertEqual(profile["capabilities"], ["rea-static", "rea-dynamic-evidence"])
+        self.assertEqual(profile["execution"], "local-research-engine-disabled-by-default")
+
 
 if __name__ == "__main__":
     unittest.main()

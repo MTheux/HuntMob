@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import platform
 import subprocess
 from dataclasses import asdict, dataclass
@@ -270,10 +272,82 @@ class AppleSimulatorProvider:
         )
 
 
+class InfernoResearchProvider:
+    """Inventory the pinned Inferno build without booting Apple firmware.
+
+    A compiled binary is not evidence of SpringBoard, Data Protection, app
+    installation, or an authorized firmware workspace.
+    """
+
+    root: Path | None = None
+    component = Path(__file__).resolve().parents[2] / "components/ios-engine"
+
+    def receipt_root(self) -> Path:
+        if self.root is not None:
+            return self.root
+        if platform.system() == "Windows" and os.environ.get("LOCALAPPDATA"):
+            return Path(os.environ["LOCALAPPDATA"]) / "HuntMob/research/ios-engine"
+        return Path.home() / ".huntmob/research/ios-engine-diagnostics-20261014"
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def probe(self, runner: CommandRunner = _run) -> ProviderStatus:
+        receipt_path = self.receipt_root() / "build-receipt.json"
+        try:
+            if (receipt_path.is_symlink() or not receipt_path.is_file()
+                    or receipt_path.stat().st_size > 65536):
+                return ProviderStatus("inferno", "ios", "research-engine", False, False)
+            receipt = json.loads(receipt_path.read_text())
+            pin = json.loads((self.component / "upstream.json").read_text())
+            binary = Path(receipt.get("binary", ""))
+            installed = (
+                isinstance(receipt, dict)
+                and receipt.get("state") == "compiled"
+                and receipt.get("revision") == pin.get("revision")
+                and binary.is_file()
+                and not binary.is_symlink()
+                and self._sha256(binary) == receipt.get("binary_sha256")
+            )
+            if not installed:
+                return ProviderStatus(
+                    "inferno", "ios", "research-engine", False, False,
+                    limitations=("pinned build receipt or binary integrity check failed",),
+                    error="Inferno research build integrity check failed",
+                )
+            version = runner((str(binary), "--version"))
+            machines = runner((str(binary), "-machine", "help"))
+            probed = version.returncode == 0 and machines.returncode == 0 and "t8030" in machines.stdout
+            limitations = (
+                "research-only; not an Apple Simulator replacement",
+                "Apple firmware is user-supplied and is never bundled",
+                "SpringBoard, complete Data Protection, and IPA execution are not validated",
+                "does not authorize booting or testing a third-party application",
+            )
+            return ProviderStatus(
+                "inferno", "ios", "research-engine", True, False,
+                version.stdout.splitlines()[0] if probed and version.stdout else "",
+                0, limitations,
+                "" if probed else "Inferno binary probe failed",
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return ProviderStatus(
+                "inferno", "ios", "research-engine", False, False,
+                limitations=("research receipt is unavailable or malformed",),
+                error="Inferno research inventory failed",
+            )
+
+
 def provider_catalog(runner: CommandRunner = _run) -> Dict[str, object]:
     local = [
         HuntMobRuntimeProvider().probe().to_dict(),
         AppleSimulatorProvider().probe(runner).to_dict(),
+        InfernoResearchProvider().probe(runner).to_dict(),
     ]
     remote = [
         {

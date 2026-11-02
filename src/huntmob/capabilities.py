@@ -72,6 +72,17 @@ PROFILES = (
         ("Simulator build required.", "Not equivalent to a jailbroken device."),
     ),
     CapabilityProfile(
+        "inferno",
+        "ios",
+        (Capability.REA_STATIC, Capability.REA_DYNAMIC_EVIDENCE),
+        True,
+        "local-research-engine-disabled-by-default",
+        (
+            "Pinned T8030 engine inventory only; not a ready device provider.",
+            "Dynamic receipts are evidence candidates, not proof of runtime readiness.",
+        ),
+    ),
+    CapabilityProfile(
         "corellium",
         "android,ios",
         COMMON + (Capability.FILES, Capability.FRIDA),

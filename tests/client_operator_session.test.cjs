@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const source=fs.readFileSync('web/operator-session.js','utf8');
-function setup({token='f'.repeat(64),holdBootstrap=false}={}){
+function setup({token='f'.repeat(64),holdBootstrap=false,localTrusted=false}={}){
  const elements=[],events={},calls=[],storage=new Map();let cleared=false,release;
  function element(tag){const e={tag,children:[],className:'',value:'',append(...children){this.children.push(...children);},setAttribute(){},addEventListener(name,fn){this[name]=fn;},showModal(){this.open=true;},close(){this.open=false;}};elements.push(e);return e;}
  const document={createElement:element,body:element('body'),addEventListener:(name,fn)=>events[name]=fn};
@@ -11,7 +11,7 @@ function setup({token='f'.repeat(64),holdBootstrap=false}={}){
    if(holdBootstrap)await new Promise(resolve=>release=resolve);
    return {ok:true,status:200,json:async()=>({authenticated:true,proof:'fixture-proof'})};
   }
-  if(route==='/api/auth/status')return {ok:true,status:200,json:async()=>({authenticated:false})};
+  if(route==='/api/auth/status')return {ok:true,status:200,json:async()=>localTrusted?({authenticated:true,operator:false}):({authenticated:false})};
   if(route.startsWith('/api/auth/ticket?'))return {ok:true,status:200,json:async()=>({ticket:'fixture-ticket'})};
   return {ok:true,status:200,json:async()=>({ok:true})};
  };
@@ -35,6 +35,15 @@ test('missing launch credentials show a local login form while API requests rema
  await form.onsubmit({preventDefault(){}});await pending;
  assert.equal(dialog.open,false);assert.equal(input.value,'');
  assert.equal(f.calls.at(-1).options.headers.get('X-HuntMob-Operator'),'fixture-proof');
+});
+test('trusted Docker loopback skips the private-address dialog and calls the API directly',async()=>{
+ const f=setup({token:null,localTrusted:true});
+ await f.context.window.fetch('/api/session');
+ const dialog=f.elements.find(e=>e.tag==='dialog');
+ assert.notEqual(dialog.open,true);
+ assert.deepEqual(f.calls.map(call=>call.route),['/api/auth/status','/api/session']);
+ assert.equal(f.calls.at(-1).options.headers,undefined);
+ assert.equal(f.storage.get('huntmob.operatorProof'),undefined);
 });
 test('read tickets bind the requested path and proof is never attached to a foreign origin',async()=>{
  const f=setup();

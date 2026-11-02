@@ -6,10 +6,6 @@ from pathlib import Path
 import os
 import secrets
 from urllib.parse import urlsplit
-try:
-    from operator_auth import OperatorSession
-except ModuleNotFoundError:
-    from huntmob.operator_auth import OperatorSession
 
 
 HOP_HEADERS = {
@@ -40,7 +36,6 @@ def load_or_create_secret(path_str):
 
 
 SECRET = load_or_create_secret(os.environ.get("HUNTMOB_GATEWAY_SECRET_PATH", "/run/secrets/worker_secret"))
-OPERATOR = OperatorSession(SECRET)
 
 
 class Gateway(SimpleHTTPRequestHandler):
@@ -67,7 +62,17 @@ class Gateway(SimpleHTTPRequestHandler):
         if len(origins) > 1 or (origins and origins[0] not in {'http://127.0.0.1:8090', 'http://localhost:8090'}):
             self.send_error(403, 'Invalid origin')
             return
-        if not OPERATOR.handle(self):
+        # Loopback-only gateway (Docker publishes 127.0.0.1:8090): local access
+        # is trusted, exactly like the native UI. The operator session gate is
+        # off, so the "Conectar ao HuntMob" connect screen never appears.
+        if path == "/api/auth/status" and self.command == "GET":
+            body = b'{"ok":true,"authenticated":true,"operator":false}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path.startswith("/api/"):
             self._proxy()

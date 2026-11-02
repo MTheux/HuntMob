@@ -103,16 +103,16 @@ class ControlGatewayTests(unittest.TestCase):
             gateway = self.serve(module.Gateway)
             connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
             connection.request("GET", "/api/check?x=1", headers={
-                "Host": "127.0.0.1:8090", "X-HuntMob-Worker-Secret": "attacker-value",
-                "Cookie": 'huntmob_operator=' + module.OPERATOR.cookie(),
-                "X-HuntMob-Operator": module.OPERATOR.proof(module.OPERATOR.cookie())})
+                "Host": "127.0.0.1:8090", "X-HuntMob-Worker-Secret": "attacker-value"})
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
             self.assertEqual(response.read(), b"b" * 48 + b"|/api/check?x=1")
             connection.close()
             connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
-            connection.request("GET", "/api/session", headers={"Host":"127.0.0.1:8090"})
-            self.assertEqual(connection.getresponse().status, 401)
+            connection.request("GET", "/api/auth/status", headers={"Host":"127.0.0.1:8090"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b'{"ok":true,"authenticated":true,"operator":false}')
             connection.close()
             connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
             connection.request("GET", "/api/check", headers={"Host": "untrusted.example"})

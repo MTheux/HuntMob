@@ -1,0 +1,55 @@
+name: Inferno Windows engine smoke
+
+on:
+  push:
+    branches: [test/inferno-windows-build]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-pixman
+            mingw-w64-ucrt-x86_64-gnutls
+            mingw-w64-ucrt-x86_64-nettle
+            mingw-w64-ucrt-x86_64-libslirp
+            mingw-w64-ucrt-x86_64-lzfse
+      - name: Fetch pinned Inferno source
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'Inferno'
+          git init $repo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $repo remote add origin https://github.com/ChefKissInc/Inferno.git
+          git -C $repo fetch --depth 1 origin cc4302a99167abec69b714cfd00c38caece7e7de
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $repo checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $repo submodule update --init --depth 1 util/mlib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and probe native Windows engine
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'Inferno'
+          $output = Join-Path $env:RUNNER_TEMP 'inferno-smoke-output'
+          try {
+            ./scripts/build_ios_inferno_windows.ps1 -Repository $repo -Output $output -Jobs 4
+          } finally {
+            $log = Join-Path $output 'build.log'
+            if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 100 }
+          }

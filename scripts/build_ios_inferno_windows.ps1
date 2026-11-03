@@ -18,8 +18,7 @@ $RequiredPackages = @(
     'mingw-w64-ucrt-x86_64-pixman',
     'mingw-w64-ucrt-x86_64-gnutls',
     'mingw-w64-ucrt-x86_64-nettle',
-    'mingw-w64-ucrt-x86_64-libslirp',
-    'mingw-w64-ucrt-x86_64-lzfse'
+    'mingw-w64-ucrt-x86_64-libslirp'
 )
 
 if (-not [Environment]::Is64BitOperatingSystem) {
@@ -79,6 +78,7 @@ $Initial = [ordered]@{
     state = 'building'
     ready = $false
     firmware_included = $false
+    dmg_lzfse_supported = $false
     firmware_boot_validated = $false
     springboard_validated = $false
     ipa_execution_validated = $false
@@ -103,7 +103,7 @@ mkdir -p '$MsysBuild'
 cd '$MsysBuild'
 '$MsysWorktree/configure' --target-list=aarch64-softmmu --disable-werror \
   --disable-docs --disable-guest-agent --disable-gtk --disable-sdl \
-  --enable-lzfse --enable-gnutls --enable-nettle --enable-slirp
+  --disable-lzfse --enable-gnutls --enable-nettle --enable-slirp
 ninja -j $Jobs qemu-system-aarch64.exe
 "@
     & $Bash -lc $Command *>> $Log
@@ -137,6 +137,7 @@ ninja -j $Jobs qemu-system-aarch64.exe
         version = ($Version -split "`r?`n")[0]
         machine_t8030 = $true
         firmware_included = $false
+        dmg_lzfse_supported = $false
         firmware_boot_validated = $false
         springboard_validated = $false
         ipa_execution_validated = $false

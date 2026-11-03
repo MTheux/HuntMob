@@ -27,8 +27,12 @@ class InfernoWindowsBuildScriptTests(unittest.TestCase):
         self.assertIn("firmware_boot_validated = $false", self.content)
 
     def test_required_msys2_dependencies_are_explicit(self):
-        for package in ("glib2", "pixman", "gnutls", "nettle", "libslirp", "lzfse"):
+        for package in ("glib2", "pixman", "gnutls", "nettle", "libslirp"):
             self.assertIn("mingw-w64-ucrt-x86_64-" + package, self.content)
+
+    def test_unavailable_lzfse_is_explicitly_disabled(self):
+        self.assertIn("--disable-lzfse", self.content)
+        self.assertIn("dmg_lzfse_supported = $false", self.content)
 
 
 if __name__ == "__main__":

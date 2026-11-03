@@ -22,6 +22,7 @@ jobs:
             git
             mingw-w64-ucrt-x86_64-toolchain
             mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-glib2
@@ -30,6 +31,19 @@ jobs:
             mingw-w64-ucrt-x86_64-gnutls
             mingw-w64-ucrt-x86_64-nettle
             mingw-w64-ucrt-x86_64-libslirp
+      - name: Build pinned LZFSE dependency
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          source_dir="$(mktemp -d)/lzfse"
+          git clone --quiet https://github.com/lzfse/lzfse.git "$source_dir"
+          git -C "$source_dir" checkout --detach e634ca58b4821d9f3d560cdc6df5dec02ffc93fd
+          test "$(git -C "$source_dir" rev-parse HEAD)" = e634ca58b4821d9f3d560cdc6df5dec02ffc93fd
+          cmake -S "$source_dir" -B "$source_dir/build" -G Ninja \
+            -DCMAKE_INSTALL_PREFIX=/ucrt64 -DBUILD_SHARED_LIBS=OFF -DLZFSE_DISABLE_TESTS=ON
+          cmake --build "$source_dir/build" --target install -j 4
+          test -f /ucrt64/include/lzfse.h
+          test -f /ucrt64/lib/liblzfse.a
       - name: Fetch pinned Inferno source
         shell: pwsh
         run: |

@@ -32,9 +32,11 @@ class InfernoWindowsBuildScriptTests(unittest.TestCase):
             self.assertIn("mingw-w64-ucrt-x86_64-" + package, self.content)
         self.assertIn("--enable-png", self.content)
 
-    def test_unavailable_lzfse_is_explicitly_disabled(self):
-        self.assertIn("--disable-lzfse", self.content)
-        self.assertIn("dmg_lzfse_supported = $false", self.content)
+    def test_lzfse_is_required_for_boot_image_support(self):
+        self.assertIn("/ucrt64/include/lzfse.h", self.content)
+        self.assertIn("/ucrt64/lib/liblzfse.a", self.content)
+        self.assertIn("--enable-lzfse", self.content)
+        self.assertIn("dmg_lzfse_supported = $true", self.content)
 
 
 if __name__ == "__main__":

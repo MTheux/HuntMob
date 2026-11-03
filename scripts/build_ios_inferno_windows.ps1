@@ -60,6 +60,10 @@ foreach ($Package in $RequiredPackages) {
 if ($Missing.Count) {
     throw ('Missing reviewed MSYS2 packages: ' + ($Missing -join ', '))
 }
+& $Bash -lc 'test -f /ucrt64/include/lzfse.h && test -f /ucrt64/lib/liblzfse.a'
+if ($LASTEXITCODE -ne 0) {
+    throw 'A UCRT64 LZFSE static library and header are required.'
+}
 
 New-Item -ItemType Directory -Path $Output | Out-Null
 $OutputPath = (Resolve-Path -LiteralPath $Output).Path
@@ -79,7 +83,7 @@ $Initial = [ordered]@{
     state = 'building'
     ready = $false
     firmware_included = $false
-    dmg_lzfse_supported = $false
+    dmg_lzfse_supported = $true
     firmware_boot_validated = $false
     springboard_validated = $false
     ipa_execution_validated = $false
@@ -106,7 +110,7 @@ mkdir -p '$MsysBuild'
 cd '$MsysBuild'
 '$MsysWorktree/configure' --target-list=aarch64-softmmu --disable-werror \
   --disable-guest-agent --disable-gtk --disable-sdl \
-  --disable-lzfse --enable-png --enable-gnutls --enable-nettle --enable-slirp
+  --enable-lzfse --enable-png --enable-gnutls --enable-nettle --enable-slirp
 ninja -j $Jobs qemu-system-aarch64.exe
 "@
     & $Bash -lc $Command *>> $Log
@@ -140,7 +144,7 @@ ninja -j $Jobs qemu-system-aarch64.exe
         version = ($Version -split "`r?`n")[0]
         machine_t8030 = $true
         firmware_included = $false
-        dmg_lzfse_supported = $false
+        dmg_lzfse_supported = $true
         firmware_boot_validated = $false
         springboard_validated = $false
         ipa_execution_validated = $false

@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $Pin = 'cc4302a99167abec69b714cfd00c38caece7e7de'
 $RequiredPackages = @(
-    'mingw-w64-ucrt-x86_64-toolchain',
+    'mingw-w64-ucrt-x86_64-gcc',
     'mingw-w64-ucrt-x86_64-meson',
     'mingw-w64-ucrt-x86_64-ninja',
     'mingw-w64-ucrt-x86_64-pkgconf',

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import webbrowser
 from urllib.request import Request, urlopen
 
 
@@ -120,6 +121,8 @@ def run_desktop() -> int:
             wait_gateway(worker)
             print("HuntMob Docker: http://127.0.0.1:8090", flush=True)
             print("Acesso local (loopback) confiável: abra a URL direto, sem conectar sessão.", flush=True)
+            if platform.system() == "Windows":
+                webbrowser.open("http://127.0.0.1:8090/")
             print("Worker nativo conectado. Ctrl+C encerra os dois processos.", flush=True)
             while worker.poll() is None:
                 time.sleep(0.5)

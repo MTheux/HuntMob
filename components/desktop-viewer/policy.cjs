@@ -7,4 +7,12 @@ function workerUrl(value){
  return output.href;
 }
 function protocolUrl(value){const u=new URL(value);if(u.protocol!=='huntmob-viewer:'||u.hostname!=='open')throw Error('Protocolo inválido');return workerUrl(u.searchParams.get('url'));}
-module.exports={workerUrl,protocolUrl};
+async function localWorkerReady(fetchStatus){
+ try{
+  const response=await fetchStatus('http://127.0.0.1:8090/api/auth/status');
+  if(!response.ok)return false;
+  const status=await response.json();
+  return status?.ok===true&&status.authenticated===true&&status.operator===false;
+ }catch{return false;}
+}
+module.exports={workerUrl,protocolUrl,localWorkerReady};

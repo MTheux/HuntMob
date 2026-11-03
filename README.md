@@ -268,9 +268,9 @@ sem exigir a reconstrução Java completa. O engagement pode ser registrado no
 próprio painel DAST. Em **Dispositivo → Preparar pentest**, confira os requisitos
 do aparelho e as limitações de Android/iOS antes de iniciar.
 
-O painel exige sessão local de operador. O launcher grava o endereço privado
-em `~/.huntmob/operator-access-url.txt` e o atalho `operator-access.html`, ambos
-privados. Abra o atalho no navegador; não compartilhe a URL. No Docker Linux,
-consulte o arquivo dentro do container com `docker compose exec -T huntmob cat
-/root/.huntmob/operator-access-url.txt`. O agente MCP lê o arquivo privado
-automaticamente no worker local. Veja [implementação, validação e limites](docs/pentest-readiness-v1.0-2026-10-22.md).
+O acesso local em `http://127.0.0.1:8090/` abre sem pedir token de operador.
+No Windows, `py scripts/run-platform.py` abre a página quando o gateway fica
+pronto. O HuntMob Viewer instalado conecta automaticamente ao gateway local
+quando ele está disponível. O acesso remoto continua exigindo sessão de operador;
+o endereço privado é gerado pelo launcher remoto. Veja [implementação, validação
+e limites](docs/pentest-readiness-v1.0-2026-10-22.md).

@@ -6,7 +6,7 @@ Selecione Android/iOS no HuntMob e clique **Abrir janela**. Há janela dedicada 
 
 Pacotes locais em dist/viewer: macOS Apple Silicon (.app dentro do ZIP), Windows x64 (.exe com bibliotecas dentro do ZIP), Linux x64 (binário e bibliotecas dentro do ZIP). Extraia o pacote inteiro; não copie só o EXE. O viewer não inclui Android/iOS, ferramentas de pentest, firmware nem uma VM exportada. Ele conecta ao worker existente.
 
-Abra HuntMob Viewer e informe http://127.0.0.1:8090/ para o worker neste computador, ou a URL HTTPS privada .ts.net para acesso pelo Tailscale. Em outra máquina, localhost aponta para essa outra máquina; use a URL remota. Worker ligado e Tailscale conectado continuam necessários. Fluxo do protocolo de abertura foi observado no Mac, passando plataforma iOS e UUID do dispositivo selecionado.
+Ao abrir o HuntMob Viewer, ele entra direto em http://127.0.0.1:8090/ quando o gateway local informa que a sessão de operador não é necessária. Se o gateway estiver ausente, abre a configuração de conexão. Para um worker remoto, informe a URL HTTPS privada .ts.net e use a sessão de operador exigida pelo servidor remoto. Em outra máquina, localhost aponta para essa outra máquina; use a URL remota. Worker ligado e Tailscale conectado continuam necessários. Fluxo do protocolo de abertura foi observado no Mac, passando plataforma iOS e UUID do dispositivo selecionado.
 
 ## Identidade
 

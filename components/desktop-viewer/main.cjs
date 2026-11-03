@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,Menu}=require('electron'),path=require('node:path'),{pathToFileURL}=require('node:url'),{workerUrl,protocolUrl}=require('./policy.cjs');
+const {app,BrowserWindow,ipcMain,dialog,Menu,net}=require('electron'),path=require('node:path'),{pathToFileURL}=require('node:url'),{workerUrl,protocolUrl,localWorkerReady}=require('./policy.cjs');
 let setup,viewer;const setupUrl=pathToFileURL(path.join(__dirname,'setup.html')).href;
 app.enableSandbox();
 function protect(win,origin){
@@ -22,6 +22,12 @@ app.whenReady().then(()=>{
  app.setAsDefaultProtocolClient('huntmob-viewer');
  ipcMain.handle('connect-worker',(event,value)=>{if(event.senderFrame?.url!==setupUrl)throw Error('Origem inválida');try{connect(value);return {ok:true};}catch(error){return {ok:false,reason:error.message};}});
  Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'HuntMob',submenu:[{label:'Conectar a outro worker',click:showSetup},{role:'quit'}]},{label:'Janela',submenu:[{role:'reload'},{role:'togglefullscreen'},{role:'minimize'}]}]));
- const protocol=process.argv.find(v=>v.startsWith('huntmob-viewer:'));if(protocol){try{connect(protocolUrl(protocol));}catch{showSetup();}}else showSetup();
+ const protocol=process.argv.find(v=>v.startsWith('huntmob-viewer:'));
+ if(protocol){try{connect(protocolUrl(protocol));}catch{showSetup();}}
+ else localWorkerReady(url=>net.fetch(url,{cache:'no-store'})).then(ready=>{
+  if(viewer&&!viewer.isDestroyed())return;
+  if(ready)connect('http://127.0.0.1:8090/');
+  else showSetup();
+ });
 });
 app.on('window-all-closed',()=>app.quit());

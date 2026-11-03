@@ -102,7 +102,7 @@ export PATH=/ucrt64/bin:/usr/bin
 mkdir -p '$MsysBuild'
 cd '$MsysBuild'
 '$MsysWorktree/configure' --target-list=aarch64-softmmu --disable-werror \
-  --disable-docs --disable-guest-agent --disable-gtk --disable-sdl \
+  --disable-guest-agent --disable-gtk --disable-sdl \
   --disable-lzfse --enable-gnutls --enable-nettle --enable-slirp
 ninja -j $Jobs qemu-system-aarch64.exe
 "@

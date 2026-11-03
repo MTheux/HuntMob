@@ -89,6 +89,8 @@ $Initial | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Receipt -Encoding
 try {
     & $Git.Source -C $Repository worktree add --detach $Worktree $Pin *>> $Log
     if ($LASTEXITCODE -ne 0) { throw 'Unable to create the pinned build worktree.' }
+    & $Git.Source -C $Worktree submodule update --init --depth 1 util/mlib *>> $Log
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to populate the pinned mlib submodule.' }
 
     if ($Worktree -match "['`r`n]" -or $Build -match "['`r`n]") {
         throw 'Research paths cannot contain apostrophes or newlines.'

@@ -11,6 +11,7 @@ class InfernoWindowsBuildScriptTests(unittest.TestCase):
         self.assertIn("cc4302a99167abec69b714cfd00c38caece7e7de", self.content)
         self.assertIn("Output already exists and will not be overwritten", self.content)
         self.assertIn("worktree add --detach", self.content)
+        self.assertIn("submodule update --init --depth 1 util/mlib", self.content)
 
     def test_receipt_requires_hash_and_t8030_inventory(self):
         self.assertIn("Get-FileHash", self.content)

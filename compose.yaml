@@ -19,6 +19,10 @@ services:
     init: true
     ports:
       - "127.0.0.1:8090:8090"
+    volumes:
+      # The local workbench follows this checkout even when Docker keeps an old
+      # image. Read-only: the gateway cannot modify the source UI.
+      - ./web:/app/web:ro
     environment:
       # Caminho gravável pelo usuário nobody: o gateway cunha um segredo
       # efêmero aqui quando nenhum worker_secret é montado, então o `up`

@@ -26,21 +26,17 @@ test('API initialization waits for bootstrap and carries independent operator pr
  assert.equal(f.calls.at(-1).options.headers.get('X-HuntMob-Operator'),'fixture-proof');
  assert.equal(f.storage.get('huntmob.operatorProof'),'fixture-proof');
 });
-test('missing launch credentials show a local login form while API requests remain pending',async()=>{
- const f=setup({token:null}),pending=f.context.window.fetch('/api/evidence');
- await new Promise(resolve=>setImmediate(resolve));
+test('missing launch credentials fail closed without rendering a connect screen',async()=>{
+ const f=setup({token:null});
+ await assert.rejects(()=>f.context.window.fetch('/api/evidence'),/Sessão de operador indisponível/);
  assert.equal(f.calls.some(c=>c.route==='/api/evidence'),false);
- const dialog=f.elements.find(e=>e.tag==='dialog'),form=f.elements.find(e=>e.tag==='form'),input=f.elements.find(e=>e.tag==='input');
- assert.equal(dialog.open,true);input.value='http://127.0.0.1:8090/#operator='+'f'.repeat(64);
- await form.onsubmit({preventDefault(){}});await pending;
- assert.equal(dialog.open,false);assert.equal(input.value,'');
- assert.equal(f.calls.at(-1).options.headers.get('X-HuntMob-Operator'),'fixture-proof');
+ assert.equal(f.elements.some(e=>e.tag==='dialog'),false);
+ assert.equal(f.elements.some(e=>e.tag==='input'),false);
 });
 test('trusted Docker loopback skips the private-address dialog and calls the API directly',async()=>{
  const f=setup({token:null,localTrusted:true});
  await f.context.window.fetch('/api/session');
- const dialog=f.elements.find(e=>e.tag==='dialog');
- assert.notEqual(dialog.open,true);
+ assert.equal(f.elements.some(e=>e.tag==='dialog'),false);
  assert.deepEqual(f.calls.map(call=>call.route),['/api/auth/status','/api/session']);
  assert.equal(f.calls.at(-1).options.headers,undefined);
  assert.equal(f.storage.get('huntmob.operatorProof'),undefined);

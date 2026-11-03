@@ -100,6 +100,7 @@ class ControlGatewayTests(unittest.TestCase):
             worker = self.serve(EchoWorker)
             module.Gateway.worker_host = "127.0.0.1"
             module.Gateway.worker_port = worker.server_port
+            module.Gateway.static_root = str(GATEWAY_FILE.parents[1] / "web")
             gateway = self.serve(module.Gateway)
             connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
             connection.request("GET", "/api/check?x=1", headers={
@@ -114,6 +115,12 @@ class ControlGatewayTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertEqual(response.read(), b'{"ok":true,"authenticated":true,"operator":false}')
             connection.close()
+            connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
+            connection.request("GET", "/operator-session.js", headers={"Host":"127.0.0.1:8090"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Cache-Control"), "no-store, max-age=0")
+            response.read(); connection.close()
             connection = http.client.HTTPConnection("127.0.0.1", gateway.server_port, timeout=3)
             connection.request("GET", "/api/check", headers={"Host": "untrusted.example"})
             self.assertEqual(connection.getresponse().status, 403)

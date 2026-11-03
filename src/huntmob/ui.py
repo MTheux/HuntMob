@@ -148,6 +148,14 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             pass
 
+    def end_headers(self) -> None:
+        # Keep the local native path consistent with the Docker gateway: stale
+        # bootstrap JavaScript must not resurrect the operator-connect dialog.
+        if not urlparse(self.path).path.startswith('/api/'):
+            self.send_header('Cache-Control', 'no-store, max-age=0')
+            self.send_header('Pragma', 'no-cache')
+        super().end_headers()
+
     def do_GET(self) -> None:  # noqa: N802 - inherited HTTP API name
         parsed = urlparse(self.path)
         route = parsed.path

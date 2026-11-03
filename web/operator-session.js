@@ -28,7 +28,7 @@
       try{
         if(launchToken){const token=launchToken;launchToken=null;await bootstrap(token);return;}
         const response=await nativeFetch('/api/auth/status',{cache:'no-store',headers:{'X-HuntMob-Operator':proof}});
-        if(response.ok){const data=await response.json();if(data.operator===false){disabled=true;return;}if(data.authenticated)return;}
+        if(response.ok){const data=await response.json();if(data.operator===false){disabled=true;if(dialog.open)dialog.close();return;}if(data.authenticated)return;}
       }catch(error){status.textContent=error.message;}
       dialog.showModal();
       await new Promise(resolve=>{

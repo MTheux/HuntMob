@@ -41,13 +41,23 @@ SECRET = load_or_create_secret(os.environ.get("HUNTMOB_GATEWAY_SECRET_PATH", "/r
 class Gateway(SimpleHTTPRequestHandler):
     worker_host = "host.docker.internal"
     worker_port = 8092
+    static_root = "/app/web"
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory="/app/web", **kwargs)
+        super().__init__(*args, directory=self.static_root, **kwargs)
 
     def log_message(self, *_args):
         # Requests can contain client evidence; do not log paths or headers.
         pass
+
+    def end_headers(self):
+        # The operator bootstrap controls whether a dialog blocks the whole UI.
+        # Never let a previous container's HTML/JS survive a clean Docker start.
+        path = urlsplit(self.path).path
+        if not path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.send_header("Pragma", "no-cache")
+        super().end_headers()
 
     def _allowed_host(self):
         hosts = self.headers.get_all("Host") or []

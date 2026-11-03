@@ -7,6 +7,8 @@ services:
     init: true
     ports:
       - "127.0.0.1:8090:8090"
+    volumes:
+      - ./web:/app/web:ro
     secrets:
       - worker_secret
     security_opt:

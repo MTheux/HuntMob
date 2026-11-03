@@ -28,6 +28,11 @@ class Gateway(SimpleHTTPRequestHandler):
         # Requests can contain client evidence; do not log paths or headers.
         pass
 
+    def end_headers(self):
+        if not urlsplit(self.path).path.startswith('/api/'):
+            self.send_header('Cache-Control', 'no-store, max-age=0')
+        super().end_headers()
+
     def _allowed_host(self):
         hosts = self.headers.get_all("Host") or []
         return len(hosts) == 1 and hosts[0] in {"127.0.0.1:8090", "localhost:8090"}
@@ -37,6 +42,15 @@ class Gateway(SimpleHTTPRequestHandler):
             self.send_error(403, "Invalid host")
             return
         path = urlsplit(self.path).path
+        if path == "/api/auth/status" and self.command == "GET":
+            body = b'{"ok":true,"authenticated":true,"operator":false}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path.startswith("/api/"):
             self._proxy()
         elif self.command in {"GET", "HEAD"}:

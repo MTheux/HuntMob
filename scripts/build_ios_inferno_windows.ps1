@@ -16,6 +16,7 @@ $RequiredPackages = @(
     'mingw-w64-ucrt-x86_64-pkgconf',
     'mingw-w64-ucrt-x86_64-glib2',
     'mingw-w64-ucrt-x86_64-pixman',
+    'mingw-w64-ucrt-x86_64-libpng',
     'mingw-w64-ucrt-x86_64-gnutls',
     'mingw-w64-ucrt-x86_64-nettle',
     'mingw-w64-ucrt-x86_64-libslirp'
@@ -105,7 +106,7 @@ mkdir -p '$MsysBuild'
 cd '$MsysBuild'
 '$MsysWorktree/configure' --target-list=aarch64-softmmu --disable-werror \
   --disable-guest-agent --disable-gtk --disable-sdl \
-  --disable-lzfse --enable-gnutls --enable-nettle --enable-slirp
+  --disable-lzfse --enable-png --enable-gnutls --enable-nettle --enable-slirp
 ninja -j $Jobs qemu-system-aarch64.exe
 "@
     & $Bash -lc $Command *>> $Log

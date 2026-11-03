@@ -6,6 +6,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import platform
+import hashlib
+import json
 import secrets
 import socket
 import subprocess
@@ -46,6 +48,20 @@ def wait_worker(worker: subprocess.Popen, secret: str) -> None:
     raise RuntimeError("O worker nativo não respondeu na porta 8092")
 
 
+def gateway_matches_checkout() -> bool:
+    """Require the local gateway to serve this checkout's prompt-free UI."""
+    expected = (ROOT / "web" / "operator-session.js").read_bytes()
+    if b"Abra o endere\xc3\xa7o privado gerado" in expected:
+        raise RuntimeError("Este checkout ainda contém a tela antiga. Atualize a branch do HuntMob.")
+    with urlopen("http://127.0.0.1:8090/api/auth/status", timeout=2) as response:
+        status = json.load(response)
+    if status != {"ok": True, "authenticated": True, "operator": False}:
+        return False
+    with urlopen("http://127.0.0.1:8090/operator-session.js", timeout=2) as response:
+        served = response.read(len(expected) + 1)
+    return hashlib.sha256(served).digest() == hashlib.sha256(expected).digest()
+
+
 def wait_gateway(worker: subprocess.Popen) -> None:
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
@@ -53,11 +69,12 @@ def wait_gateway(worker: subprocess.Popen) -> None:
             raise RuntimeError("O worker nativo encerrou após iniciar o Docker")
         try:
             with urlopen("http://127.0.0.1:8090/api/client/ping", timeout=2) as response:
-                if response.status == 200:
+                if response.status == 200 and gateway_matches_checkout():
                     return
-        except OSError:
-            time.sleep(0.5)
-    raise RuntimeError("O gateway Docker não conseguiu alcançar o worker nativo")
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.5)
+    raise RuntimeError("O gateway Docker não entregou a interface atual sem tela de conexão; confira o checkout e a imagem.")
 
 
 def _confirm_sdk() -> bool:
@@ -117,7 +134,7 @@ def run_desktop() -> int:
                                           stderr=subprocess.STDOUT)
             wait_worker(worker, secret)
             started = True
-            subprocess.run(COMPOSE + ["up", "-d", "--build"], cwd=ROOT, env=environment, check=True)
+            subprocess.run(COMPOSE + ["up", "-d", "--build", "--force-recreate"], cwd=ROOT, env=environment, check=True)
             wait_gateway(worker)
             print("HuntMob Docker: http://127.0.0.1:8090", flush=True)
             print("Acesso local (loopback) confiável: abra a URL direto, sem conectar sessão.", flush=True)

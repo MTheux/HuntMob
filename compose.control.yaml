@@ -9,6 +9,9 @@ services:
     init: true
     ports:
       - "127.0.0.1:8090:8090"
+    volumes:
+      # Serve the checkout's UI even when Docker reuses an older gateway image.
+      - ./web:/app/web:ro
     secrets:
       - worker_secret
     security_opt:

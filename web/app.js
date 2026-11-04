@@ -1023,6 +1023,7 @@ function clearDastView(){
   document.querySelector('#deepDastGates').replaceChildren();document.querySelector('#deepDastResult').hidden=true;
   document.querySelector('#deepAnalyzeDast').disabled=true;document.querySelector('#prepareDeepRea').disabled=true;
   document.querySelector('#deepEngagementForm').hidden=true;document.querySelector('#deepDastStatus').textContent='Verificando a correlação deste aparelho…';
+  document.querySelector('#apkhuntLeads').replaceChildren();document.querySelector('#apkhuntStatus').textContent='Verificando relatório estático deste APK…';
 }
 window.huntmobDastDevices={
   sync(data){
@@ -1040,7 +1041,7 @@ window.huntmobDastDevices={
   async select(id){
     if(dynamicBusy)return;
     dastDeviceId=id===activeLab.id?'primary':id;this.sync();clearDastView();
-    document.querySelector('[data-tab="dast"]').click();await refreshDynamic();await loadNativeReport();await refreshDeepDast();
+    document.querySelector('[data-tab="dast"]').click();await refreshDynamic();await loadNativeReport();await refreshApkhunt();await refreshDeepDast();
   }
 };
 document.querySelector('#dastDeviceSelect').addEventListener('change',event=>window.huntmobDastDevices.select(event.target.value));
@@ -1125,8 +1126,34 @@ window.huntmobDastApps={
 document.querySelector('#checkDastConnection').addEventListener('click',()=>refreshDastConnection(true));
 document.querySelector('#refreshDastApps').addEventListener('click',()=>dastAppPicker.load());
 document.querySelector('#dastAppSelect').addEventListener('change',async event=>{
-  if(await dastAppPicker.choose(event.target.value)){await refreshDynamic();await refreshDeepDast();}
+  if(await dastAppPicker.choose(event.target.value)){await refreshDynamic();await refreshApkhunt();await refreshDeepDast();}
 });
+function renderApkhunt(report){
+  const status=document.querySelector('#apkhuntStatus'),leads=document.querySelector('#apkhuntLeads');leads.replaceChildren();
+  const selected=dastTarget();document.querySelector('#importApkhuntReport').disabled=!selected.package_id||!selected.apk_sha256;
+  if(!report){status.textContent=selected.apk_sha256?'Nenhum relatório APKHunt importado para este APK.':'Selecione um APK para importar evidências estáticas.';return;}
+  status.textContent=`${report.total_static_leads} pista(s) estática(s) · ${report.coverage_status||'cobertura desconhecida'} · ${report.source_files_scanned??'—'} arquivo(s) de código avaliados · SHA256 ${report.source_sha256.slice(0,12)}. Exige validação no app.`;
+  if(!report.leads.length){const empty=document.createElement('p');empty.textContent='Nenhuma pista importada. Isso não comprova ausência de falhas.';leads.append(empty);return;}
+  report.leads.forEach((item,index)=>{const card=document.createElement('details');card.open=index===0;const title=document.createElement('summary');title.textContent=`${item.severity} · ${item.rule_id} · ${item.title}`;const detail=document.createElement('p');detail.textContent=`${item.masvs||'MASVS não informado'} · ${item.cwe||'CWE não informado'} · ${item.file||'arquivo não informado'}${item.line===null?'':':'+item.line} · Pista estática; valide execução e impacto.`;card.append(title,detail);leads.append(card);});
+  if(report.truncated){const note=document.createElement('p');note.textContent='Lista limitada às primeiras 200 pistas; confira o relatório original para a cobertura completa.';leads.append(note);}
+}
+async function refreshApkhunt(){
+  const selected=dastTarget(),requested=JSON.stringify([selected.id,selected.package_id,selected.apk_sha256]);
+  if(!selected.package_id||!selected.apk_sha256){renderApkhunt(null);return;}
+  try{const response=await fetch('/api/dynamic/apkhunt'+dastQuery(),{cache:'no-store',signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error('Relatório APKHunt indisponível.');const data=await response.json();const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested)renderApkhunt(data.report);}
+  catch(error){const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested)document.querySelector('#apkhuntStatus').textContent=error.message;}
+}
+document.querySelector('#importApkhuntReport').addEventListener('click',async()=>{
+  const file=document.querySelector('#apkhuntReportFile').files[0],target=dastTarget(),status=document.querySelector('#apkhuntStatus');
+  const requested=JSON.stringify([target.id,target.package_id,target.apk_sha256]);
+  if(!file){status.textContent='Escolha o JSON salvo pelo APKHunt na pasta reports.';return;}
+  if(file.size>8*1024*1024){status.textContent='Relatório acima do limite de 8 MB.';return;}
+  if(!target.package_id||!target.apk_sha256){status.textContent='Selecione um APK identificado antes de importar.';return;}
+  status.textContent='Conferindo identidade do APK e importando metadados…';
+  try{const response=await sessionFetch('/api/dynamic/apkhunt',{method:'POST',headers:{'Content-Type':'application/json','X-HuntMob-Approved':'true','X-HuntMob-Workspace':activeLab.id,'X-HuntMob-Device':target.id,'X-HuntMob-Package':target.package_id},body:file});const data=await response.json();if(!response.ok)throw new Error(data.reason||'Importação recusada.');const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested){renderApkhunt(data.report);await refreshDeepDast();}}
+  catch(error){const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested)status.textContent=error.message;}
+});
+refreshApkhunt();
 const observerIds = ['tls-observe', 'biometric-monitor', 'root-detection-observe', 'webview-observe', 'crypto-observe', 'file-observe'];
 async function refreshDynamic() {
   if (dynamicPollBusy || devicePlatform!=='android') return;
@@ -1269,7 +1296,7 @@ function renderDeepDast(data) {
   button.disabled = deepDastBusy || !data.ready || job?.state === 'running';
   button.textContent = job?.state === 'running' ? 'Analisando evidências…' : 'Análise profunda com AI';
   if (!job) status.textContent = data.ready ? 'Pré-requisitos completos. A execução usa somente o modelo local configurado.' : 'Complete os gates bloqueados antes de iniciar.';
-  else if (job.state === 'running') status.textContent = 'Correlacionando DAST e REA com o modelo local. Nenhum candidato será promovido automaticamente.';
+  else if (job.state === 'running') status.textContent = 'Correlacionando DAST, REA e pistas APKHunt importadas com o modelo local. Nenhum candidato será promovido automaticamente.';
   else if (job.state === 'failed' || job.state === 'interrupted') status.textContent = job.reason || 'Análise profunda interrompida.';
   else if (job.state === 'complete') status.textContent = `Concluída · ${job.review.correlations.length} correlação(ões) · revisão humana obrigatória.`;
   const preparation=data.preparation,reaReady=(data.gates||[]).some(item=>item.id==='rea-evidence'&&item.passed);

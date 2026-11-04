@@ -66,6 +66,17 @@ class DeepDastTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             deep_dast._validate_ai(report, {'DAST:a'})
 
+    def test_apkhunt_static_evidence_cannot_be_promoted_to_observed(self):
+        report = {'summary': 'Pista estática.', 'correlations': [{
+            'title': 'WebView', 'status': 'observed', 'confidence': 'confirmed_fact',
+            'evidence_ids': ['APKHUNT:abc'], 'analysis': 'Regra estática.'}],
+            'hypotheses': [], 'unknowns': [], 'next_tests': []}
+        with self.assertRaises(ValueError):
+            deep_dast._validate_ai(report, {'APKHUNT:abc'})
+        report['correlations'][0]['status'] = 'candidate'
+        report['correlations'][0]['confidence'] = 'theoretical'
+        self.assertEqual(deep_dast._validate_ai(report, {'APKHUNT:abc'})['correlations'][0]['status'], 'candidate')
+
     def test_jev_done_requires_every_observed_transition_and_digest(self):
         phases = [{'id': 'scope', 'state': 'complete', 'observable': 'scope bound', 'evidence_sha256': 'a' * 64},
                   {'id': 'rea', 'state': 'failed', 'observable': 'REA complete', 'evidence_sha256': ''}]

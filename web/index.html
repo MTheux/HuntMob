@@ -233,11 +233,19 @@
           <p id="dastActionHelp" class="dast-action-help" role="status">Selecione o app e verifique a conexão Frida para iniciar.</p>
           <div class="artifact-meta"><span id="dastTarget">Selecione um aplicativo</span><span id="dastMetrics">Sem eventos</span></div>
 
+          <section class="apkhunt-evidence" aria-labelledby="apkhuntTitle">
+            <div class="panel-title"><div><span class="eyebrow">APKHUNT · ESTÁTICO</span><h2 id="apkhuntTitle">Pistas para o DAST</h2></div></div>
+            <p class="profile-description">Importe o JSON salvo pelo APKHunt na pasta reports para o mesmo APK. O HuntMob confere package e SHA256, guarda somente metadados e mostra pistas para testar no app. Nenhum achado é confirmado pela importação.</p>
+            <div class="dynamic-actions"><input id="apkhuntReportFile" type="file" accept=".json,application/json" aria-label="Relatório JSON do APKHunt"><button class="outline" id="importApkhuntReport" type="button">Importar relatório</button></div>
+            <p id="apkhuntStatus" class="profile-description" role="status">Selecione um APK para importar evidências estáticas.</p>
+            <div id="apkhuntLeads" class="native-candidates"></div>
+          </section>
+
           <section class="native-dast-analysis" aria-label="Análise nativa da sessão">
             <div class="panel-title"><div><span class="eyebrow">HUNTMOB</span><h2>Resultados DAST</h2></div><button id="analyzeDast" class="outline">Analisar evidências</button></div>
             <p class="profile-description" id="nativeReportStatus">Encerre a sessão para gerar o relatório, ou analise uma captura em andamento.</p>
             <section class="deep-dast" aria-labelledby="deepDastTitle">
-              <div class="deep-dast-copy"><span class="eyebrow">REA · AI LOCAL · JEV</span><h3 id="deepDastTitle">Correlação profunda do aplicativo</h3><p>Combina a sessão dinâmica com evidências REA do mesmo APK. A AI local organiza fatos, hipóteses e próximos testes; o contrato JEV verifica as transições do workflow, sem controlar a tela Android.</p></div>
+              <div class="deep-dast-copy"><span class="eyebrow">REA · APKHUNT · AI LOCAL · JEV</span><h3 id="deepDastTitle">Correlação profunda do aplicativo</h3><p>Combina a sessão dinâmica com evidências REA e, se importadas, pistas APKHunt do mesmo APK. A AI local organiza fatos, hipóteses e próximos testes; o contrato JEV verifica as transições do workflow, sem controlar a tela Android.</p></div>
               <button class="primary deep-dast-action" id="deepAnalyzeDast" type="button">Análise profunda com AI</button>
               <div class="deep-setup">
                 <button class="outline" id="prepareDeepRea" type="button">Preparar REA deste APK</button>

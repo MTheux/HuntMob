@@ -61,9 +61,9 @@ function setAnalysisOpen(open, remember = false) {
   workspace.classList.toggle('analysis-collapsed', !open);
   analysisPanel.hidden = !open;
   document.querySelector('#analysisToggle').setAttribute('aria-expanded', String(open));
-  document.querySelector('#analysisToggle').title = open ? 'Ocultar ferramentas' : 'Abrir ferramentas';
+  document.querySelector('#analysisToggle').title = open ? 'Ocultar etapas' : 'Abrir etapas';
   document.querySelector('#analysisChevron').textContent = open ? '›' : '‹';
-  document.querySelector('#analysisToggleLabel').textContent = open ? 'Ocultar' : 'Ferramentas';
+  document.querySelector('#analysisToggleLabel').textContent = open ? 'Ocultar' : 'Etapas';
   if (remember) {
     analysisPreference = String(open);
     try { localStorage.setItem('huntmob.analysisOpen', analysisPreference); } catch {}
@@ -72,8 +72,14 @@ function setAnalysisOpen(open, remember = false) {
 document.querySelector('#analysisToggle').addEventListener('click', () => {
   setAnalysisOpen(analysisPanel.hidden, true);
 });
+document.querySelector('#retryRuntime').addEventListener('click', () => {
+  const label = document.querySelector('#retryRuntime').textContent;
+  if (label === 'Criar laboratório') document.querySelector('#newLab').click();
+  else if (devicePlatform === 'ios') loadIosRuntime(true);
+  else loadRuntime();
+});
 function syncAnalysisAvailability(online) {
-  setAnalysisOpen(online && analysisPreference !== 'false');
+  setAnalysisOpen(analysisPreference !== 'false');
 }
 function setDeviceListOpen(open, remember = false) {
   document.body.classList.toggle('device-collapsed', !open);
@@ -189,7 +195,7 @@ let screenConnected = false;
 let screenGeneration = 0;
 let screenRetries = 0;
 function stopDeviceScreen() {
-  stopIosCanvas();
+  if (typeof stopIosCanvas === 'function') stopIosCanvas();
   screenConnected=false;
   screenGeneration += 1; stopDirectVideo();
   window.clearTimeout(screenTimer);
@@ -312,12 +318,16 @@ async function loadRuntime() {
       document.querySelector('#stageDeviceName').textContent = 'HuntMob Runtime';
       document.querySelector('#stageSerial').textContent = workerReady ? 'nenhum device em execução' : 'QEMU/AOSP ainda não provisionado';
       const runtimeLabels = { booting: 'INICIANDO', unauthorized: 'AUTORIZAÇÃO PENDENTE', error: 'ERRO ADB' };
-      document.querySelector('#runtimeState').textContent = runtimeLabels[payload.state] || (workerReady ? 'STOPPED' : 'BUILD REQUIRED');
+      const runtimeStateLabel=document.querySelector('#runtimeState');
+      runtimeStateLabel.textContent = runtimeLabels[payload.state] || (workerReady ? 'STOPPED' : 'BUILD REQUIRED');
+      runtimeStateLabel.dataset.state=payload.state==='error'||payload.state==='unauthorized'?'error':workerReady?'offline':'unavailable';
       if (payload.state === 'error' || payload.state === 'unauthorized') huntmobLog(payload.connection?.reason || runtimeLabels[payload.state], 'error');
       document.querySelector('#deviceViewport').classList.add('runtime-unavailable');
       document.querySelector('#runtimePlaceholder').hidden = false;
       document.querySelector('#runtimePlaceholder strong').textContent = workerReady ? 'Device desligado' : 'Runtime ainda não provisionado';
       document.querySelector('#runtimePlaceholder span').textContent = payload.state === 'booting' ? 'Android iniciando · aguardando conclusão do boot' : payload.connection?.reason || (workerReady ? 'Worker e imagem prontos · crie ou inicie um laboratório' : 'Instale o runtime para preparar seu laboratório');
+      document.querySelector('#retryRuntime').textContent = workerReady ? 'Criar laboratório' : 'Tentar conexão';
+      document.querySelector('#retryRuntime').hidden = payload.state === 'booting';
       document.querySelectorAll('.toolbar-actions button').forEach((button) => { button.disabled = true; });
       document.querySelector('#eventKind').textContent = 'STATE';
       document.querySelector('#eventMessage').textContent = workerReady ? 'Worker pronto; inicie um laboratório' : 'Nenhuma VM HuntMob em execução';
@@ -343,6 +353,8 @@ async function loadRuntime() {
       document.querySelector('#deviceScreen').removeAttribute('src');
       document.querySelector('#runtimePlaceholder strong').textContent = 'Device desconectado';
       document.querySelector('#runtimePlaceholder span').textContent = 'Aguardando o Android ficar online';
+      document.querySelector('#retryRuntime').textContent = 'Tentar conexão';
+      document.querySelector('#retryRuntime').hidden = false;
     }
     if (online && (!runtimeWasOnline || !screenConnected)) startDeviceScreen();
     if (online && !runtimeWasOnline) {
@@ -361,6 +373,7 @@ async function loadRuntime() {
     document.querySelector('#stageDeviceName').textContent = runtimeDevice.name;
     document.querySelector('#stageSerial').textContent = runtimeDevice.adb_serial || 'ADB indisponível';
     document.querySelector('#runtimeState').textContent = online ? 'ONLINE' : runtimeDevice.state.toUpperCase();
+    document.querySelector('#runtimeState').dataset.state=online?'ready':runtimeDevice.state==='error'||runtimeDevice.state==='unauthorized'?'error':'offline';
     const dot = document.querySelector('#runtimeDot');
     dot.className = online ? 'online-dot' : 'offline-dot';
     dot.setAttribute('aria-label', online ? 'Online' : 'Offline');
@@ -371,6 +384,7 @@ async function loadRuntime() {
     window.huntmobSidebar?.runtimeError();
     document.querySelector('#runtimeMeta').textContent = error.message;
     document.querySelector('#runtimeState').textContent = 'OFFLINE';
+    document.querySelector('#runtimeState').dataset.state='unavailable';
     setPowerOnVisible(false);
     stopDeviceScreen();
     runtimeDevice = undefined;
@@ -378,13 +392,17 @@ async function loadRuntime() {
     document.querySelector('#deviceViewport').classList.add('runtime-unavailable');
     document.querySelector('#runtimePlaceholder').hidden = false;
     document.querySelector('#runtimePlaceholder strong').textContent = 'Worker indisponível';
-    document.querySelector('#runtimePlaceholder span').textContent = 'Verifique o servidor local. A conexão será tentada novamente.';
+    document.querySelector('#runtimePlaceholder span').textContent = 'O HuntMob não recebeu resposta do worker Android. Confira se o worker está iniciado e tente novamente.';
+    document.querySelector('#retryRuntime').textContent = 'Tentar conexão';
+    document.querySelector('#retryRuntime').hidden = false;
     syncAnalysisAvailability(false);
     runtimeWasOnline = false;
   } finally {
     runtimeLoading = false;
     window.huntmobSidebar?.sync();
     window.huntmobDastApps?.sync();
+    const phase=document.querySelector('.phase-spine .phase.active')?.dataset.phase||'engagement';
+    updatePhaseNext(phase);
   }
 }
 
@@ -480,7 +498,54 @@ tabs.forEach((tab) => tab.addEventListener('click', () => {
 // A fase revela UMA sub-aba por vez (a pedida, senão a primeira disponível) e
 // dispara os efeitos da aba que ficou ativa. Entrar pela espinha (sem tab) cai
 // na primeira aba da fase; clicar numa sub-aba traz a sua.
+function openEvidenceDialog() {
+  const dialog = document.querySelector('#evidenceDialog');
+  if (dialog?.showModal && !dialog.open) dialog.showModal();
+  loadEvidence();
+}
+function updatePhaseNext(phase) {
+  const title = document.querySelector('#phaseNextTitle');
+  const detail = document.querySelector('#phaseNextDetail');
+  const action = document.querySelector('#phaseNextAction');
+  const steps = {
+    engagement: {
+      title: activeLab.id ? 'Confira o laboratório e selecione o app' : 'Prepare o laboratório',
+      detail: activeLab.id ? 'Confirme o aparelho ativo antes de abrir os arquivos ou iniciar a análise.' : 'Crie um laboratório para instalar ou selecionar o aplicativo autorizado.',
+      label: activeLab.id ? 'Ver laboratório' : 'Criar laboratório',
+      run: () => activeLab.id ? document.querySelector('[data-tab="device-tools"]').click() : document.querySelector('#newLab').click(),
+    },
+    estatico: {
+      title: 'Inspecione o APK no REA', detail: 'Selecione o aplicativo e confira os fatos estáticos antes de interpretar os sinais.',
+      label: 'Abrir análise estática', run: () => document.querySelector('[data-tab="reverse"]').click(),
+    },
+    dinamico: {
+      title: dynamicBusy ? 'Sessão DAST em andamento' : 'Configure uma sessão DAST',
+      detail: dynamicBusy ? 'Acompanhe a coleta e encerre a sessão para revisar os resultados.' : 'Escolha o aparelho e o app; inicie a coleta somente quando Frida estiver pronto.',
+      label: dynamicBusy ? 'Abrir sessão' : 'Configurar DAST',
+      run: () => { document.querySelector('[data-tab="dast"]').click(); selectDastView(dynamicBusy ? 'run' : 'config'); },
+    },
+    evidencias: {
+      title: 'Revise o proof-pack', detail: 'Confira a integridade e os dados antes de exportar ou compartilhar evidências.',
+      label: 'Abrir evidências', run: openEvidenceDialog,
+    },
+  }[phase] || {title:'Prepare o laboratório',detail:'Escolha um aparelho e abra ou crie um laboratório.',label:'Criar laboratório',run:()=>document.querySelector('#newLab').click()};
+  title.textContent = steps.title; detail.textContent = steps.detail; action.textContent = steps.label;
+  action.onclick = steps.run;
+}
 function activatePhase(phase, tab) {
+  updatePhaseNext(phase);
+  if (phase === 'evidencias') {
+    setAnalysisOpen(true, true);
+    document.querySelectorAll('.phase-spine .phase').forEach((button) => {
+      const active = button.dataset.phase === phase;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    try { localStorage.setItem('huntmob.activePhase', phase); } catch {}
+    openEvidenceDialog();
+    syncEngagementStepper();
+    return;
+  }
   if (!tabsForPhase(phase).length) phase = 'engagement';
   setAnalysisOpen(true, true);
   const { active } = revealPhase(phase, document, tab);
@@ -500,8 +565,9 @@ let engagementBound = false;
 function syncEngagementStepper() {
   const stepper = document.querySelector('#engagementStepper');
   if (!stepper) return;
-  const done = { engagement: engagementBound, estatico: !!reverseAnalysis, dinamico: !!dastProgressReport };
-  const order = ['engagement', 'estatico', 'dinamico'];
+  const done = { engagement: engagementBound, estatico: !!reverseAnalysis, dinamico: !!dastProgressReport,
+    evidencias: Number(document.querySelector('#evidenceCount')?.textContent || 0) > 0 };
+  const order = ['engagement', 'estatico', 'dinamico', 'evidencias'];
   const current = order.findIndex((phase) => !done[phase]);
   order.forEach((phase, index) => {
     const btn = stepper.querySelector(`.phase[data-phase="${phase}"]`);
@@ -993,8 +1059,48 @@ let dastAppSignature = '';
 let dastInventory, dastDeviceId='primary';
 function dastTarget(){
   const child=dastDeviceId!=='primary'&&dastInventory?.workspace_id===activeLab.id?dastInventory.devices.find(d=>d.id===dastDeviceId):null;
-  return child?{...child,available:devicePlatform==='android'&&child.online===true}: {...activeLab,available:devicePlatform==='android'&&runtimeDevice?.state==='on'};
+  const target=child?{...child,available:devicePlatform==='android'&&child.online===true}: {...activeLab,available:devicePlatform==='android'&&runtimeDevice?.state==='on'};
+  const device=document.querySelector('#dastContextDevice'),app=document.querySelector('#dastContextApp'),hash=document.querySelector('#dastContextHash');
+  if(device)device.textContent=child?`Android companheiro · API ${child.android_api||'—'}`:`${devicePlatform==='ios'?'iOS':'Android'} principal · API ${activeLab.android_api||'—'}`;
+  if(app)app.textContent=target.package_id||'Nenhum selecionado';
+  if(hash)hash.textContent=target.apk_sha256?`SHA-256 ${target.apk_sha256.slice(0,12)}`:'SHA-256 pendente';
+  if(document.querySelector('.phase-spine .phase.active')?.dataset.phase==='dinamico')updatePhaseNext('dinamico');
+  return target;
 }
+const dastViewPanels={};
+function selectDastView(view){
+  if(!dastViewPanels[view])return;
+  Object.entries(dastViewPanels).forEach(([key,panel])=>{
+    const selected=key===view;panel.hidden=!selected;
+    const button=document.querySelector(`[data-dast-view="${key}"]`);
+    button?.setAttribute('aria-selected',String(selected));
+  });
+  try{localStorage.setItem('huntmob.dastView',view);}catch{}
+  if(view==='results'){void loadNativeReport();void refreshDeepDast();}
+}
+function setupDastViews(){
+  const root=document.querySelector('#tab-dast .platform-android'),nav=root?.querySelector('.dast-steps');
+  if(!root||!nav)return;
+  const nodes={
+    config:[root.querySelector('.dast-app-picker')],
+    run:[root.querySelector('.dast-progress'),root.querySelector(':scope > .dynamic-actions'),root.querySelector('#dastActionHelp'),root.querySelector(':scope > .artifact-meta'),document.querySelector('#dastEvents')],
+    results:[root.querySelector('.apkhunt-evidence'),root.querySelector('.native-dast-analysis')],
+  };
+  let after=nav;
+  for(const [name,items]of Object.entries(nodes)){
+    const panel=document.createElement('section');panel.className='dast-view-panel';panel.dataset.dastPanel=name;
+    panel.setAttribute('role','tabpanel');panel.id=`dastPanel-${name}`;dastViewPanels[name]=panel;
+    after.after(panel);after=panel;
+    items.filter(Boolean).forEach(node=>panel.append(node));
+  }
+  nav.querySelectorAll('[data-dast-view]').forEach(button=>{
+    button.setAttribute('aria-controls',`dastPanel-${button.dataset.dastView}`);
+    button.addEventListener('click',()=>selectDastView(button.dataset.dastView));
+  });
+  let initial='config';try{const saved=localStorage.getItem('huntmob.dastView');if(dastViewPanels[saved])initial=saved;}catch{}
+  selectDastView(initial);
+}
+setupDastViews();
 function dastQuery(){return dastDeviceId==='primary'?'':'?'+new URLSearchParams({workspace:activeLab.id,device:dastDeviceId});}
 function dastPayload(){return dastDeviceId==='primary'?{}:{workspace_id:activeLab.id,device_id:dastDeviceId};}
 let dastProgressScope='',dastProgressData={},dastProgressReport,dastProgressOperation,dastProgressError='';
@@ -1023,6 +1129,7 @@ function clearDastView(){
   document.querySelector('#deepDastGates').replaceChildren();document.querySelector('#deepDastResult').hidden=true;
   document.querySelector('#deepAnalyzeDast').disabled=true;document.querySelector('#prepareDeepRea').disabled=true;
   document.querySelector('#deepEngagementForm').hidden=true;document.querySelector('#deepDastStatus').textContent='Verificando a correlação deste aparelho…';
+  document.querySelector('#apkhuntLeads').replaceChildren();document.querySelector('#apkhuntStatus').textContent='Verificando relatório estático deste APK…';
 }
 window.huntmobDastDevices={
   sync(data){
@@ -1040,7 +1147,7 @@ window.huntmobDastDevices={
   async select(id){
     if(dynamicBusy)return;
     dastDeviceId=id===activeLab.id?'primary':id;this.sync();clearDastView();
-    document.querySelector('[data-tab="dast"]').click();await refreshDynamic();await loadNativeReport();await refreshDeepDast();
+    document.querySelector('[data-tab="dast"]').click();await refreshDynamic();await loadNativeReport();await refreshApkhunt();await refreshDeepDast();
   }
 };
 document.querySelector('#dastDeviceSelect').addEventListener('change',event=>window.huntmobDastDevices.select(event.target.value));
@@ -1125,8 +1232,34 @@ window.huntmobDastApps={
 document.querySelector('#checkDastConnection').addEventListener('click',()=>refreshDastConnection(true));
 document.querySelector('#refreshDastApps').addEventListener('click',()=>dastAppPicker.load());
 document.querySelector('#dastAppSelect').addEventListener('change',async event=>{
-  if(await dastAppPicker.choose(event.target.value)){await refreshDynamic();await refreshDeepDast();}
+  if(await dastAppPicker.choose(event.target.value)){await refreshDynamic();await refreshApkhunt();await refreshDeepDast();}
 });
+function renderApkhunt(report){
+  const status=document.querySelector('#apkhuntStatus'),leads=document.querySelector('#apkhuntLeads');leads.replaceChildren();
+  const selected=dastTarget();document.querySelector('#importApkhuntReport').disabled=!selected.package_id||!selected.apk_sha256;
+  if(!report){status.textContent=selected.apk_sha256?'Nenhum relatório APKHunt importado para este APK.':'Selecione um APK para importar evidências estáticas.';return;}
+  status.textContent=`${report.total_static_leads} pista(s) estática(s) · ${report.coverage_status||'cobertura desconhecida'} · ${report.source_files_scanned??'—'} arquivo(s) de código avaliados · SHA-256 ${report.source_sha256.slice(0,12)}. Exige validação no app.`;
+  if(!report.leads.length){const empty=document.createElement('p');empty.textContent='Nenhuma pista importada. Isso não comprova ausência de falhas.';leads.append(empty);return;}
+  report.leads.forEach((item,index)=>{const card=document.createElement('details');card.open=index===0;const title=document.createElement('summary');title.textContent=`${item.severity} · ${item.rule_id} · ${item.title}`;const detail=document.createElement('p');detail.textContent=`${item.masvs||'MASVS não informado'} · ${item.cwe||'CWE não informado'} · ${item.file||'arquivo não informado'}${item.line===null?'':':'+item.line} · Pista estática; valide execução e impacto.`;card.append(title,detail);leads.append(card);});
+  if(report.truncated){const note=document.createElement('p');note.textContent='Lista limitada às primeiras 200 pistas; confira o relatório original para a cobertura completa.';leads.append(note);}
+}
+async function refreshApkhunt(){
+  const selected=dastTarget(),requested=JSON.stringify([selected.id,selected.package_id,selected.apk_sha256]);
+  if(!selected.package_id||!selected.apk_sha256){renderApkhunt(null);return;}
+  try{const response=await fetch('/api/dynamic/apkhunt'+dastQuery(),{cache:'no-store',signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error('Relatório APKHunt indisponível.');const data=await response.json();const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested)renderApkhunt(data.report);}
+  catch(error){const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested)document.querySelector('#apkhuntStatus').textContent=error.message;}
+}
+document.querySelector('#importApkhuntReport').addEventListener('click',async()=>{
+  const file=document.querySelector('#apkhuntReportFile').files[0],target=dastTarget(),status=document.querySelector('#apkhuntStatus');
+  const requested=JSON.stringify([target.id,target.package_id,target.apk_sha256]);
+  if(!file){status.textContent='Escolha o JSON salvo pelo APKHunt na pasta reports.';return;}
+  if(file.size>8*1024*1024){status.textContent='Relatório acima do limite de 8 MB.';return;}
+  if(!target.package_id||!target.apk_sha256){status.textContent='Selecione um APK identificado antes de importar.';return;}
+  status.textContent='Conferindo identidade do APK e importando metadados…';
+  try{const response=await sessionFetch('/api/dynamic/apkhunt',{method:'POST',headers:{'Content-Type':'application/json','X-HuntMob-Approved':'true','X-HuntMob-Workspace':activeLab.id,'X-HuntMob-Device':target.id,'X-HuntMob-Package':target.package_id},body:file});const data=await response.json();if(!response.ok)throw new Error(data.reason||'Importação recusada.');const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested){renderApkhunt(data.report);await refreshDeepDast();}}
+  catch(error){const now=dastTarget();if(JSON.stringify([now.id,now.package_id,now.apk_sha256])===requested)status.textContent=error.message;}
+});
+refreshApkhunt();
 const observerIds = ['tls-observe', 'biometric-monitor', 'root-detection-observe', 'webview-observe', 'crypto-observe', 'file-observe'];
 async function refreshDynamic() {
   if (dynamicPollBusy || devicePlatform!=='android') return;
@@ -1269,7 +1402,7 @@ function renderDeepDast(data) {
   button.disabled = deepDastBusy || !data.ready || job?.state === 'running';
   button.textContent = job?.state === 'running' ? 'Analisando evidências…' : 'Análise profunda com AI';
   if (!job) status.textContent = data.ready ? 'Pré-requisitos completos. A execução usa somente o modelo local configurado.' : 'Complete os gates bloqueados antes de iniciar.';
-  else if (job.state === 'running') status.textContent = 'Correlacionando DAST e REA com o modelo local. Nenhum candidato será promovido automaticamente.';
+  else if (job.state === 'running') status.textContent = 'Correlacionando DAST, REA e pistas APKHunt importadas com o modelo local. Nenhum candidato será promovido automaticamente.';
   else if (job.state === 'failed' || job.state === 'interrupted') status.textContent = job.reason || 'Análise profunda interrompida.';
   else if (job.state === 'complete') status.textContent = `Concluída · ${job.review.correlations.length} correlação(ões) · revisão humana obrigatória.`;
   const preparation=data.preparation,reaReady=(data.gates||[]).some(item=>item.id==='rea-evidence'&&item.passed);
@@ -1872,13 +2005,8 @@ async function loadEvidence() {
   }
 }
 document.querySelector('#refreshEvidence').addEventListener('click', loadEvidence);
-// Evidências deixou de ser uma fase do topo; vira um popup aberto pelo atalho
-// em Dispositivo. A captura/armazenamento do proof-pack segue igual por baixo.
-document.querySelector('#openEvidence')?.addEventListener('click', () => {
-  const dialog = document.querySelector('#evidenceDialog');
-  if (dialog?.showModal && !dialog.open) dialog.showModal();
-  loadEvidence();
-});
+// A fase Evidências abre o proof-pack existente; a captura/armazenamento segue igual.
+document.querySelector('#openEvidence')?.addEventListener('click', openEvidenceDialog);
 document.querySelector('#evidenceDialogClose')?.addEventListener('click', () => document.querySelector('#evidenceDialog').close());
 document.querySelector('#captureEvidence').addEventListener('click', async () => {
   if (devicePlatform === 'ios') { await iosAction('capture'); return; }
@@ -2122,7 +2250,6 @@ function clearReportDetails() {
 const controlDialog = document.querySelector('#deviceControlDialog');
 document.querySelector('#deviceControlForm').addEventListener('submit', event => event.preventDefault());
 document.querySelector('#closeDeviceControl').addEventListener('click', () => controlDialog.close());
-document.querySelector('#closeToolbox').addEventListener('click', () => setAnalysisOpen(false,true));
 document.querySelectorAll('[data-control-panel]').forEach(button => button.addEventListener('click', () => {
   document.querySelector('#deviceControlForm .eyebrow').textContent=(window.huntmobTools?.isIos()??devicePlatform==='ios')?'LABORATÓRIO IOS':'LABORATÓRIO ANDROID';
   const panel = button.dataset.controlPanel;
@@ -2202,5 +2329,5 @@ document.querySelector('#clearObservers').addEventListener('click', () => { scri
 
 document.querySelector('#openAndroidCamera').addEventListener('click', async () => { dialog.close(); await applyDeviceControl({action:'camera'}); });
 
-try { const savedPhase = localStorage.getItem('huntmob.activePhase') || phaseForTab(localStorage.getItem('huntmob.activeTool')); const open = !analysisPanel.hidden; activatePhase(savedPhase); setAnalysisOpen(open); } catch {}
+try { const savedPhase = localStorage.getItem('huntmob.activePhase') || phaseForTab(localStorage.getItem('huntmob.activeTool')); const open = !analysisPanel.hidden; activatePhase(savedPhase === 'evidencias' ? 'engagement' : savedPhase); setAnalysisOpen(open); } catch {}
 syncEngagementStepper();

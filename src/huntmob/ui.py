@@ -190,6 +190,15 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
             try: self.workspace_json(deep_dast.status(query.get('workspace', [None])[0], query.get('device', [None])[0]))
             except (OSError, ValueError): self.workspace_json({'ok': False, 'reason': 'Aparelho indisponível neste workspace.'}, 409)
             return
+        if route == '/api/dynamic/apkhunt':
+            from . import apkhunt_evidence
+            from .dynamic_runtime import target_context
+            query = parse_qs(parsed.query)
+            try:
+                lab = target_context(query.get('workspace', [None])[0], query.get('device', [None])[0])
+                self.workspace_json({'ok': True, 'report': apkhunt_evidence.latest(lab)})
+            except (OSError, ValueError): self.workspace_json({'ok': False, 'reason': 'Aparelho indisponível neste workspace.'}, 409)
+            return
         if route == '/api/dynamic/readiness':
             from .dynamic_runtime import connection_readiness
             query = parse_qs(parsed.query)
@@ -603,12 +612,33 @@ class HuntMobHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - inherited HTTP API name
         route = urlparse(self.path).path
-        if route not in {"/api/reverse/model-review", "/api/reverse/review", "/api/reverse/inspect", "/api/workspace/device/action", "/api/ios/xtool/install", "/api/ios/analyze", "/api/ios/action", "/api/ios/upload", "/api/device/direct-input", "/api/device/control", "/api/device/action", "/api/proxy", "/api/reverse", "/api/device/upload", "/api/device/drop", "/api/device/input", "/api/network/send", "/api/network/clear", "/api/dynamic", "/api/dynamic/deep", "/api/evidence/capture"}:
+        if route not in {"/api/reverse/model-review", "/api/reverse/review", "/api/reverse/inspect", "/api/workspace/device/action", "/api/ios/xtool/install", "/api/ios/analyze", "/api/ios/action", "/api/ios/upload", "/api/device/direct-input", "/api/device/control", "/api/device/action", "/api/proxy", "/api/reverse", "/api/device/upload", "/api/device/drop", "/api/device/input", "/api/network/send", "/api/network/clear", "/api/dynamic", "/api/dynamic/deep", "/api/dynamic/apkhunt", "/api/evidence/capture"}:
             self.send_error(404)
             return
         if self.headers.get("X-HuntMob-CSRF") != SESSION_TOKEN:
             body=json.dumps({'ok':False,'error_code':'csrf_session_changed','executed':False,'reason':'Sessão do servidor mudou; renove a conexão antes de repetir.'}).encode()
             self.send_response(403);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+            return
+        if route == '/api/dynamic/apkhunt':
+            if self.headers.get('X-HuntMob-Approved') != 'true':
+                self.workspace_json({'ok': False, 'reason': 'Autorização explícita necessária.'}, 403)
+                return
+            try:
+                from . import apkhunt_evidence
+                from .dynamic_runtime import target_context
+                workspace_id = self.headers.get('X-HuntMob-Workspace', '')
+                device_id = self.headers.get('X-HuntMob-Device', '')
+                package_id = self.headers.get('X-HuntMob-Package', '')
+                lab = target_context(workspace_id, device_id)
+                if package_id != lab.get('package_id'):
+                    raise ValueError('O relatório não pertence ao aplicativo selecionado.')
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= apkhunt_evidence.MAX_REPORT_BYTES:
+                    raise ValueError('Relatório APKHunt vazio ou acima de 8 MB.')
+                report = apkhunt_evidence.save(self.rfile.read(length), lab)
+                self.workspace_json({'ok': True, 'report': report})
+            except (OSError, ValueError) as error:
+                self.workspace_json({'ok': False, 'reason': str(error) if isinstance(error, ValueError) else 'Importação APKHunt não concluída.'}, 409)
             return
         if route == '/api/device/drop':
             if self.headers.get('X-HuntMob-Approved') != 'true':

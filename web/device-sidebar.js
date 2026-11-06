@@ -252,7 +252,7 @@
     }catch(error){$('#savedLabDeleteError').textContent=error.message;$('#savedLabDeleteError').hidden=false;}
     finally{labOperationBusy=false;$('#savedLabDeleteConfirm').disabled=!$('#savedLabDeleteApproval').checked;$('#savedLabDeleteConfirm').textContent='Excluir definitivamente';$('#savedLabDeleteCancel').disabled=false;$('#savedLabDeleteApproval').disabled=false;deleteDialog.removeAttribute('aria-busy');updateLabSelection();}
   });
-  $('#sidebarNewLab').addEventListener('click',()=>{$('#newLab').click();closeDrawer();});
+  $('#sidebarNewLab')?.addEventListener('click',()=>{$('#newLab').click();closeDrawer();});
   for(const id of ['runtimeDevice','iosDevice'])$('#'+id).addEventListener('click',closeDrawer);
   $('#runtimeDevice').addEventListener('click',async()=>{if(state.android?.devices?.[0]?.state==='on')return;try{await deviceAction('start');await loadRuntime();await loadWorkspaceDevices();}catch(error){notify(error.message);}});
 })();
